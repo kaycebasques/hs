@@ -438,6 +438,32 @@ done
 
     return declared_outputs, out_dir_roots, configure_root
 
+def _hsc2hs_ghc_defines(hs_tc):
+    """Returns Cabal's standard GHC/OS/arch CPP defines for hsc2hs."""
+    m1, m2, m3 = _parse_version_tuple(hs_tc.version)
+    defines = [
+        "-D__GLASGOW_HASKELL__={}".format(m1 * 100 + m2),
+        "-D__GLASGOW_HASKELL_PATCHLEVEL1__={}".format(m3),
+    ]
+    os_map = {
+        "linux": "linux",
+        "macos": "darwin",
+        "windows": "mingw32",
+    }
+    cpu_map = {
+        "x86_64": "x86_64",
+        "arm64": "aarch64",
+    }
+    os_macro = os_map.get(hs_tc.target_os)
+    if os_macro:
+        defines.append("-D{}_BUILD_OS=1".format(os_macro))
+        defines.append("-D{}_HOST_OS=1".format(os_macro))
+    cpu_macro = cpu_map.get(hs_tc.target_cpu)
+    if cpu_macro:
+        defines.append("-D{}_BUILD_ARCH=1".format(cpu_macro))
+        defines.append("-D{}_HOST_ARCH=1".format(cpu_macro))
+    return defines
+
 def run_hsc2hs_actions(
         ctx,
         hs_tc,
@@ -455,6 +481,7 @@ def run_hsc2hs_actions(
 
     out_prefix = ctx.label.name + "_hsc"
     resolved_src_dirs = [resolve_package_dir(ctx, d) for d in (hs_source_dirs or ["."])]
+    ghc_defines = _hsc2hs_ghc_defines(hs_tc)
     generated_hs = []
     hsc_root = None
 
@@ -481,6 +508,8 @@ def run_hsc2hs_actions(
             args.add("--cflag=-include")
             args.add("--cflag=" + cabal_macros_h.path)
         args.add("--cflag=-fPIC")
+        for d_flag in ghc_defines:
+            args.add("--cflag=" + d_flag)
         for opt in cpp_options:
             args.add("--cflag=" + opt)
         for opt in cc_options:
