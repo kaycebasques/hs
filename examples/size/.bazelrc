@@ -1,0 +1,14 @@
+common --enable_platform_specific_config
+common --enable_runfiles
+common --incompatible_strict_action_env
+common --test_output=errors
+common --lockfile_mode=off
+
+# Shared Zig compiler cache mounts for hermetic_cc_toolchain
+build:linux --repo_env=HERMETIC_CC_TOOLCHAIN_CACHE_PREFIX=/tmp/zig-cc-cache
+build:linux --sandbox_add_mount_pair=/tmp
+build:macos --repo_env=HERMETIC_CC_TOOLCHAIN_CACHE_PREFIX=/var/tmp/zig-cc-cache
+build:macos --sandbox_add_mount_pair=/var/tmp
+build:windows --sandbox_add_mount_pair=C:\Temp
+
+try-import %workspace%/.bazelrc.user

@@ -1,0 +1,13 @@
+filegroup(
+    name = "sitemaps",
+    srcs = [
+        "crawl/part1.xml",
+        "crawl/part2.xml.gz",
+        "crawl/sitemap.xml",
+        "invalid_root.xml",
+        "sitemapindex.xml",
+        "urlset.xml",
+        "urlset.xml.gz",
+    ],
+    visibility = ["//visibility:public"],
+)

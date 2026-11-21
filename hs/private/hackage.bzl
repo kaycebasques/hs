@@ -32,6 +32,12 @@ _HDR_GLOB_PATTERNS = [
 ]
 
 _HDR_GLOB_EXCLUDES = [
+    "**/*.hs",
+    "**/*.hs-boot",
+    "**/*.hsc",
+    "**/*.in",
+    "**/*.lhs",
+    "**/*.lhs-boot",
     "bench/**",
     "benchmarks/**",
     "example/**",
@@ -197,7 +203,9 @@ def _emit_component_rule(
                     hsc_select[plat_key] = extra_hsc
 
     # Collect all c_sources across platforms so hdrs glob excludes compiled .c files
-    # while retaining textual #include'd .c helpers (e.g. crypton's cbits/*_impl.c).
+    # while retaining textual #include'd .c helpers (e.g. crypton's cbits/*_impl.c)
+    # and extensionless CPP include files inside include_dirs (e.g. vector's
+    # internal/unbox-tuple-instances).
     base_c_sources = comp.get("c_sources", [])
     c_sources_select = _collect_field_select(select_raw, "c_sources")
     all_c_sources_map = {c: True for c in base_c_sources}
@@ -205,6 +213,18 @@ def _emit_component_rule(
         for c in vals:
             all_c_sources_map[c] = True
     hdr_excludes = sorted(_HDR_GLOB_EXCLUDES + list(all_c_sources_map.keys()))
+
+    inc_base = comp.get("include_dirs", [])
+    inc_sel = _collect_field_select(select_raw, "include_dirs")
+    hdr_patterns_map = {p: True for p in _HDR_GLOB_PATTERNS}
+    all_inc_dirs = list(inc_base)
+    for vals in inc_sel.values():
+        all_inc_dirs.extend(vals)
+    for raw_inc_dir in all_inc_dirs:
+        norm_dir = raw_inc_dir.strip("/")
+        if norm_dir and norm_dir != ".":
+            hdr_patterns_map[norm_dir + "/**"] = True
+    hdr_patterns = sorted(hdr_patterns_map.keys())
 
     # Dependencies (common + per-platform)
     base_deps = _format_dep_labels(
@@ -253,7 +273,7 @@ def _emit_component_rule(
 
     lines.append(
         "    hdrs = glob(\n        {},\n        exclude = {},\n        allow_empty = True,\n    ),".format(
-            _format_str_list(_HDR_GLOB_PATTERNS, indent = "        "),
+            _format_str_list(hdr_patterns, indent = "        "),
             _format_str_list(hdr_excludes, indent = "        "),
         ),
     )
@@ -263,8 +283,6 @@ def _emit_component_rule(
     if inst_base or inst_sel:
         lines.append("    install_includes = {},".format(_format_selectable_list(inst_base, inst_sel)))
 
-    inc_base = comp.get("include_dirs", [])
-    inc_sel = _collect_field_select(select_raw, "include_dirs")
     if inc_base or inc_sel:
         lines.append("    include_dirs = {},".format(_format_selectable_list(inc_base, inc_sel)))
 

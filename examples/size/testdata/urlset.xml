@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <!-- canonical urlset fixture -->
+  <url>
+    <loc>https://docs.example.com/a?x=1&amp;y=2</loc>
+    <xhtml:link rel="alternate" href="https://docs.example.com/es/a"/>
+  </url>
+  <url>
+    <loc>  https://docs.example.com/b  </loc>
+  </url>
+</urlset>
