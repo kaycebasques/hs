@@ -33,5 +33,6 @@ bzl_library(
     deps = [
         "//hs/private:ghc_bindist_bzl",
         "//hs/private:ghc_versions_bzl",
+        "//hs/private:hackage_bzl",
     ],
 )

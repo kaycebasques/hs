@@ -42,6 +42,11 @@ bzl_library(
 )
 
 bzl_library(
+    name = "hackage_bzl",
+    srcs = ["hackage.bzl"],
+)
+
+bzl_library(
     name = "staged_ghc_bzl",
     srcs = ["staged_ghc.bzl"],
     deps = ["//hs:providers"],

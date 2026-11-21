@@ -2,10 +2,9 @@
 
 load("//hs/private:ghc_bindist.bzl", "ghc_bindist_repo", "hs_boot_repo", "hs_toolchains_repo")
 load("//hs/private:ghc_versions.bzl", "DEFAULT_GHC_VERSION", "GHC_BINDISTS", "SUPPORTED_PLATFORMS")
+load("//hs/private:hackage.bzl", _hackage = "hackage")
 
-# NOTE: After merge with hackage-author, re-export `hackage` from `//hs/private:hackage.bzl`:
-# load("//hs/private:hackage.bzl", _hackage = "hackage")
-# hackage = _hackage
+hackage = _hackage
 
 _toolchain_tag = tag_class(
     doc = "Configures the GHC version to download and register.",
