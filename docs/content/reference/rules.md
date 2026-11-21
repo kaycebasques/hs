@@ -1,6 +1,6 @@
 ---
 title: "Rules Reference"
-description: "Complete Starlark rule and attribute reference for hs_library, hs_binary, hs_test, hs_toolchain_library, hs_cabal_library, and hs_toolchain."
+description: "Complete Starlark rule and attribute reference for hs_library, hs_binary, hs_test, hs_haddock, hs_toolchain_library, hs_cabal_library, and hs_toolchain."
 section: reference
 nav_title: "Rules Reference"
 order: 10
@@ -13,6 +13,7 @@ load(
     "@rules_hs//hs:defs.bzl",
     "hs_binary",
     "hs_cabal_library",
+    "hs_haddock",
     "hs_library",
     "hs_test",
     "hs_toolchain_library",
@@ -25,9 +26,7 @@ Toolchain definition rules are loaded from `@rules_hs//hs:toolchain.bzl`:
 load("@rules_hs//hs:toolchain.bzl", "TOOLCHAIN_TYPE", "hs_toolchain")
 ```
 
-::: {.note title="Common Bazel Attributes"}
-In addition to the rule-specific attributes documented below, all rules accept standard Bazel common attributes (`name`, `visibility`, `tags`, `testonly`, `features`, `compatible_with`, `target_compatible_with`, `exec_compatible_with`), and `bzl:rule:hs_test` accepts standard Bazel test attributes (`size`, `timeout`, `flaky`, `local`, `shard_count`, `args`, `env`, `env_inherit`).
-:::
+> **Note — Common Bazel Attributes:** In addition to the rule-specific attributes documented below, all rules accept standard Bazel common attributes (`name`, `visibility`, `tags`, `testonly`, `features`, `compatible_with`, `target_compatible_with`, `exec_compatible_with`), and [`hs_test`](rules.md#hs_test) accepts standard Bazel test attributes (`size`, `timeout`, `flaky`, `local`, `shard_count`, `args`, `env`, `env_inherit`).
 
 ---
 
@@ -37,7 +36,7 @@ Compiles a Haskell library with strict direct-dependency visibility (`-hide-all-
 
 - **Load from**: `@rules_hs//hs:defs.bzl` (implemented in `hs/private/rules.bzl`)
 - **Toolchains**: `@rules_hs//hs:toolchain_type`, `@bazel_tools//tools/cpp:toolchain_type`
-- **Provides**: `DefaultInfo`, `bzl:provider:HsPackageInfo`, `bzl:provider:HsLinkInfo`, `CcInfo`
+- **Provides**: `DefaultInfo`, [`HsPackageInfo`](extensions-and-providers.md#hspackageinfo), [`HsLinkInfo`](extensions-and-providers.md#hslinkinfo), `CcInfo`
 
 ### Signature
 
@@ -67,10 +66,10 @@ hs_library(
 |---|---|---|---|---|
 | `name` | `Name` | — | **Yes** | Unique target name. Used to derive the Cabal package name (`name.replace("_", "-")`, version `"0.0.0"`) and sanitized GHC unit ID (`<repo>_<pkg>_<name>-0.0.0`). |
 | `srcs` | `list[Label]` | — | **Yes** | Haskell source files (`.hs`, `.lhs`) and mutual-recursion boot interface files (`.hs-boot`, `.lhs-boot`). |
-| `deps` | `list[Label]` | `[]` | No | Direct dependencies providing `bzl:provider:HsPackageInfo` (such as `bzl:rule:hs_library`, `bzl:rule:hs_toolchain_library`, `bzl:rule:hs_cabal_library`) or `CcInfo`. Only direct `HsPackageInfo` targets are exposed via `-package-id`. |
+| `deps` | `list[Label]` | `[]` | No | Direct dependencies providing [`HsPackageInfo`](extensions-and-providers.md#hspackageinfo) (such as `hs_library`, [`hs_toolchain_library`](rules.md#hs_toolchain_library), [`hs_cabal_library`](rules.md#hs_cabal_library)) or `CcInfo`. Only direct `HsPackageInfo` targets are exposed via `-package-id`. |
 | `cc_deps` | `list[Label]` | `[]` | No | Native C/C++ dependencies providing `CcInfo` (e.g., `cc_library` targets). Headers, include directories, and static archives are available during compilation and propagated transitively. |
 | `c_sources` | `list[Label]` | `[]` | No | Inline C/C++/assembly source files (`.c`, `.cc`, `.cpp`, `.S`, `.s`) compiled via `cc_common.compile` with `-fPIC` and GHC's RTS include path (`HsFFI.h`, `Rts.h`). |
-| `hdrs` | `list[Label]` | `[]` | No | Header files (and compile-time `#include` / Template Haskell inputs) exposed to `c_sources`, `CPP`, `CApiFFI`, and downstream dependents via `CcInfo` and `bzl:provider:HsLinkInfo`. |
+| `hdrs` | `list[Label]` | `[]` | No | Header files (and compile-time `#include` / Template Haskell inputs) exposed to `c_sources`, `CPP`, `CApiFFI`, and downstream dependents via `CcInfo` and [`HsLinkInfo`](extensions-and-providers.md#hslinkinfo). |
 | `include_dirs` | `list[str]` | `[]` | No | Package-relative C header search directories passed via `-I` to `cc_common.compile` and GHC (`CPP` / `CApiFFI`) and propagated transitively. |
 | `hs_source_dirs` | `list[str]` | `[]` | No | Package-relative Haskell import root directories passed via `-i` (defaults to `["."]` relative to the Bazel package when empty). |
 | `hidden_modules` | `list[str]` | `[]` | No | Dotted Haskell module names (e.g., `["Math.Internal"]`) excluded from `exposed-modules` and recorded under `hidden-modules` in the generated `.conf` file. |
@@ -79,7 +78,7 @@ hs_library(
 | `ghc_opts` | `list[str]` | `[]` | No | Additional flags passed directly to `ghc --make -c` (e.g., `["-Wall", "-Werror", "-O2"]`). |
 | `cpp_options` | `list[str]` | `[]` | No | Preprocessor flags forwarded to GHC as `-optP<opt>` for `{-# LANGUAGE CPP #-}` sources (e.g., `["-DFEATURE_FLAG=1"]`). |
 | `cc_options` | `list[str]` | `[]` | No | Additional C compiler flags passed to `cc_common.compile` when compiling `c_sources` (e.g., `["-DINLINE_SCALE=3"]`). |
-| `data` | `list[Label]` | `[]` | No | Files or tools staged into both the compilation sandbox (for compile-time `file-embed` / `runIO` Template Haskell splices) and runtime Bazel runfiles (merged transitively into downstream `bzl:rule:hs_binary` and `bzl:rule:hs_test` targets). |
+| `data` | `list[Label]` | `[]` | No | Files or tools staged into both the compilation sandbox (for compile-time `file-embed` / `runIO` Template Haskell splices) and runtime Bazel runfiles (merged transitively into downstream [`hs_binary`](rules.md#hs_binary) and [`hs_test`](rules.md#hs_test) targets). |
 
 ### Example
 
@@ -146,7 +145,7 @@ hs_binary(
 |---|---|---|---|---|
 | `name` | `Name` | — | **Yes** | Target name and output executable filename (`bazel-bin/<pkg>/<name>`). |
 | `srcs` | `list[Label]` | — | **Yes** | Haskell source files (`.hs`, `.lhs`, `.hs-boot`, `.lhs-boot`) compiled directly into the executable. |
-| `deps` | `list[Label]` | `[]` | No | Direct dependencies providing `bzl:provider:HsPackageInfo` or `CcInfo`. |
+| `deps` | `list[Label]` | `[]` | No | Direct dependencies providing [`HsPackageInfo`](extensions-and-providers.md#hspackageinfo) or `CcInfo`. |
 | `cc_deps` | `list[Label]` | `[]` | No | Native C/C++ dependencies providing `CcInfo`, linked statically into the executable. |
 | `c_sources` | `list[Label]` | `[]` | No | Inline C/C++/assembly files (`.c`, `.cc`, `.cpp`, `.S`, `.s`) compiled via `cc_common.compile` and linked into the executable. |
 | `hdrs` | `list[Label]` | `[]` | No | Header files available to `c_sources`, `CPP`, and `CApiFFI` during compilation. |
@@ -184,7 +183,7 @@ hs_binary(
 
 ## `hs_test` {#hs_test}
 
-Compiles and links a hermetic Haskell test executable (`test = True`) executed by `bazel test`. Uses the exact same implementation and linking pipeline as `bzl:rule:hs_binary` (static `libgmp.a`, strict direct-dependency visibility, transitive `CcInfo` linking, and transitive `data` runfiles).
+Compiles and links a hermetic Haskell test executable (`test = True`) executed by `bazel test`. Uses the exact same implementation and linking pipeline as [`hs_binary`](rules.md#hs_binary) (static `libgmp.a`, strict direct-dependency visibility, transitive `CcInfo` linking, and transitive `data` runfiles).
 
 - **Load from**: `@rules_hs//hs:defs.bzl` (implemented in `hs/private/rules.bzl`)
 - **Toolchains**: `@rules_hs//hs:toolchain_type`, `@bazel_tools//tools/cpp:toolchain_type`
@@ -216,7 +215,7 @@ hs_test(
 
 ### Attributes
 
-`bzl:rule:hs_test` accepts the exact same 15 rule-specific attributes as `bzl:rule:hs_binary` (`srcs`, `deps`, `cc_deps`, `c_sources`, `hdrs`, `include_dirs`, `hs_source_dirs`, `main_module`, `default_language`, `default_extensions`, `threaded`, `ghc_opts`, `cpp_options`, `cc_options`, `data`), plus Bazel's built-in test attributes (`size`, `timeout`, `args`, `env`, `env_inherit`, `flaky`, `local`, `shard_count`).
+`hs_test` accepts the exact same 15 rule-specific attributes as [`hs_binary`](rules.md#hs_binary) (`srcs`, `deps`, `cc_deps`, `c_sources`, `hdrs`, `include_dirs`, `hs_source_dirs`, `main_module`, `default_language`, `default_extensions`, `threaded`, `ghc_opts`, `cpp_options`, `cc_options`, `data`), plus Bazel's built-in test attributes (`size`, `timeout`, `args`, `env`, `env_inherit`, `flaky`, `local`, `shard_count`).
 
 ### Example
 
@@ -240,17 +239,92 @@ hs_test(
 
 ---
 
+## `hs_haddock` {#hs_haddock}
+
+Generates HTML API documentation, syntax-highlighted hyperlinked source (`src/<Module>.html`), a QuickJump search index (`doc-index.json`), and a reusable `.haddock` interface file for one or more Haskell libraries using the active toolchain's `$ORIGIN`-staged `haddock` binary (`HsHaddock` action mnemonic).
+
+`hs_haddock` runs 100% hermetically inside `linux-sandbox` (`-B <libdir> -l <libdir>`, `ghc_cc_wrapper`, sandbox-local `TMPDIR`, `-hide-all-packages`, and `--hide=<mod>` for library `hidden_modules`). Cross-package identifier links are wired automatically via `--read-interface`: GHC boot package types (`base`, `text`, `bytestring`, `Cabal-syntax`, etc.) link to official Hackage documentation using bundled `HsToolchainInfo.boot_haddocks` interfaces, while upstream `haddock_deps` targets link via relative paths.
+
+- **Load from**: `@rules_hs//hs:defs.bzl` (implemented in `hs/private/haddock.bzl`)
+- **Toolchains**: `@rules_hs//hs:toolchain_type`, `@bazel_tools//tools/cpp:toolchain_type`
+- **Provides**: `DefaultInfo` (single HTML `TreeArtifact` directory `<name>`), [`HsHaddockInfo`](extensions-and-providers.md#hshaddockinfo), `OutputGroupInfo` (`haddock_interface`)
+
+### Signature
+
+```starlark
+hs_haddock(
+    name,
+    deps,
+    haddock_deps = [],
+    title = "",
+    prologue = None,
+    hyperlinked_source = True,
+    quickjump = True,
+    hoogle = False,
+    haddock_opts = [],
+    ghc_opts = [],
+)
+```
+
+### Attributes
+
+| Attribute | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `name` | `Name` | — | **Yes** | Target name. Also used as the output HTML `TreeArtifact` directory name (`bazel-bin/<pkg>/<name>`) and default `--title` when `title` is empty. |
+| `deps` | `list[Label]` | — | **Yes** | Non-empty list of [`hs_library`](rules.md#hs_library) (or [`hs_cabal_library`](rules.md#hs_cabal_library)) targets providing [`HsPackageInfo`](extensions-and-providers.md#hspackageinfo) and [`HsLinkInfo`](extensions-and-providers.md#hslinkinfo) to document together in one Haddock site. |
+| `haddock_deps` | `list[Label]` | `[]` | No | Upstream `hs_haddock` targets providing [`HsHaddockInfo`](extensions-and-providers.md#hshaddockinfo). Their `.haddock` interfaces are passed via `--read-interface` so cross-target module and type references hyperlink cleanly. |
+| `title` | `str` | `""` | No | Heading rendered on the generated `index.html` (`--title`). Defaults to `name` when empty. |
+| `prologue` | `Label` | `None` | No | Optional single file (`.md`, `.txt`, or `.prologue`) passed via `--prologue` and rendered as the package overview on `index.html`. |
+| `hyperlinked_source` | `bool` | `True` | No | When `True`, passes `--hyperlinked-source` to generate syntax-highlighted, clickable source pages under `src/<Module>.html`. |
+| `quickjump` | `bool` | `True` | No | When `True`, passes `--quickjump` to emit `doc-index.json` and enable Haddock's interactive symbol search dialog. |
+| `hoogle` | `bool` | `False` | No | When `True`, passes `--hoogle` to emit a Hoogle-compatible `.txt` symbol database inside the output directory. |
+| `haddock_opts` | `list[str]` | `[]` | No | Additional flags passed directly to `haddock`. |
+| `ghc_opts` | `list[str]` | `[]` | No | Additional GHC flags forwarded through Haddock via `--optghc=<opt>`. |
+
+### Outputs
+
+- **Default output (`DefaultInfo.files`)**: A single `TreeArtifact` directory `<name>/` containing `index.html`, per-module `<Module>.html` pages, `linuwial.css`, `doc-index.json` (when `quickjump = True`), and `src/<Module>.html` (when `hyperlinked_source = True`). Because `DefaultInfo.files` is a single directory artifact, `$(rootpath :my_haddock)` works directly in downstream `genrule` or static-site rules.
+- **Interface file (`<name>.haddock`)**: Exposed programmatically on [`HsHaddockInfo.interface`](extensions-and-providers.md#hshaddockinfo) and on the CLI via `bazel build --output_groups=haddock_interface //pkg:my_haddock`.
+
+### Example
+
+```starlark
+load("@rules_hs//hs:defs.bzl", "hs_haddock", "hs_library")
+
+hs_library(
+    name = "lock_lib",
+    srcs = [
+        "CabalExtract.hs",
+        "LockJson.hs",
+    ],
+    deps = [
+        "@hs_boot//:Cabal-syntax",
+        "@hs_boot//:base",
+        "@hs_boot//:bytestring",
+        "@hs_boot//:containers",
+        "@hs_boot//:filepath",
+        "@hs_boot//:text",
+    ],
+)
+
+hs_haddock(
+    name = "lock_haddock",
+    title = "rules_hs Lock Generator API (//tools/lock)",
+    deps = [":lock_lib"],
+)
+```
+
+---
+
 ## `hs_toolchain_library` {#hs_toolchain_library}
 
-Exposes a pre-compiled boot package from the active GHC toolchain's global `package.conf.d` database (`bzl:provider:HsToolchainInfo`) as a standard Bazel dependency providing `bzl:provider:HsPackageInfo` (`is_boot = True`) and an empty `bzl:provider:HsLinkInfo`.
+Exposes a pre-compiled boot package from the active GHC toolchain's global `package.conf.d` database ([`HsToolchainInfo`](extensions-and-providers.md#hstoolchaininfo)) as a standard Bazel dependency providing [`HsPackageInfo`](extensions-and-providers.md#hspackageinfo) (`is_boot = True`) and an empty [`HsLinkInfo`](extensions-and-providers.md#hslinkinfo).
 
-::: {.tip title="Generated Automatically in @hs_boot and @hackage"}
-You rarely need to instantiate `bzl:rule:hs_toolchain_library` manually: `bzl:ext:hs.toolchain` automatically generates `@hs_boot//:<pkg>` for every boot library in your selected GHC release, and `bzl:ext:hackage.from_lock` generates `@hackage//:<pkg>` for every non-overridden boot library.
-:::
+> **Tip — Generated Automatically in `@hs_boot` and `@hackage`:** You rarely need to instantiate `hs_toolchain_library` manually: [`hs.toolchain`](extensions-and-providers.md#hs-toolchain) automatically generates `@hs_boot//:<pkg>` for every boot library in your selected GHC release, and [`hackage.from_lock`](extensions-and-providers.md#hackage-from_lock) generates `@hackage//:<pkg>` for every non-overridden boot library.
 
 - **Load from**: `@rules_hs//hs:defs.bzl` (implemented in `hs/private/rules.bzl`)
 - **Toolchains**: `@rules_hs//hs:toolchain_type`
-- **Provides**: `DefaultInfo`, `bzl:provider:HsPackageInfo`, `bzl:provider:HsLinkInfo`
+- **Provides**: `DefaultInfo`, [`HsPackageInfo`](extensions-and-providers.md#hspackageinfo), [`HsLinkInfo`](extensions-and-providers.md#hslinkinfo)
 
 ### Signature
 
@@ -288,14 +362,14 @@ Builds a third-party Cabal/Hackage Haskell library, internal sublibrary, or C-on
 1. **Stage 1 (`HsConfigure`)**: Runs `/bin/sh ./configure` hermetically via `ghc_cc_wrapper` when `build_type == "Configure"`.
 2. **Stage 2 (`ctx.actions.write`)**: Emits `cabal_macros.h` (`VERSION_*`, `MIN_VERSION_*`, `MIN_TOOL_VERSION_ghc`) and optional `Paths_<pkg>.hs`.
 3. **Stage 3 (`HsHsc2hs`)**: Spawns parallel per-file `hsc2hs` actions for `hsc_srcs`.
-4. **Stage 4 (`cc_common.compile`)**: Compiles `c_sources` in parallel and propagates `install_includes` headers via `CcInfo` + `bzl:provider:HsLinkInfo` (returning immediately for C-only packages with no Haskell modules).
+4. **Stage 4 (`cc_common.compile`)**: Compiles `c_sources` in parallel and propagates `install_includes` headers via `CcInfo` + [`HsLinkInfo`](extensions-and-providers.md#hslinkinfo) (returning immediately for C-only packages with no Haskell modules).
 5. **Stage 5 (`HsCompileLibrary`)**: Compiles Haskell modules via `ghc --make -c`, archives `libHS<unit_id>.a` (where `unit_id` is `<package_name>-<version>` or `<package_name>-<version>-<component_name>`), and writes a relocatable `${pkgroot}` `.pkgdb`.
 
-Generated automatically inside `@<hub>__<pkg>` repositories by `bzl:ext:hackage.from_lock`, and also directly usable in custom `BUILD.bazel` files for vendored Cabal packages.
+Generated automatically inside `@<hub>__<pkg>` repositories by [`hackage.from_lock`](extensions-and-providers.md#hackage-from_lock), and also directly usable in custom `BUILD.bazel` files for vendored Cabal packages.
 
 - **Load from**: `@rules_hs//hs:defs.bzl` (implemented in `hs/private/cabal_library.bzl`)
 - **Toolchains**: `@rules_hs//hs:toolchain_type`, `@bazel_tools//tools/cpp:toolchain_type`
-- **Provides**: `DefaultInfo`, `bzl:provider:HsPackageInfo`, `bzl:provider:HsLinkInfo`, `CcInfo`
+- **Provides**: `DefaultInfo`, [`HsPackageInfo`](extensions-and-providers.md#hspackageinfo), [`HsLinkInfo`](extensions-and-providers.md#hslinkinfo), `CcInfo`
 
 ### Signature
 
@@ -345,7 +419,7 @@ hs_cabal_library(
 | `c_sources` | `list[Label]` | `[]` | No | C/C++/assembly files (`.c`, `.cc`, `.cpp`, `.S`, `.s`) compiled via `cc_common.compile` in Stage 4 with `-include cabal_macros.h` and GHC RTS headers. |
 | `hdrs` | `list[Label]` | `[]` | No | Private and public header files (plus textual `.c` `#include`s such as `crypton`'s `cbits/*_impl.c`, passed via `additional_inputs`). |
 | `install_includes` | `list[str]` | `[]` | No | Header filenames or relative paths from Cabal `install-includes:` (matched against `hdrs` and `configure_outputs`) that are exported publicly to downstream C/FFI/`hsc2hs` consumers. |
-| `include_dirs` | `list[str]` | `[]` | No | Package-relative C include directories from Cabal `include-dirs:`, used locally and propagated publicly via `CcInfo` + `bzl:provider:HsLinkInfo`. |
+| `include_dirs` | `list[str]` | `[]` | No | Package-relative C include directories from Cabal `include-dirs:`, used locally and propagated publicly via `CcInfo` + [`HsLinkInfo`](extensions-and-providers.md#hslinkinfo). |
 | `hs_source_dirs` | `list[str]` | `[]` | No | Package-relative Haskell source directories from Cabal `hs-source-dirs:` (defaults to `["."]`). |
 | `exposed_modules` | `list[str]` | `[]` | No | Publicly exposed dotted Haskell module names from Cabal `exposed-modules:`. |
 | `other_modules` | `list[str]` | `[]` | No | Internal dotted Haskell module names from Cabal `other-modules:`, compiled with the package and recorded under `hidden-modules:` in `.conf`. |
@@ -359,10 +433,10 @@ hs_cabal_library(
 | `configure_script` | `Label` | `None` | No | Single-file label pointing to the autoconf `configure` script for `build_type = "Configure"`. |
 | `configure_srcs` | `list[Label]` | `[]` | No | Auxiliary inputs staged into the temporary `./configure` working directory (`config.guess`, `config.sub`, `install-sh`, `*.h.in`, `*.buildinfo`, `configure.ac`). |
 | `configure_outputs` | `list[str]` | `[]` | No | Relative paths of files generated by `./configure` (e.g., `["include/HsNetworkConfig.h"]`), declared as Bazel action outputs and added to header search paths. |
-| `configure_args` | `list[str]` | `[]` | No | Extra command-line arguments passed to `/bin/sh ./configure` (typically supplied via `bzl:ext:hackage.override`). |
+| `configure_args` | `list[str]` | `[]` | No | Extra command-line arguments passed to `/bin/sh ./configure` (typically supplied via [`hackage.override`](extensions-and-providers.md#hackage-override)). |
 | `generate_paths_module` | `bool` | `False` | No | When `True`, emits an autogenerated `Paths_<sanitized_pkg>.hs` module in Stage 2 and compiles it into the package. |
-| `deps` | `list[Label]` | `[]` | No | Direct Cabal `build-depends` targets providing `bzl:provider:HsPackageInfo` or `CcInfo` (including C-only `hs_cabal_library` targets). |
-| `extra_cc_deps` | `list[Label]` | `[]` | No | Additional Bazel `cc_library` (`CcInfo`) targets attached via `bzl:ext:hackage.override`. |
+| `deps` | `list[Label]` | `[]` | No | Direct Cabal `build-depends` targets providing [`HsPackageInfo`](extensions-and-providers.md#hspackageinfo) or `CcInfo` (including C-only `hs_cabal_library` targets). |
+| `extra_cc_deps` | `list[Label]` | `[]` | No | Additional Bazel `cc_library` (`CcInfo`) targets attached via [`hackage.override`](extensions-and-providers.md#hackage-override). |
 | `data` | `list[Label]` | `[]` | No | Cabal `data-files` staged into the package-root compilation sandbox (for `file-embed` / `runIO` TH splices) and propagated through Bazel runfiles. |
 
 ### Example
@@ -386,10 +460,10 @@ hs_cabal_library(
 
 ## `hs_toolchain` {#hs_toolchain}
 
-Binds a staged hermetic GHC distribution (`staged_ghc`), the native C11 `ghc_cc_wrapper`, and parsed boot package metadata into Bazel's toolchain resolution system (`platform_common.ToolchainInfo(hs = HsToolchainInfo)`). Instantiated automatically inside `@hs_toolchains` by `bzl:ext:hs.toolchain`.
+Binds a staged hermetic GHC distribution (`staged_ghc`), the native C11 `ghc_cc_wrapper`, and parsed boot package metadata into Bazel's toolchain resolution system (`platform_common.ToolchainInfo(hs = HsToolchainInfo)`). Instantiated automatically inside `@hs_toolchains` by [`hs.toolchain`](extensions-and-providers.md#hs-toolchain).
 
 - **Load from**: `@rules_hs//hs:toolchain.bzl`
-- **Provides**: `platform_common.ToolchainInfo`, `bzl:provider:HsToolchainInfo`
+- **Provides**: `platform_common.ToolchainInfo`, [`HsToolchainInfo`](extensions-and-providers.md#hstoolchaininfo)
 
 ### Attributes
 
@@ -397,8 +471,8 @@ Binds a staged hermetic GHC distribution (`staged_ghc`), the native C11 `ghc_cc_
 |---|---|---|---|---|
 | `name` | `Name` | — | **Yes** | Target name of the `hs_toolchain` instance. |
 | `version` | `str` | — | **Yes** | GHC release version string (e.g., `"9.10.3"` or `"9.12.4"`). |
-| `staged_ghc` | `Label` | — | **Yes** | Exec-configured `staged_ghc` target providing `bzl:provider:HsToolchainInfo` with `$ORIGIN`-staged binaries, `lib/` `TreeArtifact`, and static `libgmp.a`. |
-| `cc_wrapper` | `Label` | `Label("//hs/private:ghc_cc_wrapper")` | No | Exec-configured compiled C11 wrapper adapting Bazel's `cc_toolchain` for GHC, `hsc2hs`, and `./configure`. |
+| `staged_ghc` | `Label` | — | **Yes** | Exec-configured `staged_ghc` target providing [`HsToolchainInfo`](extensions-and-providers.md#hstoolchaininfo) with `$ORIGIN`-staged binaries (`ghc`, `ghc-pkg`, `hsc2hs`, `haddock`), `lib/` `TreeArtifact`, boot `.haddock` interfaces, and static `libgmp.a`. |
+| `cc_wrapper` | `Label` | `Label("//hs/private:ghc_cc_wrapper")` | No | Exec-configured compiled C11 wrapper adapting Bazel's `cc_toolchain` for GHC, `hsc2hs`, `haddock`, and `./configure`. |
 | `boot_packages_json` | `dict[str, str]` | `{}` | No | Map of boot package name to JSON-encoded `{name, version, id, depends, exposed_modules}` parsed from `lib/package.conf.d/*.conf`. |
 | `bignum` | `str` | `"gmp"` | No | GHC bignum backend (`"gmp"` or `"native"`). |
 | `is_dynamic_ghc` | `bool` | `True` | No | Whether the staged GHC compiler executable itself is dynamically linked. |

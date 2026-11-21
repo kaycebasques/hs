@@ -1,12 +1,12 @@
 ---
 title: "Extensions & Providers Reference"
-description: "Complete Starlark reference for the hs and hackage Bzlmod module extensions, public providers, and toolchain type."
+description: "Complete Starlark reference for the hs and hackage Bzlmod module extensions, public providers (HsPackageInfo, HsLinkInfo, HsHaddockInfo, HsToolchainInfo), and toolchain type."
 section: reference
 nav_title: "Extensions & Providers"
 order: 20
 ---
 
-`rules_hs` exposes two Bzlmod module extensions in `@rules_hs//hs:extensions.bzl`, three public Starlark providers in `@rules_hs//hs:providers.bzl`, and a single Bazel toolchain type `@rules_hs//hs:toolchain_type`.
+`rules_hs` exposes two Bzlmod module extensions in `@rules_hs//hs:extensions.bzl`, four public Starlark providers in `@rules_hs//hs:providers.bzl`, and a single Bazel toolchain type `@rules_hs//hs:toolchain_type`.
 
 ---
 
@@ -17,7 +17,7 @@ Downloads official GHC binary distributions, sanitizes host paths in `lib/settin
 - **Load from**: `@rules_hs//hs:extensions.bzl`
 - **Repositories created**:
   - `hs_toolchains`: Contains Bazel `toolchain()` registrations for all selected platforms (`register_toolchains("@hs_toolchains//:all")`).
-  - `hs_boot`: Contains one `bzl:rule:hs_toolchain_library` target per GHC boot library (`@hs_boot//:base`, `@hs_boot//:text`, `@hs_boot//:Cabal-syntax`, etc.).
+  - `hs_boot`: Contains one [`hs_toolchain_library`](rules.md#hs_toolchain_library) target per GHC boot library (`@hs_boot//:base`, `@hs_boot//:text`, `@hs_boot//:Cabal-syntax`, etc.).
   - `ghc_<ver>_<platform>` (internal per-platform bindist repos, e.g., `ghc_9_10_3_linux_x86_64`, `ghc_9_10_3_linux_arm64`).
 - **Root-module precedence**: If both the root module and a transitive `bazel_dep` (such as `rules_hs` itself) invoke `hs.toolchain(...)`, the **root module's first `hs.toolchain` tag wins**.
 
@@ -42,11 +42,11 @@ Configures the GHC version and target platforms to download and register.
 
 ## `hackage` Module Extension {#hackage}
 
-Reads deterministic `hackage.lock.json` lockfiles (generated offline by `cli:lock`) using pure Starlark `json.decode` — zero network requests during Bzlmod evaluation — and creates hub and lazy per-package repositories. Returns `module_ctx.extension_metadata(reproducible = True)`.
+Reads deterministic `hackage.lock.json` lockfiles (generated offline by [`//tools/lock:lock`](lock-cli.md)) using pure Starlark `json.decode` — zero network requests during Bzlmod evaluation — and creates hub and lazy per-package repositories. Returns `module_ctx.extension_metadata(reproducible = True)`.
 
 - **Load from**: `@rules_hs//hs:extensions.bzl` (implemented in `hs/private/hackage.bzl`)
 - **Repositories created per `from_lock` hub `<name>`**:
-  - `<name>` (default `"hackage"`): Unified hub repository exposing `bzl:rule:hs_toolchain_library` targets for GHC boot packages, `alias()` targets for every locked Hackage package (`@<name>//:<pkg>`), and `alias()` targets for internal Cabal sublibraries (`@<name>//:<pkg>__<sublib>`).
+  - `<name>` (default `"hackage"`): Unified hub repository exposing [`hs_toolchain_library`](rules.md#hs_toolchain_library) targets for GHC boot packages, `alias()` targets for every locked Hackage package (`@<name>//:<pkg>`), and `alias()` targets for internal Cabal sublibraries (`@<name>//:<pkg>__<sublib>`).
   - `<name>__<sanitized_pkg>`: Lazy per-package repository (`-` and `.` replaced with `_`, e.g., `hackage__http_client_tls`), fetched and extracted only when referenced in the build graph.
 - **Root-module precedence**: If multiple modules register `hackage.from_lock` with the same `name`, the root module's lockfile takes precedence over non-root modules. Multiple hubs with distinct `name`s (e.g., `"hackage"` and `"tools_hackage"`) can coexist cleanly.
 
@@ -81,7 +81,7 @@ Attaches Bazel `cc_library` dependencies or compiler/`./configure` flag override
 |---|---|---|---|---|
 | `hub` | `str` | `"hackage"` | No | Hub repository `name` (matching `hackage.from_lock(name = ...)`) to which this override applies. |
 | `package` | `str` | — | **Yes** | Exact Cabal package name in `hackage.lock.json` to customize (e.g., `"zlib"`, `"network"`). |
-| `extra_cc_deps` | `list[Label]` | `[]` | No | Additional Bazel `CcInfo` targets (e.g., `["@zlib//:zlib"]`) passed as `extra_cc_deps` to the package's main `bzl:rule:hs_cabal_library` target. |
+| `extra_cc_deps` | `list[Label]` | `[]` | No | Additional Bazel `CcInfo` targets (e.g., `["@zlib//:zlib"]`) passed as `extra_cc_deps` to the package's main [`hs_cabal_library`](rules.md#hs_cabal_library) target. |
 | `extra_ghc_opts` | `list[str]` | `[]` | No | Additional GHC flags appended to `ghc_opts` on the package's main library and internal sublibraries. |
 | `extra_cpp_options` | `list[str]` | `[]` | No | Additional C preprocessor flags appended to `cpp_options` on the package's main library and internal sublibraries. |
 | `extra_cc_options` | `list[str]` | `[]` | No | Additional C compiler flags appended to `cc_options` on the package's main library and internal sublibraries. |
@@ -96,6 +96,7 @@ Load public providers from `@rules_hs//hs:providers.bzl` when authoring custom S
 ```starlark
 load(
     "@rules_hs//hs:providers.bzl",
+    "HsHaddockInfo",
     "HsLinkInfo",
     "HsPackageInfo",
     "HsToolchainInfo",
@@ -111,11 +112,11 @@ Direct metadata for a single compiled Haskell library, GHC boot package, or C-on
 | Field | Type | Description |
 |---|---|---|
 | `name` | `str` | Cabal or sanitized library package name (e.g., `"base"`, `"http-client"`, `"greet-lib"`). |
-| `version` | `str` | Dotted package version string (e.g., `"4.20.2.0"`, `"0.7.19"`, or `"0.0.0"` for `bzl:rule:hs_library`). |
+| `version` | `str` | Dotted package version string (e.g., `"4.20.2.0"`, `"0.7.19"`, or `"0.0.0"` for [`hs_library`](rules.md#hs_library)). |
 | `unit_id` | `str \| None` | Exact GHC unit/package ID passed to `-package-id` (e.g., `"base-4.20.2.0-..."`, `"zlib-0.7.1.1"`), or `None` for C-only Cabal packages such as `zlib-clib`. |
 | `pkg_db` | `File \| None` | Relocatable `ghc-pkg` package database directory (`TreeArtifact` ending in `.pkgdb`), or `None` for GHC boot packages and C-only Cabal packages. |
-| `exposed_modules` | `list[str]` | Explicitly declared exposed Haskell module names (populated for boot packages and `bzl:rule:hs_cabal_library`; `[]` on `bzl:rule:hs_library` where modules are auto-discovered from `.hi` files at action execution time). |
-| `is_boot` | `bool` | `True` when this package resides in GHC's global boot package database (`bzl:rule:hs_toolchain_library`); `False` otherwise. |
+| `exposed_modules` | `list[str]` | Explicitly declared exposed Haskell module names (populated for boot packages and [`hs_cabal_library`](rules.md#hs_cabal_library); `[]` on [`hs_library`](rules.md#hs_library) where modules are auto-discovered from `.hi` files at action execution time). |
+| `is_boot` | `bool` | `True` when this package resides in GHC's global boot package database ([`hs_toolchain_library`](rules.md#hs_toolchain_library)); `False` otherwise. |
 | `hs_lib` | `File \| None` | Compiled static Haskell library archive (`libHS<unit_id>.a`), or `None` for boot packages and C-only Cabal packages. |
 | `hi_dir` | `File \| None` | `TreeArtifact` directory containing compiled `.hi` interface files (`<name>.pkgdb`), or `None` for boot packages and C-only Cabal packages. |
 
@@ -135,9 +136,22 @@ Transitive compilation and linking closure propagated up the Haskell dependency 
 
 ---
 
+## `HsHaddockInfo` {#hshaddockinfo}
+
+Documentation outputs and `.haddock` interface metadata returned by [`hs_haddock`](rules.md#hs_haddock). Enables downstream `hs_haddock` targets (`haddock_deps`) and static site rules (such as `//docs:site`) to cross-link or mount generated Haddock documentation trees.
+
+| Field | Type | Description |
+|---|---|---|
+| `html_dir` | `File` | `TreeArtifact` directory (`<name>/`) containing `index.html`, per-module `<Module>.html` pages, `doc-index.json` (QuickJump), `linuwial.css`, and `src/<Module>.html` (hyperlinked source). |
+| `interface` | `File` | Generated `<name>.haddock` binary interface file (`--dump-interface`) consumed via `--read-interface` by downstream `hs_haddock` targets. |
+| `unit_ids` | `depset[str]` | GHC unit IDs documented by this `hs_haddock` target. |
+| `transitive_haddocks` | `depset[struct]` | Transitive `depset` of `struct(html_dir, interface)` entries accumulated across this target and its `haddock_deps`. |
+
+---
+
 ## `HsToolchainInfo` {#hstoolchaininfo}
 
-Resolved hermetic GHC compiler suite, `$ORIGIN`-staged runtime files, static GMP archive, native C11 `cc_wrapper`, and parsed boot package table for the active execution/target platform pair.
+Resolved hermetic GHC compiler suite, `$ORIGIN`-staged runtime files (including `haddock` and bundled boot `.haddock` interfaces), static GMP archive, native C11 `cc_wrapper`, and parsed boot package table for the active execution/target platform pair.
 
 | Field | Type | Description |
 |---|---|---|
@@ -145,16 +159,18 @@ Resolved hermetic GHC compiler suite, `$ORIGIN`-staged runtime files, static GMP
 | `ghc` | `File` | Staged `ghc` compiler driver executable under `<prefix>/bin/ghc`. |
 | `ghc_pkg` | `File` | Staged `ghc-pkg` database tool executable under `<prefix>/bin/ghc-pkg`. |
 | `hsc2hs` | `File` | Staged `hsc2hs` FFI preprocessor executable under `<prefix>/bin/hsc2hs`. |
+| `haddock` | `File` | `$ORIGIN`-staged `bin/haddock-ghc-<ver>` API documentation generator executable. |
 | `ghc_iserv` | `File \| None` | Optional staged external interpreter executable (`ghc-iserv-dyn` / `ghc-iserv`), or `None` if absent. |
-| `libdir` | `File` | Staged GHC `lib/` directory `TreeArtifact` containing `settings`, `package.conf.d/`, boot libraries, `libgmp.so.10`, and `libtinfo.so.6`. |
+| `libdir` | `File` | Staged GHC `lib/` directory `TreeArtifact` containing `settings`, `package.conf.d/`, `html/` (Haddock themes, QuickJump, and hyperlinked-source assets), boot libraries, `libgmp.so.10`, and `libtinfo.so.6`. |
 | `template_hsc_h` | `File` | `template-hsc.h` header passed via `--template=` to `hsc2hs`. |
 | `rts_include_dir` | `str` | Execroot-relative path to GHC's RTS C header directory (`Rts.h`, `HsFFI.h`, `ghcversion.h`). |
 | `rts_headers` | `depset[File]` | GHC RTS C header `File`s staged into C/FFI/`hsc2hs`/`./configure` actions. |
-| `all_files` | `depset[File]` | Complete set of staged GHC binaries, libraries, package databases, and headers required at action runtime. |
+| `all_files` | `depset[File]` | Complete set of staged GHC binaries, libraries, package databases, Haddock assets, and headers required at action runtime. |
 | `cc_wrapper` | `File` | Compiled native C11 `ghc_cc_wrapper` executable adapting Bazel's `cc_toolchain` for GHC. |
 | `gmp_static_dir` | `str \| None` | Execroot-relative path to a directory containing **only** `libgmp.a` (no `.so`), passed via `-optl-L` when linking user executables; `None` when `bignum != "gmp"`. |
 | `gmp_static_lib` | `File \| None` | Static `libgmp.a` archive file from `@gmp//:gmp`, or `None` when `bignum != "gmp"`. |
 | `boot_packages` | `dict[str, dict]` | Parsed global boot package map keyed by package name (`"base"`, `"text"`, etc.), with entries `{name, version, id, depends, exposed_modules}`. |
+| `boot_haddocks` | `dict[str, File]` | Map of GHC boot package name (e.g., `"base"`, `"Cabal-syntax"`, `"text"`) to its bundled `.haddock` interface `File` from `doc/html/libraries/`, used by [`hs_haddock`](rules.md#hs_haddock) for cross-package Hackage links. |
 | `bignum` | `str` | Active bignum backend (`"gmp"` or `"native"`). |
 | `is_dynamic_ghc` | `bool` | `True` if the GHC compiler executable is dynamically linked (`deb10`, Darwin); `False` for static compiler builds (`alpine3_12`, MinGW). |
 | `target_os` | `str` | Target operating system (`"linux"`, `"macos"`, or `"windows"`). |
@@ -167,14 +183,14 @@ Resolved hermetic GHC compiler suite, `$ORIGIN`-staged runtime files, static GMP
 
 All Haskell rules resolve the active GHC toolchain through `@rules_hs//hs:toolchain_type` (exported as `TOOLCHAIN_TYPE` in `@rules_hs//hs:toolchain.bzl`).
 
-Inside a custom Starlark rule implementation, declare `toolchains = ["@rules_hs//hs:toolchain_type"]` and access `bzl:provider:HsToolchainInfo` via `.hs`:
+Inside a custom Starlark rule implementation, declare `toolchains = ["@rules_hs//hs:toolchain_type"]` and access [`HsToolchainInfo`](extensions-and-providers.md#hstoolchaininfo) via `.hs`:
 
 ```starlark
 load("@rules_hs//hs:toolchain.bzl", "TOOLCHAIN_TYPE")
 
 def _my_custom_hs_rule_impl(ctx):
     hs_tc = ctx.toolchains[TOOLCHAIN_TYPE].hs
-    # Inspect hs_tc.version, hs_tc.ghc, hs_tc.boot_packages, etc.
+    # Inspect hs_tc.version, hs_tc.ghc, hs_tc.haddock, hs_tc.boot_packages, etc.
     ...
 
 my_custom_hs_rule = rule(

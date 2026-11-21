@@ -6,7 +6,7 @@ nav_title: "C FFI & Toolchains"
 order: 30
 ---
 
-`rules_hs` treats C/C++ interoperability as a first-class citizen. Every Haskell rule (`bzl:rule:hs_library`, `bzl:rule:hs_binary`, `bzl:rule:hs_test`, and `bzl:rule:hs_cabal_library`) resolves Bazel's active `@bazel_tools//tools/cpp:toolchain_type` through `rules_cc` (`cc_common`) and routes GHC's C compiler, assembler, preprocessor, and linker phases through a compiled native C11 wrapper (`ghc_cc_wrapper`).
+`rules_hs` treats C/C++ interoperability as a first-class citizen. Every Haskell rule ([`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), [`hs_test`](../reference/rules.md#hs_test), and [`hs_cabal_library`](../reference/rules.md#hs_cabal_library)) resolves Bazel's active `@bazel_tools//tools/cpp:toolchain_type` through `rules_cc` (`cc_common`) and routes GHC's C compiler, assembler, preprocessor, and linker phases through a compiled native C11 wrapper (`ghc_cc_wrapper`).
 
 ## Two Ways to Link C Code
 
@@ -165,15 +165,13 @@ hs_test(
 )
 ```
 
-::: {.note title="Automatic Transitive CcInfo Propagation"}
-`bzl:rule:hs_library` returns both `bzl:provider:HsLinkInfo` and Bazel's standard `CcInfo` provider. Downstream `bzl:rule:hs_library`, `bzl:rule:hs_binary`, and `bzl:rule:hs_test` targets automatically inherit `:vec_cc`'s headers, include directories, and static archives without repeating `cc_deps = [":vec_cc"]`. At final executable link time, `rules_hs` wraps all transitive static C archives in `-Wl,--start-group ... -Wl,--end-group` so symbol resolution succeeds regardless of archive order.
-:::
+> **Note — Automatic Transitive `CcInfo` Propagation:** [`hs_library`](../reference/rules.md#hs_library) returns both [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo) and Bazel's standard `CcInfo` provider. Downstream [`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), and [`hs_test`](../reference/rules.md#hs_test) targets automatically inherit `:vec_cc`'s headers, include directories, and static archives without repeating `cc_deps = [":vec_cc"]`. At final executable link time, `rules_hs` wraps all transitive static C archives in `-Wl,--start-group ... -Wl,--end-group` so symbol resolution succeeds regardless of archive order.
 
 ---
 
 ## Pattern 2: Inline `c_sources` Inside `hs_library` or `hs_binary`
 
-When C files belong directly to a Haskell library, pass `c_sources`, `hdrs`, `include_dirs`, and `cc_options` on `bzl:rule:hs_library` (or `bzl:rule:hs_binary` / `bzl:rule:hs_test`):
+When C files belong directly to a Haskell library, pass `c_sources`, `hdrs`, `include_dirs`, and `cc_options` on [`hs_library`](../reference/rules.md#hs_library) (or [`hs_binary`](../reference/rules.md#hs_binary) / [`hs_test`](../reference/rules.md#hs_test)):
 
 ```starlark
 hs_library(
@@ -190,12 +188,11 @@ hs_library(
 `rules_hs` compiles `c_sources` via `cc_common.compile` with:
 - `-fPIC` enabled so objects work seamlessly in both static archives and shared TH contexts.
 - GHC's internal RTS header directory (`Rts.h`, `HsFFI.h`, `ghcversion.h`) automatically added to `-I` — your `.c` files can `#include <HsFFI.h>` or `#include <Rts.h>` out of the box.
-- All files in `hdrs` and `include_dirs` propagated via `CcInfo` and `bzl:provider:HsLinkInfo`.
+- All files in `hdrs` and `include_dirs` propagated via `CcInfo` and [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo).
 
-::: {.tip title="CPP Options vs. C Compiler Options"}
-- Use **`cpp_options`** (e.g., `cpp_options = ["-DFEATURE_X=1"]`) for flags passed to the C preprocessor when preprocessing `.hs` files with `{-# LANGUAGE CPP #-}` (`-optP`) and `.hsc` files (`hsc2hs`).
-- Use **`cc_options`** (e.g., `cc_options = ["-DINLINE_SCALE=3", "-msse4.2"]`) for flags passed to the C compiler when compiling `c_sources` via `cc_common.compile`.
-:::
+> **Tip — CPP Options vs. C Compiler Options:**
+> - Use **`cpp_options`** (e.g., `cpp_options = ["-DFEATURE_X=1"]`) for flags passed to the C preprocessor when preprocessing `.hs` files with `{-# LANGUAGE CPP #-}` (`-optP`) and `.hsc` files (`hsc2hs`).
+> - Use **`cc_options`** (e.g., `cc_options = ["-DINLINE_SCALE=3", "-msse4.2"]`) for flags passed to the C compiler when compiling `c_sources` via `cc_common.compile`.
 
 ---
 
@@ -228,13 +225,11 @@ build:linux --repo_env=HERMETIC_CC_TOOLCHAIN_CACHE_PREFIX=/tmp/zig-cc-cache
 build:linux --sandbox_add_mount_pair=/tmp
 ```
 
-::: {.warning title="Why gnu.2.32 Instead of Default gnu.2.17?"}
-Registering `@zig_sdk//toolchain/...` alone defaults to `gnu.2.17` (alphabetical match). `gnu.2.17` fails in two ways:
-1. Official GHC `deb10` bindists reference glibc `2.27`/`2.28` symbols (`memfd_create`, `statx`, `fcntl64`).
-2. BCR `gmp` / `m4` check `<sys/single_threaded.h>` under Zig, which requires glibc `>= 2.32`.
-
-Registering `linux_amd64_gnu.2.32` and `linux_arm64_gnu.2.32` first satisfies both constraints while keeping compiled binaries portable across Debian 12 (glibc 2.36), Ubuntu 22.04 (2.35), Ubuntu 24.04 (2.39), and Rocky Linux 9 (2.34).
-:::
+> **Warning — Why `gnu.2.32` Instead of Default `gnu.2.17`?** Registering `@zig_sdk//toolchain/...` alone defaults to `gnu.2.17` (alphabetical match). `gnu.2.17` fails in two ways:
+> 1. Official GHC `deb10` bindists reference glibc `2.27`/`2.28` symbols (`memfd_create`, `statx`, `fcntl64`).
+> 2. BCR `gmp` / `m4` check `<sys/single_threaded.h>` under Zig, which requires glibc `>= 2.32`.
+>
+> Registering `linux_amd64_gnu.2.32` and `linux_arm64_gnu.2.32` first satisfies both constraints while keeping compiled binaries portable across Debian 12 (glibc 2.36), Ubuntu 22.04 (2.35), Ubuntu 24.04 (2.39), and Rocky Linux 9 (2.34).
 
 ### Option B: `toolchains_llvm` (Hermetic Clang + `lld` + Sysroot)
 
@@ -269,4 +264,4 @@ Under the hood, GHC invokes external C tools with legacy GCC-oriented flags that
 - Stripping legacy `-fuse-ld=gold`, rewriting `-fno-PIC` to `-fPIC`, and aliasing `.dyn_o`/`.p_o` inputs to `.o` symlinks for `zig cc`.
 - Injecting `-nostdinc++` on C/assembler/link invocations so C++ standard library headers never shadow `<features.h>` / `_GNU_SOURCE` ordering in `hsc2hs` and `CApiFFI`.
 
-For a complete line-by-line walkthrough of `ghc_cc_wrapper`, see `doc:internals/hermeticity`.
+For a complete line-by-line walkthrough of `ghc_cc_wrapper`, see [Hermeticity & Toolchain](../internals/hermeticity.md).
