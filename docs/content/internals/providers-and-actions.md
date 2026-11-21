@@ -58,7 +58,7 @@ How the 8 fields of `bzl:provider:HsPackageInfo` are populated across the three 
 | `version` | Parsed from bindist `.conf` (`"4.20.2.0"`) | `"0.0.0"` (`hs_library`) or Cabal `version` | Cabal `version` (`"1.3.2"`) |
 | `unit_id` | Exact GHC boot ID (`"base-4.20.2.0-..."`) | Deterministic `<sanitized_label>-0.0.0` or `<pkg>-<ver>[-<sublib>]` | `None` (no GHC package exists) |
 | `pkg_db` | `None` (lives in GHC's global `package.conf.d`) | Declared `<name>.pkgdb` `TreeArtifact` | `None` |
-| `exposed_modules` | Parsed from bindist `.conf` | Explicit `exposed_modules` (`[]` on `hs_library`; auto-discovered in `.conf`) | `[]` |
+| `exposed_modules` | Parsed from bindist `.conf` | Explicit `exposed_modules` + re-exported module names (`[]` on `hs_library`; auto-discovered in `.conf`) | `[]` |
 | `is_boot` | `True` | `False` | `False` |
 | `hs_lib` | `None` (lives in staged `lib/<arch_libdir>/`) | Static archive `libHS<unit_id>.a` | `None` |
 | `hi_dir` | `None` | `<name>.pkgdb` `TreeArtifact` (containing `hi/`) | `None` |
@@ -160,9 +160,9 @@ Because `libHS<unit_id>.a` and `<name>.pkgdb` share the exact same `<parent>` di
 - `dynamic-library-dirs: ${pkgroot}/<pkgdb_base>/dyn` places `libHS<unit_id>-ghc<ver>.so` **inside** `<name>.pkgdb/dyn/` — propagating `.so` files transitively via `HsLinkInfo.pkg_dbs` with zero extra provider fields while keeping `${pkgroot}` strictly free of `.so` files during static executable linking!
 :::
 
-### Automatic `exposed-modules` Discovery vs. Explicit Cabal Lists
+### Automatic `exposed-modules` Discovery vs. Explicit Cabal Lists & Re-exports
 
-- On `bzl:rule:hs_cabal_library`, `exposed_modules`, `other_modules`, and `reexported_modules` come directly from the evaluated `.cabal` specification and are written verbatim into `exposed-modules:`, `hidden-modules:`, and `reexported-modules:`.
+- On `bzl:rule:hs_cabal_library`, `_resolve_reexported_for_conf` (`hs/private/actions.bzl`) resolves Cabal `reexported_modules` (`[orig-pkg:]Orig.Mod [as New.Mod]`) against `direct_pkgs` (and local `exposed_modules` / `other_modules`) into `ghc-pkg`'s canonical `exposed-modules:` syntax (`New.Mod from <origin_unit_id>:Orig.Mod`), appending them directly to `exposed-modules:` alongside `other_modules` in `hidden-modules:` (and appending the re-exported module names to `HsPackageInfo.exposed_modules` so downstream re-exports resolve transitively).
 - On `bzl:rule:hs_library`, users do not have to maintain tedious module lists by hand: when `EXPLICIT_EXPOSED` is empty, `HsCompileLibrary` walks `$HI_DIR/*.hi` in sorted order, converts relative paths to dotted module names (`Math/Core.hi` -> `Math.Core`), filters out any module listed in `hidden_modules`, and populates `exposed-modules:` and `hidden-modules:` automatically.
 
 ---
@@ -215,7 +215,7 @@ GHC `9.10+` defaults bare `ghc` invocations (without `-XHaskell98` / `-XHaskell2
 `_hs_executable_impl` (`hs/private/rules.bzl`) backs both `bzl:rule:hs_binary` (`executable = True`) and `bzl:rule:hs_test` (`test = True`) via a single `HsLinkExecutable` action:
 
 1. Compiles any C sources attached directly to the binary (`c_sources`) via `compile_c_sources` and merges them with `dep_info.cc_info`.
-2. Calls `extract_cc_static_libs_and_flags(merged_cc_info)` (`hs/private/actions.bzl`) to extract deduplicated static archives (`lib.pic_static_library or lib.static_library`) and `user_link_flags`.
+2. Calls `extract_cc_static_libs_and_flags(merged_cc_info)` (`hs/private/actions.bzl`) to extract deduplicated static archives (`lib.pic_static_library or lib.static_library`, appending `//hs/private:rt_shims` when non-empty to satisfy `x86_64` `__cpu_model` relocations on `zig cc` while yielding to strong symbols on GCC/LLVM) and `user_link_flags`.
 3. Invokes staged `ghc --make` with `-outputdir "$WORKDIR"` (so intermediate `Main.o`/`Main.hi` files never pollute `bazel-out`), `-threaded` (when `threaded = True`, the default; verified by `//tests/rules/rts:threaded_rts_test` and `non_threaded_rts_test`), `-main-is <main_module>`, `-optl-no-pie`, and `-optl-L<gmp_static_dir>`.
 4. Appends all native C static archives inside a GNU/LLVM linker rescan group **after** GHC's own `-lHS*` package archives:
    ```text
@@ -266,6 +266,6 @@ Ecosystem workhorses such as `file-embed`, `aeson`, `skylighting`, and `pandoc` 
 Cross-library Template Haskell works **out of the box** in `rules_hs` whenever `HsToolchainInfo.is_dynamic_ghc == True` (verified end-to-end by `//tests/rules/th:cross_lib_th_test` and `//tests/rules/th:cross_lib_th_elf_test`, with zero opt-in rule attributes required):
 
 1. **Dual static + dynamic compilation (`-dynamic-too`)**: `HsCompileLibrary` (`hs/private/actions.bzl`) passes `-dynamic-too` to `ghc --make -c`, emitting both static `.o`/`.hi` and dynamic `.dyn_o`/`.dyn_hi` artifacts in a single compiler pass.
-2. **Self-contained TH shared library (`<name>.pkgdb/dyn/`)**: `HsCompileLibrary` archives static `.o` objects into `${pkgroot}/libHS<unit_id>.a` (`library-dirs` / `library-dirs-static`) and links `.dyn_o` objects into `<name>.pkgdb/dyn/libHS<unit_id>-ghc<ver>.so` with `-Wl,-Bsymbolic` plus any attached `c_sources` / `cc_deps` archives — ensuring multi-hop TH splices calling C FFI, `CApiFFI`, or `runIO` resolve native C symbols cleanly at compile time, registered via `dynamic-library-dirs: ${pkgroot}/<pkgdb_base>/dyn` in `<unit_id>.conf`.
+2. **Self-contained TH shared library (`<name>.pkgdb/dyn/`)**: `HsCompileLibrary` archives static `.o` objects into `${pkgroot}/libHS<unit_id>.a` (`library-dirs` / `library-dirs-static`) and links `.dyn_o` objects into `<name>.pkgdb/dyn/libHS<unit_id>-ghc<ver>.so` with `-Wl,-Bsymbolic` plus any attached `c_sources` / `cc_deps` archives (wrapped in `--whole-archive` along with `//hs/private:rt_shims` for hidden weak `x86_64` `__cpu_model` resolution) — ensuring multi-hop TH splices calling C FFI, `CApiFFI`, SIMD intrinsics, or `runIO` resolve native C symbols cleanly at compile time, registered via `dynamic-library-dirs: ${pkgroot}/<pkgdb_base>/dyn` in `<unit_id>.conf`.
 3. **Compile-time `data` sandboxing for `file-embed`**: `data` files declared on `bzl:rule:hs_library`, `bzl:rule:hs_cabal_library`, `bzl:rule:hs_binary`, and `bzl:rule:hs_test` are staged into the compile action sandbox (including package-root `pkg_cwd` staging on `bzl:rule:hs_cabal_library`), so compile-time `embedFile` / `embedDir` splices succeed hermetically under `linux-sandbox`.
 4. **Strict static isolation for final executables**: Because `<name>.pkgdb/dyn/` is physically isolated from `${pkgroot}`, `HsLinkExecutable` (`bzl:rule:hs_binary` / `bzl:rule:hs_test`) links exclusively against static `libHS<unit_id>.a` and `gmp_static/libgmp.a`. Compiled user executables (including `//docs:docs_gen` and `//tests/rules/th:cross_lib_th_elf_test`) retain **zero** `libHS*.so` or `libgmp.so.10` entries in `DT_NEEDED`.
