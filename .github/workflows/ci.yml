@@ -1,0 +1,219 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BAZELISK_VERSION: v1.30.0
+  BAZELISK_SHA256: a248ae2b2b62b5baebb748f6fba7203bff1a27e5d01b55399a8406744cb539e8
+
+jobs:
+  native-ubuntu:
+    name: Native Ubuntu 24.04 (linux-sandbox + live HTTPS)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Enable unprivileged user namespaces for Bazel linux-sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Install Bazelisk
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}/bazelisk-linux-amd64" \
+            -o /tmp/bazelisk
+          echo "${BAZELISK_SHA256}  /tmp/bazelisk" | sha256sum -c -
+          chmod +x /tmp/bazelisk
+          sudo mv /tmp/bazelisk /usr/local/bin/bazel
+          bazel version
+
+      - name: Cache Bazel repository and Bazelisk caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazel-repo
+            ~/.cache/bazelisk
+          key: bazel-native-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'hs/private/ghc_versions.bzl', 'examples/size/MODULE.bazel', 'examples/size/hackage.lock.json') }}
+          restore-keys: |
+            bazel-native-${{ runner.os }}-
+
+      - name: Inspect root Bzlmod dependency graph
+        run: bazel mod graph --repository_cache="$HOME/.cache/bazel-repo"
+
+      - name: Run root test suite (linux-sandbox)
+        run: |
+          bazel test //... \
+            --repository_cache="$HOME/.cache/bazel-repo" \
+            --test_output=errors
+
+      - name: Smoke-test lockfile generator CLI
+        run: |
+          bazel run //tools/lock:lock \
+            --repository_cache="$HOME/.cache/bazel-repo" \
+            -- --help
+
+      - name: Inspect examples/size Bzlmod dependency graph
+        working-directory: examples/size
+        run: bazel mod graph --repository_cache="$HOME/.cache/bazel-repo"
+
+      - name: Run examples/size test suite (69 Hackage packages + ELF hermeticity)
+        working-directory: examples/size
+        run: |
+          bazel test //... \
+            --repository_cache="$HOME/.cache/bazel-repo" \
+            --test_output=errors
+
+      - name: Live HTTPS smoke test (examples/size)
+        working-directory: examples/size
+        run: |
+          set -euo pipefail
+          OUT="$(bazel run //:size \
+            --repository_cache="$HOME/.cache/bazel-repo" \
+            -- https://docs.stripe.com/sitemap.xml)"
+          echo "$OUT"
+          echo "$OUT" | grep -qF "pages"
+          echo "$OUT" | grep -qF "https://docs.stripe.com/sitemap.xml"
+
+  hermetic-containers:
+    name: Clean Container (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: debian-12
+            image: debian:bookworm-slim
+            pkg_mgr: apt
+          - name: ubuntu-24-04
+            image: ubuntu:24.04
+            pkg_mgr: apt
+          - name: rockylinux-9
+            image: rockylinux:9
+            pkg_mgr: dnf
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      # Install minimal POSIX/archive/TLS bootstrap tools BEFORE actions/checkout
+      # and actions/cache (actions/cache requires tar + zstd/gzip inside container).
+      - name: Install minimal bootstrap tools (zero compilers or C -dev libraries)
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.pkg_mgr }}" = "apt" ]; then
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y --no-install-recommends \
+              binutils \
+              ca-certificates \
+              curl \
+              diffutils \
+              findutils \
+              gawk \
+              git \
+              grep \
+              gzip \
+              sed \
+              tar \
+              zstd
+            rm -rf /var/lib/apt/lists/*
+          else
+            # rockylinux:9 ships curl-minimal preinstalled; installing full `curl` conflicts.
+            dnf install -y \
+              binutils \
+              ca-certificates \
+              diffutils \
+              findutils \
+              gawk \
+              git \
+              grep \
+              gzip \
+              sed \
+              tar \
+              zstd
+            dnf clean all
+          fi
+
+      - name: Assert zero host compilers, Haskell toolchains, or C -dev headers
+        run: |
+          set -euo pipefail
+          for tool in ghc cabal stack gcc cc clang g++ c++ ghcup nix; do
+            if command -v "$tool" >/dev/null 2>&1; then
+              echo "FAIL: unexpected host tool found in clean container: $tool ($(command -v "$tool"))" >&2
+              exit 1
+            fi
+          done
+
+          for hdr in \
+            /usr/include/gmp.h \
+            /usr/include/zlib.h \
+            /usr/include/ncurses.h \
+            /usr/include/curses.h \
+            /usr/include/openssl/ssl.h; do
+            if [ -e "$hdr" ]; then
+              echo "FAIL: unexpected host C -dev header found in clean container: $hdr" >&2
+              exit 1
+            fi
+          done
+
+          echo "OK: zero host compilers (ghc/cabal/stack/gcc/cc/clang/g++/c++/ghcup/nix) and zero C -dev headers."
+          echo "=== Diagnostic: system shared libraries matching gmp|tinfo|ffi|libz|ssl ==="
+          LDCONFIG="$(command -v ldconfig || echo /sbin/ldconfig)"
+          if [ -x "$LDCONFIG" ]; then
+            "$LDCONFIG" -p | grep -E 'lib(gmp|tinfo|ffi|z\.so|ssl|crypto)' || echo "(none)"
+          else
+            echo "(ldconfig not present)"
+          fi
+
+      - name: Install Bazelisk
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}/bazelisk-linux-amd64" \
+            -o /usr/local/bin/bazel
+          echo "${BAZELISK_SHA256}  /usr/local/bin/bazel" | sha256sum -c -
+          chmod +x /usr/local/bin/bazel
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cache Bazel repository and Bazelisk caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazel-repo
+            ~/.cache/bazelisk
+          key: bazel-container-${{ matrix.name }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'hs/private/ghc_versions.bzl', 'examples/size/MODULE.bazel', 'examples/size/hackage.lock.json') }}
+          restore-keys: |
+            bazel-container-${{ matrix.name }}-
+
+      # Unprivileged GitHub Actions containers disallow CLONE_NEWUSER/mount for
+      # linux-sandbox; processwrapper-sandbox keeps per-action execroot isolation
+      # + --incompatible_strict_action_env (while native-ubuntu verifies full linux-sandbox).
+      - name: Run root test suite in clean ${{ matrix.name }} container
+        run: |
+          bazel version
+          bazel test //... \
+            --spawn_strategy=processwrapper-sandbox \
+            --repository_cache="$HOME/.cache/bazel-repo" \
+            --test_output=errors
+
+      - name: Run examples/size test suite in clean ${{ matrix.name }} container
+        working-directory: examples/size
+        run: |
+          bazel test //... \
+            --spawn_strategy=processwrapper-sandbox \
+            --repository_cache="$HOME/.cache/bazel-repo" \
+            --test_output=errors
