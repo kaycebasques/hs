@@ -1,0 +1,107 @@
+load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_library", "hs_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+hs_library(
+    name = "sitemap",
+    srcs = ["src/Sitemap.hs"],
+    ghc_opts = [
+        "-Wall",
+        "-Wcompat",
+    ],
+    hs_source_dirs = ["src"],
+    deps = [
+        "@hackage//:async",
+        "@hackage//:base",
+        "@hackage//:bytestring",
+        "@hackage//:containers",
+        "@hackage//:text",
+        "@hackage//:xml-conduit",
+        "@hackage//:zlib",
+    ],
+)
+
+hs_library(
+    name = "fetch",
+    srcs = ["src/Fetch.hs"],
+    ghc_opts = [
+        "-Wall",
+        "-Wcompat",
+    ],
+    hs_source_dirs = ["src"],
+    deps = [
+        ":sitemap",
+        "@hackage//:base",
+        "@hackage//:bytestring",
+        "@hackage//:http-client",
+        "@hackage//:http-client-tls",
+        "@hackage//:http-types",
+        "@hackage//:text",
+    ],
+)
+
+hs_binary(
+    name = "size",
+    srcs = ["src/Main.hs"],
+    ghc_opts = [
+        "-Wall",
+        "-Wcompat",
+    ],
+    hs_source_dirs = ["src"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":fetch",
+        ":sitemap",
+        "@hackage//:base",
+        "@hackage//:text",
+    ],
+)
+
+hs_test(
+    name = "sitemap_test",
+    size = "small",
+    srcs = ["test/SitemapTest.hs"],
+    data = ["//testdata:sitemaps"],
+    ghc_opts = [
+        "-Wall",
+        "-Wcompat",
+    ],
+    hs_source_dirs = ["test"],
+    deps = [
+        ":sitemap",
+        "@hackage//:base",
+        "@hackage//:bytestring",
+        "@hackage//:containers",
+        "@hackage//:filepath",
+        "@hackage//:text",
+    ],
+)
+
+hs_test(
+    name = "http_e2e_test",
+    size = "small",
+    srcs = ["test/HttpE2eTest.hs"],
+    data = ["//testdata:sitemaps"],
+    ghc_opts = [
+        "-Wall",
+        "-Wcompat",
+    ],
+    hs_source_dirs = ["test"],
+    deps = [
+        ":fetch",
+        ":sitemap",
+        "@hackage//:async",
+        "@hackage//:base",
+        "@hackage//:bytestring",
+        "@hackage//:filepath",
+        "@hackage//:network",
+        "@hackage//:text",
+    ],
+)
+
+sh_test(
+    name = "elf_hermeticity_test",
+    size = "small",
+    srcs = ["test/elf_hermeticity_test.sh"],
+    args = ["$(rootpath :size)"],
+    data = [":size"],
+)
