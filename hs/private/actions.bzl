@@ -83,6 +83,27 @@ def resolve_cc_tools(ctx):
     if not ld_bin or ld_bin.endswith("/false"):
         ld_bin = ""
 
+    # Extract C++ runtime library flags (e.g. -lstdc++, -lc++) from cpp_link_executable
+    # for targets that compile .cc/.cpp sources in c_sources.
+    link_vars = cc_common.create_link_variables(
+        feature_configuration = feature_configuration,
+        cc_toolchain = cc_toolchain,
+        is_using_linker = True,
+        is_linking_dynamic_library = False,
+    )
+    raw_link_flags = cc_common.get_memory_inefficient_command_line(
+        feature_configuration = feature_configuration,
+        action_name = ACTION_NAMES.cpp_link_executable,
+        variables = link_vars,
+    )
+    cxx_link_flags = []
+    for lf in raw_link_flags:
+        if lf in ("-lstdc++", "-lc++", "-lc++abi", "-lsupc++") or lf.startswith("-stdlib="):
+            if lf not in cxx_link_flags:
+                cxx_link_flags.append(lf)
+    if not cxx_link_flags:
+        cxx_link_flags = ["-lc++"] if ("macos" in cc_bin or "darwin" in cc_bin) else ["-lstdc++"]
+
     return struct(
         cc_toolchain = cc_toolchain,
         feature_configuration = feature_configuration,
@@ -90,6 +111,7 @@ def resolve_cc_tools(ctx):
         ar = ar_bin,
         ld = ld_bin,
         extra_cc_args = extra_cc_args,
+        cxx_link_flags = cxx_link_flags,
         all_files = cc_toolchain.all_files,
     )
 
@@ -412,8 +434,11 @@ def run_configure_action(
 set -euo pipefail
 unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY
 EXECROOT="$(pwd)"
-WORK="$(mktemp -d "${{TMPDIR:-/tmp}}/hs_cfg.XXXXXX")"
-trap 'rm -rf "$WORK"' EXIT
+WORK_ROOT="$(mktemp -d "${{TMPDIR:-/tmp}}/hs_cfg.XXXXXX")"
+trap 'rm -rf "$WORK_ROOT"' EXIT
+WORK="$WORK_ROOT/src"
+export TMPDIR="$WORK_ROOT/tmp"
+mkdir -p "$WORK" "$TMPDIR"
 
 {stage_cmds}
 
@@ -569,7 +594,7 @@ def run_hsc2hs_actions(
         for opt in cpp_options:
             args.add("--cflag=" + opt)
         for opt in cc_options:
-            if not (opt.startswith("-std=c++") or opt.startswith("-std=gnu++")):
+            if not (opt.startswith("-std=c++") or opt.startswith("-std=gnu++") or opt.startswith("-stdlib=")):
                 args.add("--cflag=" + opt)
         args.add("-o", out_hs.path)
         args.add(hsc_file.path)
@@ -593,7 +618,10 @@ set -euo pipefail
 unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY
 HSC2HS="$1"
 shift
-exec "$HSC2HS" "$@"
+HSC_TMP="$(mktemp -d "${TMPDIR:-/tmp}/hs_hsc.XXXXXX")"
+trap 'rm -rf "$HSC_TMP"' EXIT
+export TMPDIR="$HSC_TMP"
+"$HSC2HS" "$@"
 """,
             arguments = [hs_tc.hsc2hs.path, args],
         )
@@ -631,8 +659,9 @@ def compile_c_sources(
         configure_include_dirs,
         cabal_macros_h,
         cc_options,
-        dep_cc_info):
-    """Compiles C sources via rules_cc cc_common and propagates install_includes headers."""
+        dep_cc_info,
+        extra_libraries = []):
+    """Compiles C/C++ sources via rules_cc cc_common and propagates install_includes & extra_libraries."""
     resolved_inc_dirs = [resolve_package_dir(ctx, d) for d in include_dirs]
 
     public_hdrs = _resolve_install_includes(
@@ -663,9 +692,35 @@ def compile_c_sources(
         if d and d not in public_inc_dirs:
             public_inc_dirs.append(d)
 
-    # If there are no C sources AND no public headers/includes, just forward dep_cc_info.
+    has_cxx = any([f.path.endswith((".cc", ".cpp", ".cxx", ".C")) for f in c_sources])
+    extra_link_flags = []
+    if has_cxx:
+        for lf in cc_tools.cxx_link_flags:
+            if lf not in extra_link_flags:
+                extra_link_flags.append(lf)
+    for lib in extra_libraries:
+        if lib:
+            flag = "-l" + lib
+            if flag not in extra_link_flags:
+                extra_link_flags.append(flag)
+
+    extra_cc_infos = []
+    if extra_link_flags:
+        extra_linker_input = cc_common.create_linker_input(
+            owner = ctx.label,
+            user_link_flags = extra_link_flags,
+        )
+        extra_cc_infos.append(CcInfo(
+            linking_context = cc_common.create_linking_context(
+                linker_inputs = depset([extra_linker_input]),
+            ),
+        ))
+
+    # If there are no C sources AND no public headers/includes, forward dep_cc_info (+ any extra_link_flags).
     if not c_sources and not public_hdrs and not public_inc_dirs:
-        return dep_cc_info, public_inc_dirs, depset(public_hdrs)
+        if not extra_cc_infos:
+            return dep_cc_info, public_inc_dirs, depset(public_hdrs)
+        return cc_common.merge_cc_infos(cc_infos = extra_cc_infos + [dep_cc_info]), public_inc_dirs, depset(public_hdrs)
 
     user_flags = [
         "-fPIC",
@@ -719,7 +774,7 @@ def compile_c_sources(
     else:
         own_cc_info = CcInfo(compilation_context = comp_ctx)
 
-    merged = cc_common.merge_cc_infos(cc_infos = [own_cc_info, dep_cc_info])
+    merged = cc_common.merge_cc_infos(cc_infos = [own_cc_info] + extra_cc_infos + [dep_cc_info])
     return merged, public_inc_dirs, depset(public_hdrs)
 
 def extract_cc_static_libs_and_flags(cc_info):
@@ -740,8 +795,9 @@ def extract_cc_static_libs_and_flags(cc_info):
 def _resolve_reexported_for_conf(reexported_modules, exposed_modules, other_modules, unit_id, direct_pkgs):
     """Formats Cabal reexported-modules into ghc-pkg exposed-modules 'New from <unit_id>:Orig' entries."""
     if not reexported_modules:
-        return []
+        return [], []
     resolved = []
+    unresolved = []
     for raw in reexported_modules:
         entry = raw.strip()
         if not entry:
@@ -752,7 +808,7 @@ def _resolve_reexported_for_conf(reexported_modules, exposed_modules, other_modu
             new_mod = parts[1].strip()
         else:
             orig_ref = entry
-            new_mod = entry
+            new_mod = entry.split(":", 1)[-1].strip()
         if ":" in orig_ref:
             pkg_parts = orig_ref.split(":", 1)
             orig_pkg = pkg_parts[0].strip()
@@ -774,10 +830,14 @@ def _resolve_reexported_for_conf(reexported_modules, exposed_modules, other_modu
                     origin_uid = p.unit_id
                     break
         if origin_uid:
-            resolved.append("{} from {}:{}".format(new_mod, origin_uid, orig_mod))
+            if origin_uid == unit_id and new_mod == orig_mod:
+                if new_mod not in exposed_modules:
+                    resolved.append(new_mod)
+            else:
+                resolved.append("{} from {}:{}".format(new_mod, origin_uid, orig_mod))
         else:
-            resolved.append(new_mod)
-    return resolved
+            unresolved.append("{}|{}|{}".format(orig_pkg, orig_mod, new_mod))
+    return resolved, unresolved
 
 def compile_hs_library_action(
         ctx,
@@ -798,10 +858,11 @@ def compile_hs_library_action(
         default_extensions,
         ghc_opts,
         cpp_options,
-        cabal_macros_h,
-        include_dirs,
-        headers,
-        dep_info,
+        cc_options = [],
+        cabal_macros_h = None,
+        include_dirs = [],
+        headers = depset(),
+        dep_info = None,
         cc_info = None,
         compile_data = [],
         rt_shims = []):
@@ -892,6 +953,10 @@ def compile_hs_library_action(
     for opt in cpp_options:
         ghc_args.add("-optP" + opt)
 
+    for opt in cc_options:
+        if not (opt.startswith("-std=c++") or opt.startswith("-std=gnu++") or opt.startswith("-stdlib=")):
+            ghc_args.add("-optc" + opt)
+
     for flag in ghc_tool_flags(hs_tc, cc_tools):
         ghc_args.add(flag)
 
@@ -904,7 +969,7 @@ def compile_hs_library_action(
     # Construct relocatable ${pkgroot} paths.
     # Because pkg_db, hi_dir, and hs_lib are all declared in the same output directory,
     # `${pkgroot}/..` is their shared parent directory!
-    resolved_reexports = _resolve_reexported_for_conf(
+    resolved_reexports, unresolved_reexports = _resolve_reexported_for_conf(
         reexported_modules,
         exposed_modules,
         other_modules,
@@ -916,7 +981,6 @@ def compile_hs_library_action(
     else:
         explicit_exposed = " ".join(exposed_modules)
     explicit_hidden = " ".join(list(other_modules) + list(hidden_modules))
-    explicit_reexported = ""
     depends_str = " ".join(direct_unit_ids)
     has_hs_targets = "1" if compile_targets else "0"
     is_dynamic = "1" if hs_tc.is_dynamic_ghc else "0"
@@ -924,6 +988,13 @@ def compile_hs_library_action(
     pkg_root = resolve_package_dir(ctx, ".")
 
     action_env = dict(ghc_base_env(cc_tools))
+    if unresolved_reexports:
+        action_env["RULES_HS_UNRESOLVED_REEXPORTS"] = "\n".join(unresolved_reexports)
+        action_env["RULES_HS_DIRECT_PKG_DBS"] = "\n".join([
+            "{}|{}".format(p.unit_id, p.pkg_db.path)
+            for p in dep_info.direct_pkgs
+            if p.unit_id and p.pkg_db
+        ])
     extra_in = list(hs_srcs) + list(generated_hs_srcs) + list(compile_data)
     if cabal_macros_h:
         extra_in.append(cabal_macros_h)
@@ -992,13 +1063,12 @@ PKG_VER="${10}"
 UNIT_ID="${11}"
 EXPLICIT_EXPOSED="${12}"
 EXPLICIT_HIDDEN="${13}"
-EXPLICIT_REEXPORTED="${14}"
-DEPENDS_STR="${15}"
-HAS_TARGETS="${16}"
-IS_DYNAMIC="${17}"
-HAS_COMPILE_DATA="${18}"
-PKG_ROOT="${19}"
-shift 19
+DEPENDS_STR="${14}"
+HAS_TARGETS="${15}"
+IS_DYNAMIC="${16}"
+HAS_COMPILE_DATA="${17}"
+PKG_ROOT="${18}"
+shift 18
 
 EXECROOT="$(pwd)"
 case "${RULES_HS_REAL_CC:-}" in
@@ -1049,7 +1119,7 @@ else
     "$AR" rcs "$HS_LIB"
 fi
 
-if [ "$IS_DYNAMIC" = "1" ]; then
+if [ "$IS_DYNAMIC" = "1" ] && [ "$HAS_TARGETS" = "1" ]; then
     DYN_DIR="$PKG_DB/dyn"
     mkdir -p "$DYN_DIR"
     DYN_LIB="$DYN_DIR/libHS${UNIT_ID}-ghc${GHC_VER}.so"
@@ -1062,12 +1132,10 @@ if [ "$IS_DYNAMIC" = "1" ]; then
 $RULES_HS_DYN_LINK_ARGS
 EOF_DYN
     fi
-    if [ "$HAS_TARGETS" = "1" ]; then
-        while IFS= read -r dyn_obj; do
-            [ -z "$dyn_obj" ] && continue
-            DYN_ARGV+=("$dyn_obj")
-        done < <(find "$ODIR" -name '*.dyn_o' | sort)
-    fi
+    while IFS= read -r dyn_obj; do
+        [ -z "$dyn_obj" ] && continue
+        DYN_ARGV+=("$dyn_obj")
+    done < <(find "$ODIR" -name '*.dyn_o' | sort)
     DYN_ARGV+=("-o" "$DYN_LIB")
     "$GHC" "${DYN_ARGV[@]}"
 fi
@@ -1075,7 +1143,7 @@ fi
 # Auto-discover exposed-modules from produced .hi files when not explicitly specified.
 EXPOSED="$EXPLICIT_EXPOSED"
 HIDDEN="$EXPLICIT_HIDDEN"
-if [ -z "$EXPOSED" ] && [ "$HAS_TARGETS" = "1" ]; then
+if [ -z "$EXPOSED" ] && [ -z "${RULES_HS_UNRESOLVED_REEXPORTS:-}" ] && [ "$HAS_TARGETS" = "1" ]; then
     DISCOVERED=""
     for hi in $(cd "$HI_DIR" && find . -name '*.hi' | sort); do
         mod="${hi#./}"
@@ -1087,6 +1155,39 @@ if [ -z "$EXPOSED" ] && [ "$HAS_TARGETS" = "1" ]; then
         esac
     done
     EXPOSED="${DISCOVERED# }"
+fi
+
+if [ -n "${RULES_HS_UNRESOLVED_REEXPORTS:-}" ]; then
+    while IFS='|' read -r _orig_pkg orig_mod new_mod; do
+        [ -z "$orig_mod" ] && continue
+        mod_rel="$(printf '%s' "$orig_mod" | tr '.' '/')"
+        found_uid=""
+        if [ -f "$HI_DIR/${mod_rel}.hi" ]; then
+            found_uid="$UNIT_ID"
+        elif [ -n "${RULES_HS_DIRECT_PKG_DBS:-}" ]; then
+            while IFS='|' read -r dep_uid dep_db; do
+                [ -z "$dep_uid" ] && continue
+                if [ -f "$dep_db/hi/${mod_rel}.hi" ]; then
+                    found_uid="$dep_uid"
+                    break
+                fi
+            done <<EOF_DBS
+$RULES_HS_DIRECT_PKG_DBS
+EOF_DBS
+        fi
+        if [ -n "$found_uid" ]; then
+            entry="${new_mod} from ${found_uid}:${orig_mod}"
+        else
+            entry="${new_mod}"
+        fi
+        if [ -n "$EXPOSED" ]; then
+            EXPOSED="${EXPOSED}, ${entry}"
+        else
+            EXPOSED="${entry}"
+        fi
+    done <<EOF_REEX
+$RULES_HS_UNRESOLVED_REEXPORTS
+EOF_REEX
 fi
 
 # Note: In GHC's package DB format, ${pkgroot} expands to dirname($PKG_DB).
@@ -1103,18 +1204,17 @@ CONF="$PKG_DB/${UNIT_ID}.conf"
     printf 'import-dirs: ${pkgroot}/%s/hi\n' "$PKG_DB_BASE"
     printf 'library-dirs: ${pkgroot}\n'
     printf 'library-dirs-static: ${pkgroot}\n'
-    if [ "$IS_DYNAMIC" = "1" ]; then
+    if [ "$IS_DYNAMIC" = "1" ] && [ "$HAS_TARGETS" = "1" ]; then
         printf 'dynamic-library-dirs: ${pkgroot}/%s/dyn\n' "$PKG_DB_BASE"
     fi
-    printf 'hs-libraries: HS%s\n' "$UNIT_ID"
+    if [ "$HAS_TARGETS" = "1" ]; then
+        printf 'hs-libraries: HS%s\n' "$UNIT_ID"
+    fi
     if [ -n "$EXPOSED" ]; then
         printf 'exposed-modules: %s\n' "$EXPOSED"
     fi
     if [ -n "$HIDDEN" ]; then
         printf 'hidden-modules: %s\n' "$HIDDEN"
-    fi
-    if [ -n "$EXPLICIT_REEXPORTED" ]; then
-        printf 'reexported-modules: %s\n' "$EXPLICIT_REEXPORTED"
     fi
     if [ -n "$DEPENDS_STR" ]; then
         printf 'depends: %s\n' "$DEPENDS_STR"
@@ -1137,7 +1237,6 @@ CONF="$PKG_DB/${UNIT_ID}.conf"
             unit_id,
             explicit_exposed,
             explicit_hidden,
-            explicit_reexported,
             depends_str,
             has_hs_targets,
             is_dynamic,

@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #define INLINE_HELPER_TAG 77
+#define CAPI_SCALED_TAG (INLINE_SCALE * 11)
 
 typedef struct {
     int64_t acc;

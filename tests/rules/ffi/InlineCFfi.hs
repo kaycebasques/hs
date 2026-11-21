@@ -2,6 +2,7 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 module InlineCFfi
     ( Accum (..)
+    , capiScaledTag
     , inlineHelperTag
     , runAccum
     ) where
@@ -34,6 +35,9 @@ instance Storable Accum where
 foreign import capi "inline_helper.h value INLINE_HELPER_TAG"
     c_inlineHelperTag :: CInt
 
+foreign import capi "inline_helper.h value CAPI_SCALED_TAG"
+    c_capiScaledTag :: CInt
+
 foreign import ccall unsafe "accum_reset"
     c_accumReset :: Ptr Accum -> Int64 -> IO ()
 
@@ -45,6 +49,9 @@ foreign import ccall unsafe "accum_finish"
 
 inlineHelperTag :: Int
 inlineHelperTag = fromIntegral c_inlineHelperTag
+
+capiScaledTag :: Int
+capiScaledTag = fromIntegral c_capiScaledTag
 
 runAccum :: Int64 -> [Int32] -> IO (Accum, Int64)
 runAccum initial vals = alloca $ \ptr -> do

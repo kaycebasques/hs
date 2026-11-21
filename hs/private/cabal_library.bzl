@@ -34,11 +34,19 @@ def _hs_cabal_library_impl(ctx):
     version = ctx.attr.version
     unit_id = _cabal_unit_id(pkg_name, comp_name, version)
 
+    if ctx.attr.build_type not in ("Simple", "Configure"):
+        fail("Unsupported Cabal build-type '{}' for package '{}' (only 'Simple' and 'Configure' are supported)".format(
+            ctx.attr.build_type,
+            pkg_name,
+        ))
+
     has_haskell = bool(
         ctx.files.srcs or
         ctx.files.hsc_srcs or
         ctx.attr.generate_paths_module or
-        ctx.attr.reexported_modules,
+        ctx.attr.reexported_modules or
+        ctx.attr.exposed_modules or
+        ctx.attr.other_modules,
     )
 
     # ------------------------------------------------------------------
@@ -142,6 +150,7 @@ def _hs_cabal_library_impl(ctx):
         cabal_macros_h = cabal_macros_h,
         cc_options = ctx.attr.cc_options,
         dep_cc_info = dep_info.cc_info,
+        extra_libraries = ctx.attr.extra_libraries,
     )
 
     runfiles = ctx.runfiles(files = ctx.files.data).merge_all([
@@ -204,6 +213,7 @@ def _hs_cabal_library_impl(ctx):
         default_extensions = ctx.attr.default_extensions,
         ghc_opts = ctx.attr.ghc_opts,
         cpp_options = ctx.attr.cpp_options,
+        cc_options = ctx.attr.cc_options,
         cabal_macros_h = cabal_macros_h,
         include_dirs = ghc_inc_dirs,
         headers = depset(ctx.files.hdrs + configure_outputs),
@@ -275,6 +285,7 @@ hs_cabal_library = rule(
         "ghc_opts": attr.string_list(default = []),
         "cpp_options": attr.string_list(default = []),
         "cc_options": attr.string_list(default = []),
+        "extra_libraries": attr.string_list(default = []),
         "build_type": attr.string(default = "Simple"),
         "configure_script": attr.label(allow_single_file = True),
         "configure_srcs": attr.label_list(allow_files = True, default = []),

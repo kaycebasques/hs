@@ -10,7 +10,9 @@ import CcDepsFfi
     , weightedSumVec2
     )
 import Control.Monad (unless)
-import InlineCFfi (Accum (..), inlineHelperTag, runAccum)
+import CxxFfi (cxxSortedWeightedSum)
+import ExtLibMath (extHypot)
+import InlineCFfi (Accum (..), capiScaledTag, inlineHelperTag, runAccum)
 import System.Exit (exitFailure)
 
 assertEq :: (Eq a, Show a) => String -> a -> a -> IO ()
@@ -41,11 +43,19 @@ main = do
     -- (3+4)*1.5 + (10-2)*2.5 = 10.5 + 20.0 = 30.5
     assertEq "vec2_weighted_sum" 30.5 wSum
 
-    -- 2. hs_library inline c_sources + hdrs + include_dirs + cc_options (-DINLINE_SCALE=3)
+    -- 2. hs_library inline c_sources + hdrs + include_dirs + cc_options (-DINLINE_SCALE=3) + CApiFFI -optc
     assertEq "INLINE_HELPER_TAG" 77 inlineHelperTag
+    assertEq "CAPI_SCALED_TAG (-optc -DINLINE_SCALE=3)" 33 capiScaledTag
     (st, finished) <- runAccum 10 [5, 7, 8]
     -- acc = 10 + 5 + 7 + 8 = 30, count = 3; finish = 30 * 3 + 3 = 93
     assertEq "accum state" (Accum 30 3) st
     assertEq "accum_finish" 93 finished
+
+    -- 3. C++ c_sources (.cc) with -std=c++17 and C++ runtime linking
+    -- sorted(9, 2, 5) = [2, 5, 9] -> 2*1 + 5*2 + 9*3 + 9 = 48
+    assertEq "cxxSortedWeightedSum" 48 (cxxSortedWeightedSum 9 2 5)
+
+    -- 4. hs_cabal_library extra_libraries = ["m"]
+    assertEq "extHypot 3 4" 5.0 (extHypot 3.0 4.0)
 
     putStrLn "C INTEROP FFI TEST PASSED!"

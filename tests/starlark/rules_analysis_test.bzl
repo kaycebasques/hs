@@ -237,6 +237,7 @@ def _hs_binary_action_test_impl(ctx):
 
     if ctx.attr.expect_threaded:
         asserts.true(env, "-threaded" in argv, "threaded = True must pass -threaded to GHC")
+        asserts.true(env, "-optc-DBIN_C_OPT=1" in argv, "cc_options must be forwarded via -optc to hs_binary GHC action")
     else:
         asserts.false(env, "-threaded" in argv, "threaded = False must NOT pass -threaded to GHC")
 
@@ -382,6 +383,15 @@ def _hs_cabal_library_test_impl(ctx):
     asserts.true(env, ("-optP" + macro_file.path) in argv, "expected -optP<cabal_macros.h> in argv")
     asserts.true(env, "-optc-include" in argv, "expected -optc-include for cabal_macros.h")
     asserts.true(env, ("-optc" + macro_file.path) in argv, "expected -optc<cabal_macros.h> in argv")
+
+    if ctx.attr.expect_paths_module:
+        asserts.true(env, "-optc-DCABAL_C_OPT=1" in argv, "expected cc_options forwarded via -optc in HsCompileLibrary")
+        user_link_flags = [
+            f
+            for li in target[CcInfo].linking_context.linker_inputs.to_list()
+            for f in li.user_link_flags
+        ]
+        asserts.true(env, "-lm" in user_link_flags, "expected extra_libraries=['m'] to attach -lm to CcInfo")
 
     return analysistest.end(env)
 

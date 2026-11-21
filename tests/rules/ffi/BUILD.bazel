@@ -1,5 +1,5 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
-load("//hs:defs.bzl", "hs_library", "hs_test")
+load("//hs:defs.bzl", "hs_cabal_library", "hs_library", "hs_test")
 
 cc_library(
     name = "vec_cc",
@@ -25,12 +25,36 @@ hs_library(
     deps = ["@hs_boot//:base"],
 )
 
+hs_library(
+    name = "cxx_ffi_lib",
+    srcs = ["CxxFfi.hs"],
+    c_sources = ["csrc/cxx_helper.cc"],
+    cc_options = [
+        "-std=c++17",
+        "-DCXX_BONUS=9",
+    ],
+    deps = ["@hs_boot//:base"],
+)
+
+hs_cabal_library(
+    name = "cabal_extlib_math",
+    package_name = "cabal-extlib-math",
+    srcs = ["ExtLibMath.hs"],
+    default_language = "Haskell2010",
+    exposed_modules = ["ExtLibMath"],
+    extra_libraries = ["m"],
+    version = "0.1.0",
+    deps = ["@hs_boot//:base"],
+)
+
 hs_test(
     name = "ffi_test",
     size = "small",
     srcs = ["FfiTest.hs"],
     deps = [
+        ":cabal_extlib_math",
         ":cc_deps_lib",
+        ":cxx_ffi_lib",
         ":inline_c_lib",
         "@hs_boot//:base",
     ],

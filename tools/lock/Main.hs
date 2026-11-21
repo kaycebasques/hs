@@ -19,8 +19,10 @@ import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
+import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Encoding.Error as TEE
 import Distribution.Types.Version (Version, mkVersion)
+import GHC.IO.Encoding (setLocaleEncoding, utf8)
 import LockJson
 import System.Directory (createDirectoryIfMissing, doesFileExist, getFileSize, removeFile, renameFile)
 import System.Environment (getArgs)
@@ -158,6 +160,7 @@ builtinBootPackages ghcVer
         , ("rts", "1.0.2")
         , ("semaphore-compat", "1.0.0")
         , ("stm", "2.5.3.1")
+        , ("system-cxx-std-lib", "1.0")
         , ("template-haskell", "2.22.0.0")
         , ("terminfo", "0.4.1.7")
         , ("text", "2.1.3")
@@ -203,6 +206,7 @@ builtinBootPackages ghcVer
         , ("rts", "1.0.2")
         , ("semaphore-compat", "1.0.0")
         , ("stm", "2.5.3.1")
+        , ("system-cxx-std-lib", "1.0")
         , ("template-haskell", "2.23.0.0")
         , ("terminfo", "0.4.1.7")
         , ("text", "2.1.4")
@@ -342,8 +346,105 @@ parseVersionText t =
         [(n, "")] -> n
         _ -> 0
 
+readUtf8File :: FilePath -> IO Text
+readUtf8File p = TE.decodeUtf8With TEE.lenientDecode <$> BS.readFile p
+
+writeUtf8File :: FilePath -> Text -> IO ()
+writeUtf8File p t = BS.writeFile p (TE.encodeUtf8 t)
+
+removeIfExists :: FilePath -> IO ()
+removeIfExists p = do
+  ex <- doesFileExist p
+  if ex then removeFile p else pure ()
+
+-- | Fetch and SHA-256-verify the exact pinned Hackage @.cabal@ revision for @(pkg, ver)@.
+--
+-- When @cabalSha@ is present in the Stackage snapshot, caches under an immutable
+-- content-addressed filename @<pkg>-<ver>-<sha256>.cabal@. If Hackage's mutable
+-- @<pkg>.cabal@ endpoint has advanced to a newer @x-revision@, walks backwards
+-- through @https://hackage.haskell.org/package/<pkg>-<ver>/revision/<r>.cabal@
+-- until the exact @cabalSha@ digest is matched.
+fetchVerifiedCabal :: FilePath -> Text -> Text -> Text -> IO FilePath
+fetchVerifiedCabal cabalsDir pkg pkgVer cabalSha
+  | T.null cabalSha = do
+      let dest = cabalsDir </> (T.unpack pkgVer ++ ".cabal")
+          url = "https://hackage.haskell.org/package/" ++ T.unpack pkgVer ++ "/" ++ T.unpack pkg ++ ".cabal"
+      fetchUrlToFile url dest
+      pure dest
+  | otherwise = do
+      let dest = cabalsDir </> (T.unpack pkgVer ++ "-" ++ T.unpack cabalSha ++ ".cabal")
+          legacyDest = cabalsDir </> (T.unpack pkgVer ++ ".cabal")
+      destExists <- doesFileExist dest
+      if destExists
+        then do
+          actual <- computeSha256 dest
+          if actual == cabalSha
+            then pure dest
+            else removeFile dest >> fetchFresh dest legacyDest
+        else fetchFresh dest legacyDest
+  where
+    latestUrl = "https://hackage.haskell.org/package/" ++ T.unpack pkgVer ++ "/" ++ T.unpack pkg ++ ".cabal"
+    revisionUrl r = "https://hackage.haskell.org/package/" ++ T.unpack pkgVer ++ "/revision/" ++ show r ++ ".cabal"
+
+    fetchFresh dest legacyDest = do
+      legacyExists <- doesFileExist legacyDest
+      legacyMatches <-
+        if legacyExists
+          then (== cabalSha) <$> computeSha256 legacyDest
+          else pure False
+      if legacyMatches
+        then do
+          BS.readFile legacyDest >>= BS.writeFile dest
+          pure dest
+        else do
+          let probe = dest ++ ".probe"
+          removeIfExists probe
+          fetchUrlToFile latestUrl probe
+          probeSha <- computeSha256 probe
+          if probeSha == cabalSha
+            then renameFile probe dest >> pure dest
+            else do
+              probeText <- readUtf8File probe
+              let latestRev = parseXRevision probeText
+                  candidates =
+                    if latestRev > 0
+                      then [latestRev - 1, latestRev - 2 .. 0]
+                      else [0 .. 10]
+              removeIfExists probe
+              searchRevisions dest probe probeSha candidates
+
+    parseXRevision txt =
+      case [ T.strip rest
+           | l <- T.lines txt
+           , Just rest <- [T.stripPrefix "x-revision:" (T.toLower (T.strip l))]
+           ] of
+        (rTxt : _) ->
+          case reads (T.unpack rTxt) of
+            [(n, "")] -> n
+            _ -> 0
+        [] -> 0
+
+    searchRevisions dest probe lastSha [] = do
+      removeIfExists probe
+      die
+        ( "SHA-256 mismatch for "
+            ++ T.unpack pkgVer
+            ++ ".cabal: expected "
+            ++ T.unpack cabalSha
+            ++ ", latest had "
+            ++ T.unpack lastSha
+        )
+    searchRevisions dest probe _ (r : rs) = do
+      removeIfExists probe
+      fetchUrlToFile (revisionUrl r) probe
+      rSha <- computeSha256 probe
+      if rSha == cabalSha
+        then renameFile probe dest >> pure dest
+        else searchRevisions dest probe rSha rs
+
 main :: IO ()
 main = do
+  setLocaleEncoding utf8
   args <- getArgs
   opts <- case parseArgs args of
     Left msg
@@ -365,21 +466,21 @@ main = do
       hPutStrLn stderr ("Fetching snapshot " ++ T.unpack (optSnapshot opts) ++ "...")
       fetchUrlToFile (snapshotYamlUrl (optSnapshot opts)) dest
       pure dest
-  yamlText <- TIO.readFile yamlPath
+  yamlText <- readUtf8File yamlPath
   let snap = parseStackageYaml yamlText
 
   -- 2. Determine GHC version and boot packages
   let ghcVer = fromMaybe (fromMaybe "9.10.3" (sdCompiler snap)) (optGhcVersion opts)
   cabalCfgBootSet <- case optCabalConfig opts of
-    Just p -> parseCabalConfigBootPkgs <$> TIO.readFile p
+    Just p -> parseCabalConfigBootPkgs <$> readUtf8File p
     Nothing -> do
       let dest = cacheDir </> (T.unpack (optSnapshot opts) ++ ".cabal.config")
       exists <- doesFileExist dest
       if exists
-        then parseCabalConfigBootPkgs <$> TIO.readFile dest
+        then parseCabalConfigBootPkgs <$> readUtf8File dest
         else do
           fetchUrlToFile (cabalConfigUrl (optSnapshot opts)) dest
-          parseCabalConfigBootPkgs <$> TIO.readFile dest
+          parseCabalConfigBootPkgs <$> readUtf8File dest
 
   let baseBoots = Map.union (optBootPkgs opts) (builtinBootPackages ghcVer)
       -- Keep all boot packages present in builtinBootPackages or cabal.config
@@ -409,12 +510,11 @@ main = do
               Nothing -> die ("Package not found in snapshot " ++ T.unpack (optSnapshot opts) ++ ": " ++ T.unpack pkg)
             let ver = spVersion sp
                 pkgVer = pkg <> "-" <> ver
-                cabalUrl = "https://hackage.haskell.org/package/" ++ T.unpack pkgVer ++ "/" ++ T.unpack pkg ++ ".cabal"
-                cabalFile = cabalsDir </> (T.unpack pkgVer ++ ".cabal")
+                cabalSha = spCabalSha256 sp
                 tbUrl = "https://hackage.haskell.org/package/" ++ T.unpack pkgVer ++ "/" ++ T.unpack pkgVer ++ ".tar.gz"
                 tbFile = tarballsDir </> (T.unpack pkgVer ++ ".tar.gz")
 
-            fetchUrlToFile cabalUrl cabalFile
+            cabalFile <- fetchVerifiedCabal cabalsDir pkg pkgVer cabalSha
             fetchUrlToFile tbUrl tbFile
 
             cabalBytes <- BS.readFile cabalFile
@@ -462,5 +562,5 @@ main = do
           }
       jsonOut = encodePretty (lockFileToJson lockFile)
 
-  TIO.writeFile (optOutput opts) jsonOut
+  writeUtf8File (optOutput opts) jsonOut
   hPutStrLn stderr ("Wrote " ++ optOutput opts ++ " (" ++ show (Map.size lockedPkgs) ++ " Hackage packages, " ++ show (Map.size bootPkgVersions) ++ " boot packages).")

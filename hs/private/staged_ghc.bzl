@@ -6,11 +6,11 @@ load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("//hs:providers.bzl", "HsToolchainInfo")
 
-def _find_gmp_static_archives(gmp_cc_info):
-    """Returns (pic_archive, static_archive) from @gmp//:gmp[CcInfo]."""
+def _find_static_archives(cc_info, desc):
+    """Returns (pic_archive, static_archive) from a CcInfo provider."""
     pic_a = None
     static_a = None
-    for li in gmp_cc_info.linking_context.linker_inputs.to_list():
+    for li in cc_info.linking_context.linker_inputs.to_list():
         for lib in li.libraries:
             if lib.pic_static_library:
                 pic_a = lib.pic_static_library
@@ -21,7 +21,7 @@ def _find_gmp_static_archives(gmp_cc_info):
     if not static_a and pic_a:
         static_a = pic_a
     if not pic_a:
-        fail("Could not find static archive in @gmp//:gmp CcInfo")
+        fail("Could not find static archive in {} CcInfo".format(desc))
     return pic_a, static_a
 
 def _get_cc_link_tool_and_flags(ctx, cc_toolchain):
@@ -54,9 +54,9 @@ def _staged_ghc_impl(ctx):
     stage_extra_inputs = []
 
     if ctx.attr.bignum == "gmp":
-        gmp_pic_a, gmp_static_a = _find_gmp_static_archives(ctx.attr.gmp[CcInfo])
+        gmp_pic_a, gmp_static_a = _find_static_archives(ctx.attr.gmp[CcInfo], "@gmp//:gmp")
 
-        # Clean static-only directory containing strictly libgmp.a (no .so!).
+        # Clean static-only directory containing strictly static archives (no .so!).
         gmp_static_lib = ctx.actions.declare_file(prefix + "/gmp_static/libgmp.a")
         gmp_static_dir = gmp_static_lib.dirname
         ctx.actions.symlink(
@@ -85,9 +85,19 @@ unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY
             stage_extra_inputs.append(gmp_shared_so)
 
     tinfo_so = None
+    tinfo_static_lib = None
     if ctx.attr.needs_tinfo_stub and ctx.file.tinfo_stub:
         tinfo_so = ctx.file.tinfo_stub
         stage_extra_inputs.append(tinfo_so)
+        if ctx.attr.tinfo_stub_static:
+            _, tinfo_static_a = _find_static_archives(ctx.attr.tinfo_stub_static[CcInfo], "tinfo_stub_static")
+            tinfo_static_lib = ctx.actions.declare_file(prefix + "/gmp_static/libtinfo.a")
+            if not gmp_static_dir:
+                gmp_static_dir = tinfo_static_lib.dirname
+            ctx.actions.symlink(
+                output = tinfo_static_lib,
+                target_file = tinfo_static_a,
+            )
 
     # 2. Declare sibling bin/* executables and lib/ directory under the SAME prefix
     #    so GHC's baked-in ELF RUNPATH ($ORIGIN/../lib/<arch_libdir>) and ${pkgroot}/../lib
@@ -124,6 +134,7 @@ unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY
         outputs = outputs,
         command = """\
 set -euo pipefail
+unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY
 SRC_LIB="$1"
 OUT_LIB="$2"
 ARCH_LIBDIR="$3"
@@ -162,6 +173,11 @@ if [ -n "$TINFO_SO" ]; then
     cp -L "$TINFO_SO" "$OUT_LIB/$ARCH_LIBDIR/libtinfo.so.6"
     ln -sf libtinfo.so.6 "$OUT_LIB/$ARCH_LIBDIR/libtinfo.so"
 fi
+
+# Refresh package.cache (removing sandbox input symlinks first so ghc-pkg can create & lock writable files).
+rm -f "$OUT_LIB/package.conf.d/package.cache" "$OUT_LIB/package.conf.d/package.cache.lock"
+"$GHCPKG_DST" --global-package-db="$OUT_LIB/package.conf.d" recache
+rm -f "$OUT_LIB/package.conf.d/package.cache.lock"
 """,
         arguments = [
             src_lib_dir,
@@ -197,6 +213,8 @@ fi
         all_files_list.append(out_iserv)
     if gmp_static_lib:
         all_files_list.append(gmp_static_lib)
+    if tinfo_static_lib:
+        all_files_list.append(tinfo_static_lib)
 
     return [
         DefaultInfo(files = depset(all_files_list)),
@@ -242,6 +260,7 @@ staged_ghc = rule(
         "rts_headers": attr.label_list(allow_files = True, mandatory = True),
         "gmp": attr.label(mandatory = True, providers = [CcInfo]),
         "tinfo_stub": attr.label(allow_single_file = True),
+        "tinfo_stub_static": attr.label(providers = [CcInfo]),
     },
     toolchains = use_cc_toolchain(),
     fragments = ["cpp"],

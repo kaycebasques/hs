@@ -187,6 +187,7 @@ staged_ghc(
     rts_headers = [":rts_headers"],
     gmp = "@gmp//:gmp",
     tinfo_stub = "@rules_hs//hs/private:libtinfo.so.6",
+    tinfo_stub_static = "@rules_hs//hs/private:tinfo_stub_static",
 )
 
 hs_toolchain(
