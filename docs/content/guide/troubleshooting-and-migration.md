@@ -25,7 +25,7 @@ This guide provides step-by-step migration recipes from `tweag/rules_haskell`, C
 | `haskell_test` | `bzl:rule:hs_test` | Same attributes as `bzl:rule:hs_binary` |
 | `ghcopts = [...]` | `ghc_opts = [...]` | Snake-case attribute naming (`ghc_opts`, `cpp_options`, `cc_options`) |
 | `src_strip_prefix = "src"` | `hs_source_dirs = ["src"]` | Matches Cabal's `hs-source-dirs` list directly (supports multiple source roots) |
-| `extra_srcs = [...]` (for CPP headers / TH files) | `hdrs = [...]` (compile-time headers) or `data = [...]` (runtime files) | Explicit separation of compile-time C/CPP inputs vs. runtime runfiles |
+| `extra_srcs = [...]` (for CPP headers / TH files) | `hdrs = [...]` (compile-time headers) or `data = [...]` (TH & runtime files) | `hdrs` exposes C/CPP headers; `data` stages files into both the TH compile sandbox (`file-embed` / `runIO`) and runtime runfiles |
 | `compiler_flags_select` | Standard Bazel `select({...})` on `ghc_opts` / `deps` / `srcs` | Native Bazel configurable attributes work everywhere |
 
 ### 5-Step Migration Checklist

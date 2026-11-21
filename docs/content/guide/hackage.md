@@ -164,14 +164,15 @@ use_repo(hackage, "hackage")
 - `extra_ghc_opts`, `extra_cpp_options`, `extra_cc_options`: Appended to both the main library and any internal sublibraries in that package.
 - `configure_args`: Passed to `/bin/sh ./configure` for `build-type: Configure` packages (e.g., `configure_args = ["--disable-ipv6"]`).
 
-## Internal Sublibraries, `Configure`, `hsc2hs`, and `.hs-boot`
+## Internal Sublibraries, `Configure`, `hsc2hs`, Alex/Happy, and TH
 
 `rules_hs` handles advanced Cabal package features automatically without per-package workarounds:
 
+- **Cross-library Template Haskell & `file-embed`** (e.g., `aeson`, `file-embed`, `skylighting`, `pandoc`): Compiled with `-dynamic-too` shared libraries isolated under `<name>.pkgdb/dyn` and `data` files staged in the compile sandbox, while keeping final `bzl:rule:hs_binary` / `bzl:rule:hs_test` executables statically linked.
 - **Internal Cabal sublibraries** (e.g., `attoparsec`'s `attoparsec-internal`): Emitted inside the same `@hackage__attoparsec` repository ahead of the main library and exposed on the hub as `@hackage//:attoparsec__attoparsec-internal` (`<pkg>__<sublib>`).
 - **Autoconf `build-type: Configure`** (e.g., `network`, `unix-time`, `old-time`): Runs `/bin/sh ./configure` inside an isolated temporary directory with `CC`/`CXX` wired to `ghc_cc_wrapper` and exports generated headers (`include/HsNetworkConfig.h`, `cbits/config.h`) to `hsc2hs`, C compilation, and GHC.
-- **`hsc2hs` `.hsc` sources**: Compiled in parallel per `.hsc` file (Stage 3 of `bzl:rule:hs_cabal_library`) with `cabal_macros.h` (`MIN_VERSION_*`) and standard OS/arch macros (`linux_HOST_OS`, `x86_64_HOST_ARCH`).
-- **Mutual module recursion (`.hs-boot`)** and **textual `.c` `#include`s**: Handled seamlessly across `cborg`, `tls`, `crypton`, and `vector`.
+- **`hsc2hs` `.hsc` & lazy Alex/Happy codegen**: `.hsc` templates compile in parallel per file, and any locked package containing Alex (`.x`) or Happy (`.y` / `.ly`) grammars lazily bootstraps `alex` / `happy` purely from `@hs_boot` with zero host tools (and zero fetches when unused).
+- **C++ sources (`cxx-sources` / `cxx-options`), `.hs-boot` mutual recursion, and textual `.c` `#include`s**: Handled seamlessly across `cborg`, `tls`, `crypton`, and `vector`.
 
 For a deep dive into how `bzl:rule:hs_cabal_library` executes its 5-stage action graph, see `doc:internals/ecosystem-and-hackage`.
 

@@ -211,7 +211,11 @@ hs_test(
 
 ## Template Haskell (`TemplateHaskell` & `TemplateHaskellQuotes`)
 
-`rules_hs` stages GHC's `template-haskell` boot library (`@hs_boot//:template-haskell` / `@hackage//:template-haskell`) and dynamic compiler support cleanly inside the sandbox.
+`rules_hs` supports the full spectrum of Template Haskell out of the box — with zero opt-in attributes required and zero dynamic-library leakage into linked executables:
+
+- **`TemplateHaskellQuotes`** (pure AST construction via `@hs_boot//:template-haskell`).
+- **Boot-package & same-library splices** (`//tests/rules/th:th_test`).
+- **Cross-library & Hackage Template Haskell splices** (`//tests/rules/th:cross_lib_th_test` and `//tests/rules/th:cross_lib_th_elf_test`), including splices defined in separate `bzl:rule:hs_library` or `bzl:rule:hs_cabal_library` targets (`aeson`, `file-embed`, `skylighting`, `pandoc`), multi-hop library chains, C FFI / `CApiFFI` calls inside splices, and `runIO` file reads.
 
 ### 1. `TemplateHaskellQuotes` (Zero Compile-Time Interpreter Overhead)
 
@@ -231,38 +235,65 @@ mkAnswerExp :: Int -> Q Exp
 mkAnswerExp n = [| n * 2 |]
 ```
 
-### 2. Compile-Time Splices (`{-# LANGUAGE TemplateHaskell #-}`)
+### 2. Same-Library & Cross-Library Splices (`{-# LANGUAGE TemplateHaskell #-}`)
 
-Compile-time TH splices (`$( ... )`, `deriveJSON`, `makeLenses`, `embedFile`, etc.) evaluate during compilation using GHC's staged toolchain:
+You can evaluate `$( ... )` splices defined in the same library, in upstream `bzl:rule:hs_library` targets, or in Hackage packages (`@hackage//:aeson`, `@hackage//:file-embed`, etc.):
 
 ```haskell
 {-# LANGUAGE TemplateHaskell #-}
 
-module ThConsumer (crossModAnswer, splicedFortyTwo) where
+module ThConsumer (crossLibAnswer, splicedFortyTwo) where
 
 import ThHelper (mkAnswerExp)
 
 splicedFortyTwo :: Int
 splicedFortyTwo = $( [| 20 + 22 |] )
 
-crossModAnswer :: Int
-crossModAnswer = $(mkAnswerExp 21)
+crossLibAnswer :: Int
+crossLibAnswer = $(mkAnswerExp 21)
 ```
 
 ```starlark
+load("@rules_hs//hs:defs.bzl", "hs_library", "hs_test")
+
 hs_library(
-    name = "th_lib",
-    srcs = [
-        "ThConsumer.hs",
-        "ThHelper.hs",
-    ],
+    name = "th_helper_lib",
+    srcs = ["ThHelper.hs"],
     deps = [
         "@hs_boot//:base",
         "@hs_boot//:template-haskell",
     ],
 )
+
+hs_library(
+    name = "th_consumer_lib",
+    srcs = ["ThConsumer.hs"],
+    deps = [
+        ":th_helper_lib",
+        "@hs_boot//:base",
+        "@hs_boot//:template-haskell",
+    ],
+)
+
+hs_test(
+    name = "cross_lib_th_test",
+    size = "small",
+    srcs = ["ThTest.hs"],
+    deps = [
+        ":th_consumer_lib",
+        "@hs_boot//:base",
+    ],
+)
 ```
 
-::: {.note title="Compile-Time File Embedding with TH"}
-When using `file-embed` (`$(embedFile "...")`) in a library or third-party Cabal package (such as `pandoc` with `--flag pandoc:embed_data_files=true`), make sure any files read at **compile time** by TH splices are included in `hdrs` (for `bzl:rule:hs_library` / `bzl:rule:hs_cabal_library`) so Bazel mounts them inside the compilation sandbox! Runtime-only files belong in `data`.
+### How Cross-Library TH Preserves Static Executables
+
+When `HsToolchainInfo.is_dynamic_ghc == True`, `HsCompileLibrary` (`hs/private/actions.bzl`) compiles libraries with `-dynamic-too`:
+
+1. Static `.o` objects are archived into `${pkgroot}/libHS<unit_id>.a` (`library-dirs` / `library-dirs-static`).
+2. Dynamic `.dyn_o` objects (along with any `c_sources` and `cc_deps` archives, linked with `-Wl,-Bsymbolic`) are linked into `<name>.pkgdb/dyn/libHS<unit_id>-ghc<ver>.so`, and `dynamic-library-dirs: ${pkgroot}/<pkgdb_base>/dyn` is recorded in `<unit_id>.conf`.
+3. Because `<name>.pkgdb/dyn` is isolated from `${pkgroot}`, GHC's compile-time TH loader resolves `.so` libraries cleanly across multi-hop C FFI and Haskell dependencies, while `bzl:rule:hs_binary` and `bzl:rule:hs_test` link **100% statically** against `libHS*.a` and `libgmp.a` (`DT_NEEDED` remains strictly base glibc — zero `libHS*.so` or `libgmp.so` at runtime).
+
+::: {.tip title="Compile-Time File Embedding with data (file-embed & runIO)"}
+`data` files declared on `bzl:rule:hs_library`, `bzl:rule:hs_cabal_library`, `bzl:rule:hs_binary`, and `bzl:rule:hs_test` are automatically staged into the compilation sandbox (including package-root working directory staging on `bzl:rule:hs_cabal_library`) **as well as** runtime runfiles. That means compile-time Template Haskell splices such as `file-embed`'s `$(embedFile "...")` / `$(embedDir "...")` (e.g., `--flag pandoc:embed_data_files=true`) and `runIO . readFile` work hermetically inside `linux-sandbox`!
 :::

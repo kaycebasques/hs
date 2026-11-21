@@ -272,7 +272,7 @@ You can pair `rules_hs` with:
 | `windows_x86_64` | URL + SHA-256 cataloged | Planned (`.exe` layout & Windows `cc_wrapper`) |
 | `linux_x86_64_musl` | `alpine3_12-linux-static-int_native` cataloged | Planned opt-in flavor for `FROM scratch` static binaries |
 
-**Known limitation**: `TemplateHaskellQuotes`, boot-package splices, and same-library cross-module Template Haskell splices work today (`//tests/rules/th:th_test`). Cross-library Template Haskell splices (executing a splice defined in a separate `hs_library` target) are planned via opt-in `-dynamic-too` shared archives and `dynamic-library-dirs`.
+**Template Haskell**: Full Template Haskell works out of the box — including `TemplateHaskellQuotes`, boot-package splices, same-library cross-module splices, and **cross-library / Hackage TH splices** (`aeson`, `file-embed`, `skylighting`, `pandoc`, C FFI / `CApiFFI` / `runIO` across multi-hop library boundaries; verified in `//tests/rules/th:th_test`, `//tests/rules/th:cross_lib_th_test`, and `//tests/rules/th:cross_lib_th_elf_test`). Libraries compile with `-dynamic-too` and isolate shared TH objects under `<name>.pkgdb/dyn` (`dynamic-library-dirs`), keeping `hs_binary` and `hs_test` executables 100% statically linked (`DT_NEEDED` strictly base glibc).
 
 ---
 
