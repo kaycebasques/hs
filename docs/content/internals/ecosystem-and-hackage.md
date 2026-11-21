@@ -6,6 +6,8 @@ nav_title: "Hackage & Cabal Pipeline"
 order: 40
 ---
 
+> **New to Cabal, Hackage, Stackage, or Bzlmod?** Read the [Haskell & GHC Primer](haskell-and-ghc-primer.md) (especially [Ecosystem Map](haskell-and-ghc-primer.md#ecosystem-map), [Boot Libraries](haskell-and-ghc-primer.md#boot-libraries), and [Haskell Build Mechanisms](haskell-and-ghc-primer.md#build-mechanisms)) and the [Bazel Ruleset Primer](bazel-rules-primer.md) ([Bzlmod & Lazy Repositories](bazel-rules-primer.md#bzlmod-and-repos) and [Rules & Actions](bazel-rules-primer.md#rules-and-actions)) first for background context.
+
 Supporting the real-world Haskell package ecosystem inside Bazel is notoriously tricky: `.cabal` files use indentation-sensitive conditional stanzas (`if os(...)`, `if arch(...)`, `if impl(ghc >= ...)`, `if flag(...)`), internal sublibraries, `hsc2hs` FFI preprocessors, autoconf `./configure` header generators, C-only helper packages (`zlib-clib`), textual `#include`d `.c` files (`crypton`), `Paths_<pkg>` autogen modules, and doctest-only `Custom` setups (`xml-conduit`).
 
 Rather than re-implementing a partial `.cabal` parser in Starlark or shelling out to an opaque `runghc Setup.hs` wrapper at build time, `rules_hs` splits Hackage support into **two clean phases** backed by a **5-stage Bazel build rule** ([`hs_cabal_library`](../reference/rules.md#hs_cabal_library)):
@@ -84,7 +86,7 @@ Rather than duplicating full metadata 4 times per package in `hackage.lock.json`
 `CabalExtract.hs` and `Main.hs` normalize three pervasive Hackage quirks during extraction:
 
 1. **Third-party `ghc-options` sanitization (`sanitizeGhcOpts`)**: Strips upstream warning and executable-only flags (`-Werror`, `-Werror=*`, `-W*`, `-fwarn-*`, `-fno-warn-*`, `-w`, `-threaded`, `-rtsopts`, `-with-rtsopts=*`, `-fllvm`, `-ferror-spans`) so newer GHC warnings never break pinned third-party libraries, while preserving codegen and optimization flags (`-O2`, `-funbox-strict-fields`, `-fno-cse`, `-optc-O3`).
-2. **Doctest-only `build-type: Custom` normalization (`classifyBuildType`)**: Inspects `custom-setup` `setup-depends`. Whenever `setup-depends` is non-empty and restricted exclusively to `["base", "Cabal", "Cabal-syntax", "cabal-doctest", "filepath", "directory"]` (e.g., `xml-conduit`), `Setup.hs` only wires `Build_doctests` for test suites and is a complete no-op for the library component — so `classifyBuildType` normalizes `build_type` to `"Simple"`.
+2. **Doctest-only `build-type: Custom` normalization (`classifyBuildType`)**: Why do dozens of pure Haskell packages on Hackage (such as `xml-conduit`, `lens`, and `bifunctors`) declare `build-type: Custom` when their libraries need zero custom build logic? Historically, before `cabal-install` gained modern environment-file support, running `doctest` (a test tool that evaluates `-- >>>` interactive GHCi examples inside Haddock comments during `cabal test`) required passing the exact `-package-id` flags computed during `./Setup configure` into the test runner. Around 2017, packages adopted a 4-line `Setup.hs` using the `cabal-doctest` helper (`defaultMainWithDoctests "doctests"`), whose **sole** effect is generating a `Build_doctests.hs` module consumed by the package's own `test-suite` stanza; for building the **library** component itself, `defaultMainWithDoctests` delegates 100% unchanged to standard `Simple` `defaultMain`! `classifyBuildType` inspects `custom-setup` `setup-depends`: whenever `setup-depends` is non-empty and restricted exclusively to `["base", "Cabal", "Cabal-syntax", "cabal-doctest", "filepath", "directory"]`, normalizing `build_type` to `"Simple"` produces the exact same library with zero `Setup.hs` compilation or execution.
 3. **Autoconf `build-type: Configure` tarball discovery (`classifyBuildType` + `discoverConfigureInstallIncludes`)**:
    - Lists tarball members via `tar -tzf` (`listTarballFiles`).
    - Infers `configure_outputs` from `.h` files in Cabal's `extra-tmp-files` (or `*.h.in` stripped of `.in`).
@@ -177,6 +179,140 @@ When `hsc_srcs` is non-empty, `run_hsc2hs_actions` spawns **one independent `HsH
 Runs in parallel with Stage 4's C object compilation! `compile_hs_library_action` invokes `ghc --make -c` with `-optP-include <cabal_macros.h>` and `-optc-include <cabal_macros.h>` (for `CApiFFI` stubs), archives `libHS<unit_id>.a` via `@objects.rsp`, writes `${pkgroot}` `<unit_id>.conf`, and runs `ghc-pkg recache`.
 
 > **Tip — Stage 4 and Stage 5 Run in Parallel:** Notice in the pipeline graph above that Stage 5 (`HsCompileLibrary`) depends on Stage 1 (`configure_outputs` headers), Stage 2 (`cabal_macros.h` + `Paths_*`), and Stage 3 (`hsc2hs` `.hs` outputs), **not** on Stage 4's compiled `.o`/`.a` C outputs! For C-heavy packages like `crypton` (39+ `.c` files and 100+ `.hs` modules), Bazel compiles all 39 C files via `cc_common.compile` concurrently while GHC compiles the Haskell modules.
+
+---
+
+## Anatomy of a Hackage Package Build: From `.cabal` to Static Archive {#end-to-end-trace}
+
+To see how Phase 1, Phase 2, and the 5-stage [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) pipeline fit together concretely, trace a miniature package `acme-net-0.2.0` that exercises autoconf `./configure`, an OS-conditional C backend (`epoll.c` on Linux vs. `kqueue.c` on macOS), an `hsc2hs` struct binding (`src/Acme/Net/Consts.hsc`), `Paths_acme_net`, and a public C header (`include/AcmeNet.h`):
+
+### 1. Upstream `acme-net.cabal` (Inside `acme-net-0.2.0.tar.gz`)
+
+```text
+cabal-version:   2.4
+name:            acme-net
+version:         0.2.0
+x-revision:      1
+build-type:      Configure
+extra-tmp-files: include/AcmeConfig.h
+
+flag debug-poll
+  default: False
+
+library
+  hs-source-dirs:   src
+  exposed-modules:  Acme.Net
+  other-modules:    Acme.Net.Consts, Paths_acme_net
+  autogen-modules:  Paths_acme_net
+  default-language: Haskell2010
+  ghc-options:      -Wall -Werror -O2
+  include-dirs:     include
+  install-includes: AcmeNet.h, AcmeConfig.h
+  build-depends:    base >= 4.16 && < 5, bytestring >= 0.11
+
+  if os(linux)
+    c-sources: cbits/epoll.c
+  if os(osx)
+    c-sources: cbits/kqueue.c
+  if flag(debug-poll)
+    cpp-options: -DACME_DEBUG=1
+```
+
+### 2. Offline Evaluation by `//tools/lock:lock` -> `hackage.lock.json`
+
+When [`//tools/lock:lock`](../reference/lock-cli.md) processes `acme-net`:
+
+1. **`fetchVerifiedCabal`** verifies `acme-net.cabal` (`x-revision: 1`) against Stackage's pinned `.cabal` SHA-256 and computes the `.tar.gz` SHA-256.
+2. **`finalizeForPlatform`** runs `Cabal-syntax`'s `finalizePD` four times (`linux_x86_64`, `linux_arm64`, `macos_arm64`, `macos_x86_64`) with `CompilerId GHC 9.10.3` and `debug-poll = False`:
+   - `sanitizeGhcOpts` strips `-Wall` and `-Werror` while keeping `-O2`.
+   - `Paths_acme_net` is detected and converted into `"generate_paths_module": true`.
+   - `classifyBuildType` inspects the tarball and discovers `configure`, `include/AcmeConfig.h.in` -> `configure_outputs = ["include/AcmeConfig.h"]`.
+3. **`mergeRawComps`** intersects all 4 platforms: `Acme.Net`, `Acme.Net.Consts`, `base`, and `bytestring` are identical everywhere (`base` fields), while `c_sources` differs between Linux (`cbits/epoll.c`) and macOS (`cbits/kqueue.c`) and lands in `"select"`:
+
+```json
+"acme-net": {
+  "version": "0.2.0",
+  "url": "https://hackage.haskell.org/package/acme-net-0.2.0/acme-net-0.2.0.tar.gz",
+  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "strip_prefix": "acme-net-0.2.0",
+  "cabal_revision": 1,
+  "build_type": "Configure",
+  "configure_script": "configure",
+  "configure_srcs": ["configure", "include/AcmeConfig.h.in", "include/AcmeNet.h"],
+  "configure_outputs": ["include/AcmeConfig.h"],
+  "library": {
+    "exposed_modules": ["Acme.Net"],
+    "other_modules": ["Acme.Net.Consts"],
+    "hs_source_dirs": ["src"],
+    "default_language": "Haskell2010",
+    "ghc_opts": ["-O2"],
+    "include_dirs": ["include"],
+    "install_includes": ["AcmeConfig.h", "AcmeNet.h"],
+    "generate_paths_module": true,
+    "deps": ["base", "bytestring"],
+    "select": {
+      "linux_arm64": { "c_sources": ["cbits/epoll.c"] },
+      "linux_x86_64": { "c_sources": ["cbits/epoll.c"] },
+      "macos_arm64": { "c_sources": ["cbits/kqueue.c"] },
+      "macos_x86_64": { "c_sources": ["cbits/kqueue.c"] }
+    }
+  }
+}
+```
+
+### 3. Lazy Repository Synthesis (`@hackage__acme_net/BUILD.bazel`)
+
+When a Bazel target depends on `@hackage//:acme-net`, `_hackage_package_repo_impl` (`hs/private/hackage.bzl`) unpacks the tarball, restores `+x` on `configure`, and calls `_find_module_files` on disk — noticing that `Acme.Net` is `src/Acme/Net.hs` (`srcs`) while `Acme.Net.Consts` is `src/Acme/Net/Consts.hsc` (`hsc_srcs`!):
+
+```starlark
+load("@rules_hs//hs:defs.bzl", "hs_cabal_library")
+
+package(default_visibility = ["//visibility:public"])
+
+config_setting(name = "_linux_x86_64", constraint_values = ["@platforms//os:linux", "@platforms//cpu:x86_64"])
+config_setting(name = "_linux_arm64",  constraint_values = ["@platforms//os:linux", "@platforms//cpu:arm64"])
+config_setting(name = "_macos_arm64",  constraint_values = ["@platforms//os:macos", "@platforms//cpu:arm64"])
+config_setting(name = "_macos_x86_64", constraint_values = ["@platforms//os:macos", "@platforms//cpu:x86_64"])
+
+hs_cabal_library(
+    name = "acme-net",
+    package_name = "acme-net",
+    version = "0.2.0",
+    srcs = ["src/Acme/Net.hs"],
+    hsc_srcs = ["src/Acme/Net/Consts.hsc"],
+    c_sources = select({
+        ":_linux_x86_64": ["cbits/epoll.c"],
+        ":_linux_arm64":  ["cbits/epoll.c"],
+        ":_macos_arm64":  ["cbits/kqueue.c"],
+        ":_macos_x86_64": ["cbits/kqueue.c"],
+        "//conditions:default": [],
+    }),
+    hdrs = glob(["include/**", "**/*.h", ...], exclude = ["cbits/epoll.c", "cbits/kqueue.c", "src/Acme/Net.hs", ...]),
+    install_includes = ["AcmeConfig.h", "AcmeNet.h"],
+    include_dirs = ["include"],
+    hs_source_dirs = ["src"],
+    exposed_modules = ["Acme.Net"],
+    other_modules = ["Acme.Net.Consts"],
+    default_language = "Haskell2010",
+    ghc_opts = ["-O2"],
+    build_type = "Configure",
+    configure_script = "configure",
+    configure_srcs = ["configure", "include/AcmeConfig.h.in", "include/AcmeNet.h"],
+    configure_outputs = ["include/AcmeConfig.h"],
+    generate_paths_module = True,
+    deps = ["@hackage//:base", "@hackage//:bytestring"],
+)
+```
+
+### 4. Execution Across the 5 `hs_cabal_library` Stages (on `linux_x86_64`)
+
+| Stage | Bazel Action Mnemonic | Inputs Consumed | Outputs Produced Under `bazel-out/.../external/rules_hs++hackage+hackage__acme_net/` |
+|---|---|---|---|
+| **Stage 1** | `HsConfigure` | `configure`, `include/AcmeConfig.h.in`, `ghc_cc_wrapper` | `acme-net_configure/include/AcmeConfig.h` |
+| **Stage 2** | `FileWrite` (zero subprocesses) | Direct `HsPackageInfo` (`base-4.20.2.0`, `bytestring-0.12.2.0`) | `acme-net_autogen/cabal_macros.h`, `acme-net_autogen/Paths_acme_net.hs` |
+| **Stage 3** | `HsHsc2hs` | `src/Acme/Net/Consts.hsc`, `AcmeConfig.h`, `AcmeNet.h`, `cabal_macros.h` | `acme-net_hsc/Acme/Net/Consts.hs` |
+| **Stage 4** *(parallel with 5)* | `CppCompile` + `CppArchive` (`cc_common`) | `cbits/epoll.c`, `AcmeConfig.h`, `AcmeNet.h`, `Rts.h`, `cabal_macros.h` | `libacme-net_c.a` + `CcInfo` (`public_hdrs = [AcmeConfig.h, AcmeNet.h]`) |
+| **Stage 5** *(parallel with 4)* | `HsCompileLibrary` | `src/Acme/Net.hs`, `Consts.hs`, `Paths_acme_net.hs`, `cabal_macros.h` | `libHSacme-net-0.2.0.a` + `acme-net.pkgdb/` (`hi/*.hi`, `dyn/libHSacme-net-0.2.0-ghc9.10.3.so`, `acme-net-0.2.0.conf`, `package.cache`) |
 
 ---
 
