@@ -272,13 +272,37 @@ You can pair `rules_hs` with:
 | `windows_x86_64` | URL + SHA-256 cataloged | Planned (`.exe` layout & Windows `cc_wrapper`) |
 | `linux_x86_64_musl` | `alpine3_12-linux-static-int_native` cataloged | Planned opt-in flavor for `FROM scratch` static binaries |
 
-**Known limitation**: `TemplateHaskellQuotes`, boot-package splices, and same-library cross-module Template Haskell splices work today (`//tests/rules/th:th_test`). Cross-library Template Haskell splices (executing a splice defined in a separate `hs_library` target) are planned via opt-in `-dynamic-too` shared archives and `dynamic-library-dirs`.
+**Template Haskell**: Full Template Haskell works out of the box — including `TemplateHaskellQuotes`, boot-package splices, same-library cross-module splices, and **cross-library / Hackage TH splices** (`aeson`, `file-embed`, `skylighting`, `pandoc`, C FFI / `CApiFFI` / `runIO` across multi-hop library boundaries; verified in `//tests/rules/th:th_test`, `//tests/rules/th:cross_lib_th_test`, and `//tests/rules/th:cross_lib_th_elf_test`). Libraries compile with `-dynamic-too` and isolate shared TH objects under `<name>.pkgdb/dyn` (`dynamic-library-dirs`), keeping `hs_binary` and `hs_test` executables 100% statically linked (`DT_NEEDED` strictly base glibc).
 
 ---
 
-## Documentation & License
+## Documentation
 
-- **Architecture & Prior-Art Deep Dive**: [`docs/architecture.md`](docs/architecture.md)
-- **Dependency Decision Record (Adopted & Not Adopted + Catalysts)**: [`docs/dependencies.md`](docs/dependencies.md)
+`rules_hs` ships a comprehensive documentation suite under [`docs/content/`](docs/content/index.md), compiled hermetically into a static HTML site using **Hakyll + Pandoc + Skylighting** built by `rules_hs` itself (zero Python, zero Node.js — see [`docs/README.md`](docs/README.md)):
+
+```bash
+# Build the static HTML documentation site
+bazel build //docs:site
+
+# Serve the documentation site locally (http://127.0.0.1:8000 by default)
+bazel run //docs:serve
+
+# Run the documentation engine & site verification test suite
+bazel test //docs:...
+```
+
+### Documentation Sections
+
+- **Documentation Authoring & Engine Guide**: [`docs/README.md`](docs/README.md)
+- **Overview**: [`docs/content/index.md`](docs/content/index.md)
+- **User Guide** ([`docs/content/guide/`](docs/content/guide/quickstart.md)):
+  - [Quickstart](docs/content/guide/quickstart.md) · [Hackage & Lockfiles](docs/content/guide/hackage.md) · [C FFI & Toolchains](docs/content/guide/c-interop-and-toolchains.md) · [Language, RTS, Runfiles & TH](docs/content/guide/language-rts-runfiles-th.md) · [Showcase: `examples/size`](docs/content/guide/showcase-size.md) · [Migration & Troubleshooting](docs/content/guide/troubleshooting-and-migration.md)
+- **API & CLI Reference** ([`docs/content/reference/`](docs/content/reference/rules.md)):
+  - [Rules Reference](docs/content/reference/rules.md) · [Extensions & Providers](docs/content/reference/extensions-and-providers.md) · [Lock Generator CLI](docs/content/reference/lock-cli.md)
+- **Internals & Architecture** ([`docs/content/internals/`](docs/content/internals/overview.md)):
+  - [Architecture Overview](docs/content/internals/overview.md) · [Hermeticity & Toolchain](docs/content/internals/hermeticity.md) · [Providers & Action Graph](docs/content/internals/providers-and-actions.md) · [Hackage & Cabal Pipeline](docs/content/internals/ecosystem-and-hackage.md) · [Cross-OS & Platforms](docs/content/internals/cross-os-and-platforms.md) · [Haskell Docs Engine](docs/content/internals/docs-engine.md) · [Dependency Decisions](docs/content/internals/dependencies.md)
 - **Standalone Sitemap Counter Showcase**: [`examples/size/README.md`](examples/size/README.md)
-- **License**: Apache License 2.0 ([`LICENSE`](LICENSE))
+
+## License
+
+Apache License 2.0 ([`LICENSE`](LICENSE))
