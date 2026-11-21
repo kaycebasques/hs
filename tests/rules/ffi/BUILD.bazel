@@ -18,9 +18,9 @@ hs_library(
 hs_library(
     name = "inline_c_lib",
     srcs = ["InlineCFfi.hs"],
+    hdrs = ["csrc/inline_helper.h"],
     c_sources = ["csrc/inline_helper.c"],
     cc_options = ["-DINLINE_SCALE=3"],
-    hdrs = ["csrc/inline_helper.h"],
     include_dirs = ["csrc"],
     deps = ["@hs_boot//:base"],
 )

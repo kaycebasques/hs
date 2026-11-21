@@ -17,7 +17,7 @@ BAD=""
 while IFS= read -r lib; do
     [ -z "$lib" ] && continue
     case "$lib" in
-        libc.so.6|libm.so.6|libdl.so.2|libpthread.so.0|librt.so.1|libutil.so.1)
+        libc.so.6|libm.so.6|libdl.so.2|libpthread.so.0|librt.so.1|libutil.so.1|ld-linux-*.so.*)
             ;;
         *)
             BAD="${BAD}${lib}"$'\n'

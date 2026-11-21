@@ -36,8 +36,8 @@ hs_test(
     size = "small",
     srcs = ["RunfilesTest.hs"],
     data = [
-        ":data_tool_bin",
         "test_data.txt",
+        ":data_tool_bin",
     ],
     deps = [
         ":data_provider_lib",

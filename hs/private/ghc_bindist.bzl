@@ -5,29 +5,46 @@ load("//hs/private:ghc_versions.bzl", "BOOT_PACKAGE_NAMES", "GHC_BINDISTS")
 def _sanitize_settings(content):
     """Rewrites hardcoded host paths in GHC's lib/settings.
 
-    Ensures GHC can never accidentally invoke host /usr/bin/{gcc,g++,ld.gold,ar,ranlib}
+    Ensures GHC can never accidentally invoke host /usr/bin/{gcc,g++,ld.gold,ar,ranlib,llc,opt,clang}
     or pass -fuse-ld=gold. Real tool paths are injected per-action from Bazel's
     resolved cc_toolchain via -pgmc/-pgml/-pgma/-pgmP/-pgmar/-pgmlm.
     """
-    replacements = [
-        ('("C compiler command", "/usr/bin/gcc")', '("C compiler command", "/nonexistent/cc")'),
-        ('("C++ compiler command", "/usr/bin/g++")', '("C++ compiler command", "/nonexistent/cxx")'),
-        ('("CPP command", "/usr/bin/gcc")', '("CPP command", "/nonexistent/cpp")'),
-        ('("Haskell CPP command", "/usr/bin/gcc")', '("Haskell CPP command", "/nonexistent/hs-cpp")'),
-        ('("JavaScript CPP command", "/usr/bin/gcc")', '("JavaScript CPP command", "/nonexistent/js-cpp")'),
-        ('("C-- CPP command", "/usr/bin/gcc")', '("C-- CPP command", "/nonexistent/cmm-cpp")'),
-        ('("Merge objects command", "/usr/bin/ld.gold")', '("Merge objects command", "/nonexistent/ld")'),
-        ('("Merge objects command", "/usr/bin/ld")', '("Merge objects command", "/nonexistent/ld")'),
-        ('("ar command", "/usr/bin/ar")', '("ar command", "/nonexistent/ar")'),
-        ('("ranlib command", "/usr/bin/ranlib")', '("ranlib command", "/nonexistent/ranlib")'),
+    cmd_overrides = {
+        "C compiler command": "/nonexistent/cc",
+        "C++ compiler command": "/nonexistent/cxx",
+        "CPP command": "/nonexistent/cpp",
+        "Haskell CPP command": "/nonexistent/hs-cpp",
+        "JavaScript CPP command": "/nonexistent/js-cpp",
+        "C-- CPP command": "/nonexistent/cmm-cpp",
+        "Merge objects command": "/nonexistent/ld",
+        "ar command": "/nonexistent/ar",
+        "ranlib command": "/nonexistent/ranlib",
+        "LLVM llc command": "/nonexistent/llc",
+        "LLVM opt command": "/nonexistent/opt",
+        "LLVM llvm-as command": "/nonexistent/llvm-as",
+    }
+    flag_replacements = [
         ('"-fuse-ld=gold -Wl,--no-as-needed -Wl,-z,noexecstack"', '"-Wl,--no-as-needed -Wl,-z,noexecstack"'),
         ('"-fuse-ld=gold -Wl,--no-as-needed"', '"-Wl,--no-as-needed"'),
         ('"-fuse-ld=gold"', '""'),
     ]
-    out = content
-    for old, new in replacements:
-        out = out.replace(old, new)
-    return out
+    out_lines = []
+    for line in content.splitlines():
+        rewritten = line
+        for key, replacement in cmd_overrides.items():
+            marker = '("' + key + '", "'
+            idx = rewritten.find(marker)
+            if idx != -1:
+                prefix = rewritten[:idx + len(marker)]
+                rest = rewritten[idx + len(marker):]
+                end_quote = rest.find('"')
+                if end_quote != -1:
+                    rewritten = prefix + replacement + rest[end_quote:]
+                break
+        for old, new in flag_replacements:
+            rewritten = rewritten.replace(old, new)
+        out_lines.append(rewritten)
+    return "\n".join(out_lines) + ("\n" if content.endswith("\n") else "")
 
 def _parse_pkg_conf(text):
     """Parses key fields from a GHC installed package .conf file in pure Starlark."""

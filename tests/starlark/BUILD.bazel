@@ -101,8 +101,8 @@ hs_cabal_library(
 hs_cabal_library(
     name = "cabal_c_only",
     package_name = "sample-c-only",
-    c_sources = ["sample_cc.c"],
     hdrs = ["sample_cc.h"],
+    c_sources = ["sample_cc.c"],
     include_dirs = ["."],
     install_includes = ["sample_cc.h"],
     version = "0.9.1",

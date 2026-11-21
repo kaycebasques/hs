@@ -145,7 +145,7 @@ def _hs_cabal_library_impl(ctx):
 
     runfiles = ctx.runfiles(files = ctx.files.data).merge_all([
         dep[DefaultInfo].default_runfiles
-        for dep in ctx.attr.deps + ctx.attr.extra_cc_deps
+        for dep in ctx.attr.deps + ctx.attr.extra_cc_deps + ctx.attr.data
     ])
 
     # C-only Cabal packages (e.g. zlib-clib): skip GHC compile/archive/ghc-pkg cleanly!

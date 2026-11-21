@@ -140,7 +140,7 @@ def _hs_library_impl(ctx):
 
     runfiles = ctx.runfiles(files = ctx.files.data).merge_all([
         dep[DefaultInfo].default_runfiles
-        for dep in ctx.attr.deps + ctx.attr.cc_deps
+        for dep in ctx.attr.deps + ctx.attr.cc_deps + ctx.attr.data
     ])
 
     return [
@@ -338,7 +338,7 @@ GHC="$1"
 shift
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/hs_bin.XXXXXX")"
 trap 'rm -rf "$WORKDIR"' EXIT
-exec "$GHC" -outputdir "$WORKDIR" "$@"
+"$GHC" -outputdir "$WORKDIR" "$@"
 """,
         arguments = [hs_tc.ghc.path, ghc_args],
     )

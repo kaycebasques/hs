@@ -328,6 +328,10 @@ def ghc_tool_flags(hs_tc, cc_tools):
         ])
     return flags
 
+def _execroot_or_abs(path):
+    """Preserves absolute tool/include paths while anchoring execroot-relative paths to $EXECROOT."""
+    return path if path.startswith("/") else ("$EXECROOT/" + path)
+
 def run_configure_action(
         ctx,
         hs_tc,
@@ -378,9 +382,13 @@ def run_configure_action(
         ))
 
     script_rel = _strip_prefix_path(configure_script.path, [pkg_root])
-    cflags_list = ["-fPIC", "-I$EXECROOT/" + hs_tc.rts_include_dir]
+    cflags_list = ["-fPIC", "-I" + _execroot_or_abs(hs_tc.rts_include_dir)]
     for d in extra_include_dirs:
-        cflags_list.append("-I$EXECROOT/" + d)
+        cflags_list.append("-I" + _execroot_or_abs(d))
+
+    cfg_env = {}
+    if cc_tools.extra_cc_args:
+        cfg_env["RULES_HS_CC_EXTRA_ARGS"] = "\n".join(cc_tools.extra_cc_args)
 
     cmd = """\
 set -euo pipefail
@@ -391,12 +399,41 @@ trap 'rm -rf "$WORK"' EXIT
 
 {stage_cmds}
 
-export RULES_HS_REAL_CC="$EXECROOT/{real_cc}"
+export RULES_HS_REAL_CC="{real_cc}"
 export RULES_HS_FORCE_PIC=1
-{extra_cc_env}
-export CC="$EXECROOT/{cc_wrapper}"
-export CXX="$EXECROOT/{cc_wrapper}"
-export AR="$EXECROOT/{ar}"
+if [ -n "${{RULES_HS_CC_EXTRA_ARGS:-}}" ]; then
+    RESOLVED_EXTRA=""
+    PREV_IS_SYSROOT=0
+    while IFS= read -r arg; do
+        [ -z "$arg" ] && continue
+        if [ "$PREV_IS_SYSROOT" = "1" ]; then
+            PREV_IS_SYSROOT=0
+            case "$arg" in
+                /*) ;;
+                *) arg="$EXECROOT/$arg" ;;
+            esac
+        elif [ "$arg" = "--sysroot" ]; then
+            PREV_IS_SYSROOT=1
+        else
+            case "$arg" in
+                --sysroot=/*) ;;
+                --sysroot=*) arg="--sysroot=$EXECROOT/${{arg#--sysroot=}}" ;;
+            esac
+        fi
+        if [ -n "$RESOLVED_EXTRA" ]; then
+            RESOLVED_EXTRA="${{RESOLVED_EXTRA}}
+${{arg}}"
+        else
+            RESOLVED_EXTRA="$arg"
+        fi
+    done <<EOF_EXTRA
+$RULES_HS_CC_EXTRA_ARGS
+EOF_EXTRA
+    export RULES_HS_CC_EXTRA_ARGS="$RESOLVED_EXTRA"
+fi
+export CC="{cc_wrapper}"
+export CXX="{cc_wrapper}"
+export AR="{ar}"
 {ld_export}
 export CFLAGS="{cflags}"
 export LDFLAGS="-Wno-unused-command-line-argument"
@@ -413,11 +450,10 @@ done
 {copy_cmds}
 """.format(
         stage_cmds = "\n".join(stage_lines),
-        real_cc = cc_tools.cc,
-        extra_cc_env = 'export RULES_HS_CC_EXTRA_ARGS="{}"'.format("\\n".join(cc_tools.extra_cc_args)) if cc_tools.extra_cc_args else "",
-        cc_wrapper = hs_tc.cc_wrapper.path,
-        ar = cc_tools.ar,
-        ld_export = 'export LD="$EXECROOT/{}"'.format(cc_tools.ld) if cc_tools.ld else "",
+        real_cc = _execroot_or_abs(cc_tools.cc),
+        cc_wrapper = _execroot_or_abs(hs_tc.cc_wrapper.path),
+        ar = _execroot_or_abs(cc_tools.ar),
+        ld_export = 'export LD="{}"'.format(_execroot_or_abs(cc_tools.ld)) if cc_tools.ld else "",
         cflags = " ".join(cflags_list),
         script_rel = script_rel,
         cfg_args = " ".join(["'" + a.replace("'", "'\"'\"'") + "'" for a in configure_args]),
@@ -433,6 +469,7 @@ done
         ),
         tools = [hs_tc.cc_wrapper],
         outputs = declared_outputs,
+        env = cfg_env,
         command = cmd,
     )
 
@@ -543,7 +580,7 @@ exec "$HSC2HS" "$@"
 
     return generated_hs, hsc_root
 
-def _resolve_install_includes(install_includes, hdrs, configure_outputs, include_dirs):
+def _resolve_install_includes(install_includes, hdrs, configure_outputs):
     """Maps Cabal install-includes header names to File objects from hdrs and configure_outputs."""
     if not install_includes:
         return []
@@ -556,7 +593,7 @@ def _resolve_install_includes(install_includes, hdrs, configure_outputs, include
             if f.path in seen:
                 continue
             if f.path.endswith("/" + clean) or f.basename == clean:
-                # Prefer exact suffix match against include_dirs or basename.
+                # Prefer exact suffix match against clean relative include path or basename.
                 matched.append(f)
                 seen[f.path] = True
                 break
@@ -577,16 +614,11 @@ def compile_c_sources(
         dep_cc_info):
     """Compiles C sources via rules_cc cc_common and propagates install_includes headers."""
     resolved_inc_dirs = [resolve_package_dir(ctx, d) for d in include_dirs]
-    all_inc_dirs = []
-    for d in resolved_inc_dirs + list(configure_include_dirs) + [hs_tc.rts_include_dir]:
-        if d and d not in all_inc_dirs:
-            all_inc_dirs.append(d)
 
     public_hdrs = _resolve_install_includes(
         install_includes,
         hdrs,
         configure_outputs,
-        all_inc_dirs,
     )
 
     # Separate real header files (for private_hdrs) from non-header textual includes
