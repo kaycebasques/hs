@@ -1,0 +1,153 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//hs:defs.bzl", "hs_binary", "hs_cabal_library", "hs_library", "hs_test")
+
+# 1. Native C library for CcInfo interop
+cc_library(
+    name = "native_add",
+    srcs = ["native_add.c"],
+    hdrs = ["native_add.h"],
+)
+
+# 2. Multi-library DAG with hidden_modules & GHC2021
+hs_library(
+    name = "math_lib",
+    srcs = [
+        "Math/Core.hs",
+        "Math/Internal.hs",
+    ],
+    hidden_modules = ["Math.Internal"],
+    deps = ["@hs_boot//:base"],
+)
+
+hs_library(
+    name = "greet_lib",
+    srcs = ["Greet.hs"],
+    cc_deps = [":native_add"],
+    deps = [
+        ":math_lib",
+        "@hs_boot//:base",
+        "@hs_boot//:text",
+    ],
+)
+
+# 3. Mutual recursion via .hs-boot
+hs_library(
+    name = "boot_cycle_lib",
+    srcs = [
+        "BootA.hs",
+        "BootA.hs-boot",
+        "BootB.hs",
+    ],
+    deps = ["@hs_boot//:base"],
+)
+
+# 4. hs_cabal_library pipeline tests:
+#    4a. C-only package with textual .c include (like crypton / zlib-clib) + install_includes
+hs_cabal_library(
+    name = "cabal_c_only",
+    package_name = "cabal-c-only",
+    hdrs = [
+        "cabal_clib/clib.h",
+        "cabal_clib/clib_impl.c",
+    ],
+    c_sources = ["cabal_clib/clib.c"],
+    include_dirs = ["cabal_clib"],
+    install_includes = ["clib.h"],
+    version = "1.2.3",
+)
+
+#    4b. Haskell + hsc2hs + Paths_* + MIN_VERSION_* + cpp_options depending on C-only package
+hs_cabal_library(
+    name = "cabal_mid",
+    package_name = "cabal-mid",
+    srcs = ["cabal_mid/MidLib.hs"],
+    cpp_options = ["-DCABAL_TEST_FLAG=7"],
+    default_language = "Haskell2010",
+    exposed_modules = [
+        "MidConsts",
+        "MidLib",
+    ],
+    generate_paths_module = True,
+    hs_source_dirs = ["cabal_mid"],
+    hsc_srcs = ["cabal_mid/MidConsts.hsc"],
+    version = "0.4.2",
+    deps = [
+        ":cabal_c_only",
+        "@hs_boot//:base",
+    ],
+)
+
+#    4c. Downstream package whose C file does #include <clib.h> transitively via cabal_mid (NOT direct dep on cabal_c_only!)
+hs_cabal_library(
+    name = "cabal_top",
+    package_name = "cabal-top",
+    srcs = ["cabal_top/TopLib.hs"],
+    c_sources = ["cabal_top/top_helper.c"],
+    default_language = "Haskell2010",
+    exposed_modules = ["TopLib"],
+    hs_source_dirs = ["cabal_top"],
+    version = "2.0.0",
+    deps = [
+        ":cabal_mid",
+        "@hs_boot//:base",
+    ],
+)
+
+#    4d. build-type: Configure package emitting a generated header consumed by hsc2hs + CApiFFI
+hs_cabal_library(
+    name = "cabal_configure",
+    package_name = "cabal-cfg",
+    build_type = "Configure",
+    configure_outputs = ["include/GeneratedCfg.h"],
+    configure_script = "cabal_cfg/configure",
+    configure_srcs = ["cabal_cfg/configure.data"],
+    default_language = "Haskell2010",
+    exposed_modules = ["CfgLib"],
+    hs_source_dirs = ["cabal_cfg"],
+    hsc_srcs = ["cabal_cfg/CfgLib.hsc"],
+    include_dirs = ["include"],
+    install_includes = ["GeneratedCfg.h"],
+    version = "0.1.0",
+    deps = ["@hs_boot//:base"],
+)
+
+# 5. Smoke executable & comprehensive test
+hs_binary(
+    name = "smoke_bin",
+    srcs = ["SmokeMain.hs"],
+    data = ["fixture.txt"],
+    deps = [
+        ":boot_cycle_lib",
+        ":cabal_configure",
+        ":cabal_top",
+        ":greet_lib",
+        "@hs_boot//:base",
+        "@hs_boot//:text",
+    ],
+)
+
+hs_test(
+    name = "basic_test",
+    size = "small",
+    srcs = ["BasicTest.hs"],
+    data = ["fixture.txt"],
+    deps = [
+        ":boot_cycle_lib",
+        ":cabal_configure",
+        ":cabal_mid",
+        ":cabal_top",
+        ":greet_lib",
+        "@hs_boot//:base",
+        "@hs_boot//:text",
+    ],
+)
+
+# 6. ELF hermeticity test: assert smoke_bin has ZERO libgmp/libtinfo/libffi/libHS DT_NEEDED!
+sh_test(
+    name = "elf_hermeticity_test",
+    size = "small",
+    srcs = ["elf_hermeticity_test.sh"],
+    args = ["$(rootpath :smoke_bin)"],
+    data = [":smoke_bin"],
+)

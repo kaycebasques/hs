@@ -1,0 +1,67 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_binary(
+    name = "ghc_cc_wrapper",
+    srcs = ["cc_wrapper.c"],
+    copts = [
+        "-std=c11",
+        "-O2",
+        "-Wall",
+        "-Wextra",
+    ],
+)
+
+cc_binary(
+    name = "libtinfo.so.6",
+    srcs = ["tinfo_stub.c"],
+    additional_linker_inputs = ["tinfo_stub.lds"],
+    copts = [
+        "-std=c11",
+        "-fPIC",
+        "-O2",
+    ],
+    linkopts = [
+        "-Wl,-soname,libtinfo.so.6",
+        "-Wl,--version-script=$(execpath :tinfo_stub.lds)",
+    ],
+    linkshared = True,
+)
+
+bzl_library(
+    name = "ghc_versions_bzl",
+    srcs = ["ghc_versions.bzl"],
+)
+
+bzl_library(
+    name = "ghc_bindist_bzl",
+    srcs = ["ghc_bindist.bzl"],
+    deps = [":ghc_versions_bzl"],
+)
+
+bzl_library(
+    name = "staged_ghc_bzl",
+    srcs = ["staged_ghc.bzl"],
+    deps = ["//hs:providers"],
+)
+
+bzl_library(
+    name = "actions_bzl",
+    srcs = ["actions.bzl"],
+    deps = ["//hs:providers"],
+)
+
+bzl_library(
+    name = "rules_bzl",
+    srcs = [
+        "cabal_library.bzl",
+        "rules.bzl",
+    ],
+    deps = [
+        ":actions_bzl",
+        "//hs:providers",
+        "//hs:toolchain",
+    ],
+)
