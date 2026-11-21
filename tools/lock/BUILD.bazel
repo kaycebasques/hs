@@ -36,6 +36,7 @@ hs_binary(
 
 hs_test(
     name = "lock_test",
+    size = "small",
     srcs = ["LockTest.hs"],
     main_module = "Main",
     deps = [
