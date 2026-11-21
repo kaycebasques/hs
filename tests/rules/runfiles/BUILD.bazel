@@ -1,0 +1,48 @@
+load("//hs:defs.bzl", "hs_binary", "hs_library", "hs_test")
+
+hs_library(
+    name = "data_provider_lib",
+    srcs = ["DataLib.hs"],
+    data = ["lib_data.txt"],
+    deps = [
+        "@hs_boot//:base",
+        "@hs_boot//:directory",
+        "@hs_boot//:filepath",
+    ],
+)
+
+hs_library(
+    name = "direct_data_lib",
+    srcs = ["DirectDataLib.hs"],
+    data = ["direct_lib_data.txt"],
+    deps = [
+        ":data_provider_lib",
+        "@hs_boot//:base",
+    ],
+)
+
+hs_binary(
+    name = "data_tool_bin",
+    srcs = ["DataToolMain.hs"],
+    data = ["tool_data.txt"],
+    deps = [
+        ":data_provider_lib",
+        "@hs_boot//:base",
+    ],
+)
+
+hs_test(
+    name = "runfiles_test",
+    size = "small",
+    srcs = ["RunfilesTest.hs"],
+    data = [
+        ":data_tool_bin",
+        "test_data.txt",
+    ],
+    deps = [
+        ":data_provider_lib",
+        ":direct_data_lib",
+        "@hs_boot//:base",
+        "@hs_boot//:process",
+    ],
+)

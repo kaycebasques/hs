@@ -1,0 +1,51 @@
+module Main where
+
+import CcDepsFfi
+    ( Vec2 (..)
+    , addVec2
+    , dotVec2
+    , initVec2
+    , readVecGlobalBias
+    , vecMagicVersion
+    , weightedSumVec2
+    )
+import Control.Monad (unless)
+import InlineCFfi (Accum (..), inlineHelperTag, runAccum)
+import System.Exit (exitFailure)
+
+assertEq :: (Eq a, Show a) => String -> a -> a -> IO ()
+assertEq name expected actual =
+    unless (expected == actual) $ do
+        putStrLn ("FAIL [" ++ name ++ "]: expected " ++ show expected ++ ", got " ++ show actual)
+        exitFailure
+
+main :: IO ()
+main = do
+    -- 1. cc_library -> cc_deps: CApiFFI header constant, global data symbol, structs, pointers, arrays
+    assertEq "VEC_MAGIC_VERSION" 2026 vecMagicVersion
+    bias <- readVecGlobalBias
+    assertEq "vec_global_bias" 100 bias
+
+    v1 <- initVec2 3 4 1.5
+    v2 <- initVec2 10 (-2) 2.5
+    assertEq "vec2_init v1" (Vec2 3 4 1.5) v1
+    assertEq "vec2_init v2" (Vec2 10 (-2) 2.5) v2
+
+    vSum <- addVec2 v1 v2
+    assertEq "vec2_add" (Vec2 13 2 4.0) vSum
+
+    dot <- dotVec2 v1 v2
+    assertEq "vec2_dot" 22 dot
+
+    wSum <- weightedSumVec2 [v1, v2]
+    -- (3+4)*1.5 + (10-2)*2.5 = 10.5 + 20.0 = 30.5
+    assertEq "vec2_weighted_sum" 30.5 wSum
+
+    -- 2. hs_library inline c_sources + hdrs + include_dirs + cc_options (-DINLINE_SCALE=3)
+    assertEq "INLINE_HELPER_TAG" 77 inlineHelperTag
+    (st, finished) <- runAccum 10 [5, 7, 8]
+    -- acc = 10 + 5 + 7 + 8 = 30, count = 3; finish = 30 * 3 + 3 = 93
+    assertEq "accum state" (Accum 30 3) st
+    assertEq "accum_finish" 93 finished
+
+    putStrLn "C INTEROP FFI TEST PASSED!"

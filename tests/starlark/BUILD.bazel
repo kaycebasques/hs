@@ -1,0 +1,258 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load(
+    "//hs:defs.bzl",
+    "hs_binary",
+    "hs_cabal_library",
+    "hs_library",
+    "hs_toolchain_library",
+)
+load(
+    ":rules_analysis_test.bzl",
+    "hs_binary_action_test",
+    "hs_binary_cc_propagation_test",
+    "hs_cabal_c_only_test",
+    "hs_cabal_library_test",
+    "hs_library_cc_propagation_test",
+    "hs_library_providers_test",
+    "strict_direct_dep_visibility_test",
+    "toolchain_library_test",
+)
+
+# ------------------------------------------------------------------------------
+# Analysis fixture targets
+# ------------------------------------------------------------------------------
+
+hs_toolchain_library(
+    name = "boot_text_alias",
+    package_name = "text",
+)
+
+hs_library(
+    name = "lib_a",
+    srcs = ["LibA.hs"],
+    deps = ["@hs_boot//:base"],
+)
+
+hs_library(
+    name = "lib_b",
+    srcs = ["LibB.hs"],
+    deps = [
+        ":lib_a",
+        "@hs_boot//:base",
+    ],
+)
+
+hs_library(
+    name = "lib_c",
+    srcs = ["LibC.hs"],
+    deps = [
+        ":lib_b",
+        "@hs_boot//:base",
+    ],
+)
+
+hs_binary(
+    name = "bin_threaded",
+    srcs = ["SampleMain.hs"],
+    threaded = True,
+    deps = [
+        ":lib_c",
+        "@hs_boot//:base",
+    ],
+)
+
+hs_binary(
+    name = "bin_unthreaded",
+    srcs = ["SampleMain.hs"],
+    threaded = False,
+    deps = [
+        ":lib_c",
+        "@hs_boot//:base",
+    ],
+)
+
+hs_cabal_library(
+    name = "cabal_h2010",
+    package_name = "sample-cabal",
+    srcs = ["SampleCabal.hs"],
+    default_language = "Haskell2010",
+    exposed_modules = ["SampleCabal"],
+    generate_paths_module = True,
+    version = "1.2.3",
+    deps = [
+        ":lib_a",
+        "@hs_boot//:base",
+    ],
+)
+
+hs_cabal_library(
+    name = "cabal_h98",
+    package_name = "sample-cabal-h98",
+    srcs = ["SampleCabal.hs"],
+    default_language = "Haskell98",
+    exposed_modules = ["SampleCabal"],
+    version = "0.5.0",
+    deps = [
+        ":lib_a",
+        "@hs_boot//:base",
+    ],
+)
+
+hs_cabal_library(
+    name = "cabal_c_only",
+    package_name = "sample-c-only",
+    c_sources = ["sample_cc.c"],
+    hdrs = ["sample_cc.h"],
+    include_dirs = ["."],
+    install_includes = ["sample_cc.h"],
+    version = "0.9.1",
+)
+
+cc_library(
+    name = "sample_cc",
+    srcs = ["sample_cc.c"],
+    hdrs = ["sample_cc.h"],
+)
+
+hs_library(
+    name = "hs_with_cc",
+    srcs = ["WithCc.hs"],
+    cc_deps = [":sample_cc"],
+    deps = ["@hs_boot//:base"],
+)
+
+hs_library(
+    name = "hs_transitive_cc",
+    srcs = ["TransitiveCc.hs"],
+    deps = [
+        ":hs_with_cc",
+        "@hs_boot//:base",
+    ],
+)
+
+hs_binary(
+    name = "bin_with_transitive_cc",
+    srcs = ["CcMain.hs"],
+    deps = [
+        ":hs_transitive_cc",
+        "@hs_boot//:base",
+    ],
+)
+
+hs_binary(
+    name = "bin_with_direct_cc",
+    srcs = ["CcMain.hs"],
+    cc_deps = [":sample_cc"],
+    deps = ["@hs_boot//:base"],
+)
+
+# ------------------------------------------------------------------------------
+# Starlark analysistest targets
+# ------------------------------------------------------------------------------
+
+toolchain_library_test(
+    name = "toolchain_library_base_test",
+    size = "small",
+    expected_module = "Prelude",
+    expected_name = "base",
+    target_under_test = "@hs_boot//:base",
+)
+
+toolchain_library_test(
+    name = "toolchain_library_explicit_name_test",
+    size = "small",
+    expected_module = "Data.Text",
+    expected_name = "text",
+    target_under_test = ":boot_text_alias",
+)
+
+hs_library_providers_test(
+    name = "hs_library_providers_test",
+    size = "small",
+    lib_a = ":lib_a",
+    lib_b = ":lib_b",
+    target_under_test = ":lib_c",
+)
+
+strict_direct_dep_visibility_test(
+    name = "strict_direct_dep_visibility_test",
+    size = "small",
+    base_dep = "@hs_boot//:base",
+    direct_dep = ":lib_b",
+    target_under_test = ":lib_c",
+    transitive_dep = ":lib_a",
+)
+
+hs_binary_action_test(
+    name = "hs_binary_threaded_true_test",
+    size = "small",
+    direct_dep = ":lib_c",
+    expect_threaded = True,
+    target_under_test = ":bin_threaded",
+    transitive_dep = ":lib_a",
+)
+
+hs_binary_action_test(
+    name = "hs_binary_threaded_false_test",
+    size = "small",
+    direct_dep = ":lib_c",
+    expect_threaded = False,
+    target_under_test = ":bin_unthreaded",
+    transitive_dep = ":lib_b",
+)
+
+hs_cabal_library_test(
+    name = "hs_cabal_library_h2010_test",
+    size = "small",
+    expect_paths_module = True,
+    expected_language = "Haskell2010",
+    expected_pkg_name = "sample-cabal",
+    expected_version = "1.2.3",
+    forbidden_language = "Haskell98",
+    target_under_test = ":cabal_h2010",
+)
+
+hs_cabal_library_test(
+    name = "hs_cabal_library_h98_test",
+    size = "small",
+    expect_paths_module = False,
+    expected_language = "Haskell98",
+    expected_pkg_name = "sample-cabal-h98",
+    expected_version = "0.5.0",
+    forbidden_language = "Haskell2010",
+    target_under_test = ":cabal_h98",
+)
+
+hs_cabal_c_only_test(
+    name = "hs_cabal_c_only_test",
+    size = "small",
+    target_under_test = ":cabal_c_only",
+)
+
+hs_library_cc_propagation_test(
+    name = "hs_library_direct_cc_propagation_test",
+    size = "small",
+    cc_dep = ":sample_cc",
+    target_under_test = ":hs_with_cc",
+)
+
+hs_library_cc_propagation_test(
+    name = "hs_library_transitive_cc_propagation_test",
+    size = "small",
+    cc_dep = ":sample_cc",
+    target_under_test = ":hs_transitive_cc",
+)
+
+hs_binary_cc_propagation_test(
+    name = "hs_binary_transitive_cc_propagation_test",
+    size = "small",
+    cc_dep = ":sample_cc",
+    target_under_test = ":bin_with_transitive_cc",
+)
+
+hs_binary_cc_propagation_test(
+    name = "hs_binary_direct_cc_propagation_test",
+    size = "small",
+    cc_dep = ":sample_cc",
+    target_under_test = ":bin_with_direct_cc",
+)

@@ -1,0 +1,20 @@
+load("//hs:defs.bzl", "hs_test")
+
+hs_test(
+    name = "threaded_rts_test",
+    size = "small",
+    srcs = ["ThreadedRtsTest.hs"],
+    threaded = True,
+    deps = [
+        "@hs_boot//:base",
+        "@hs_boot//:stm",
+    ],
+)
+
+hs_test(
+    name = "non_threaded_rts_test",
+    size = "small",
+    srcs = ["NonThreadedRtsTest.hs"],
+    threaded = False,
+    deps = ["@hs_boot//:base"],
+)

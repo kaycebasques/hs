@@ -1,0 +1,44 @@
+load("//hs:defs.bzl", "hs_library", "hs_test")
+
+# Template Haskell support coverage:
+# - TemplateHaskellQuotes works out of the box via @hs_boot//:template-haskell.
+# - Boot-package TH splices and same-library cross-module TH splices work because
+#   GHC's boot packages ship dynamic .so libraries and GHC 9.10 compiles same-target
+#   splice helpers with .dyn_o automatically during --make.
+# - Cross-package (separate hs_library) TH splices are not yet wired in hs/private/
+#   actions.bzl because hs_library currently emits static libHS<unit_id>.a archives only
+#   (no -dynamic-too / shared libHS<unit_id>.so / dynamic-library-dirs yet).
+
+hs_library(
+    name = "th_quotes_lib",
+    srcs = ["ThQuotesLib.hs"],
+    deps = [
+        "@hs_boot//:base",
+        "@hs_boot//:template-haskell",
+    ],
+)
+
+hs_library(
+    name = "th_splice_lib",
+    srcs = [
+        "ThBootSplice.hs",
+        "ThCrossModSplice.hs",
+        "ThHelper.hs",
+    ],
+    deps = [
+        "@hs_boot//:base",
+        "@hs_boot//:template-haskell",
+    ],
+)
+
+hs_test(
+    name = "th_test",
+    size = "small",
+    srcs = ["ThTest.hs"],
+    deps = [
+        ":th_quotes_lib",
+        ":th_splice_lib",
+        "@hs_boot//:base",
+        "@hs_boot//:template-haskell",
+    ],
+)

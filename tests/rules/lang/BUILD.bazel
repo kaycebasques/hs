@@ -1,0 +1,63 @@
+load("//hs:defs.bzl", "hs_library", "hs_test")
+
+hs_library(
+    name = "lang_h98_lib",
+    srcs = ["H98Lib.hs"],
+    default_language = "Haskell98",
+    deps = ["@hs_boot//:base"],
+)
+
+hs_library(
+    name = "lang_h2010_lib",
+    srcs = ["H2010Lib.hs"],
+    default_language = "Haskell2010",
+    deps = ["@hs_boot//:base"],
+)
+
+hs_library(
+    name = "lang_ghc2021_lib",
+    srcs = ["Ghc2021Lib.hs"],
+    default_language = "GHC2021",
+    deps = ["@hs_boot//:base"],
+)
+
+hs_library(
+    name = "ext_hier_lib",
+    srcs = [
+        "src/Org/RulesHs/Eval/Engine.hs",
+        "src/Org/RulesHs/Internal/Secret.hs",
+        "src/Org/RulesHs/Types.hs",
+    ],
+    default_extensions = [
+        "OverloadedStrings",
+        "DerivingStrategies",
+        "LambdaCase",
+    ],
+    default_language = "GHC2021",
+    ghc_opts = [
+        "-Wall",
+        "-Werror",
+        "-O2",
+    ],
+    hidden_modules = ["Org.RulesHs.Internal.Secret"],
+    hs_source_dirs = ["src"],
+    deps = [
+        "@hs_boot//:base",
+        "@hs_boot//:text",
+    ],
+)
+
+hs_test(
+    name = "lang_test",
+    size = "small",
+    srcs = ["LangTest.hs"],
+    ghc_opts = ["-Wall"],
+    deps = [
+        ":ext_hier_lib",
+        ":lang_ghc2021_lib",
+        ":lang_h2010_lib",
+        ":lang_h98_lib",
+        "@hs_boot//:base",
+        "@hs_boot//:text",
+    ],
+)
