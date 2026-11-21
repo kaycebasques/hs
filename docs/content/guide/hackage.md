@@ -140,7 +140,7 @@ Other useful hermetic Cabal flags for documentation and CLI tools:
 | `zlib` | `--flag zlib:bundled-c-zlib=true --flag zlib:pkg-config=false` | Compiles bundled `zlib-clib` from C source via Bazel's `cc_toolchain` |
 | `pandoc` | `--flag pandoc:embed_data_files=true` | Embeds data files into the binary at compile time via `file-embed` TH |
 | `citeproc` | `--flag citeproc:embed_data_files=true` | Embeds locale/CSL data files at compile time |
-| `hakyll` | `--flag hakyll:checkexternal=false --flag hakyll:watchserver=false --flag hakyll:previewserver=false` | Keeps core Hakyll `Rules`/`Compiler`/Pandoc pipeline without pulling `warp`/`fsnotify` |
+| `hakyll` | `--flag hakyll:checkexternal=false --flag hakyll:watchserver=false --flag hakyll:previewserver=false` | Keeps core Hakyll `Rules`/`Compiler`/Pandoc pipeline without pulling `http-conduit`/`fsnotify` |
 
 ### Pattern B: Attaching BCR `cc_library` Targets with `hackage.override`
 
