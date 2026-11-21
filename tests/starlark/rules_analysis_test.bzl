@@ -146,9 +146,10 @@ def _strict_direct_dep_visibility_test_impl(ctx):
     pkg_a = ctx.attr.transitive_dep[HsPackageInfo]
     pkg_base = ctx.attr.base_dep[HsPackageInfo]
 
-    # Must pass -hide-all-packages and -this-unit-id.
+    # Must pass -hide-all-packages, -fPIC, and -dynamic-too (for cross-library TH).
     asserts.true(env, "-hide-all-packages" in argv, "-hide-all-packages must be passed to GHC")
     asserts.true(env, "-fPIC" in argv, "-fPIC must be passed to GHC")
+    asserts.true(env, "-dynamic-too" in argv, "-dynamic-too must be passed to GHC on dynamic toolchains")
     this_unit_ids = _get_flag_values(argv, "-this-unit-id")
     asserts.equals(env, [pkg_c.unit_id], this_unit_ids)
 

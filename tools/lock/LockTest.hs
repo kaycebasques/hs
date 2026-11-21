@@ -294,6 +294,28 @@ testJsonEncoding = do
   assertTrue "trailing newline" ("\n" `T.isSuffixOf` rendered)
   assertTrue "compact empty array" ("\"empty_arr\": []" `T.isInfixOf` rendered)
 
+testCxxSourcesAndOldExtensions :: TestResult
+testCxxSourcesAndOldExtensions = do
+  let cabal =
+        BS8.unlines
+          [ "cabal-version: 2.2"
+          , "name: digest-sample"
+          , "version: 0.0.2"
+          , "build-type: Simple"
+          , "library"
+          , "  exposed-modules: Data.Digest.CRC32C"
+          , "  extensions: FlexibleInstances"
+          , "  cxx-options: -std=c++11"
+          , "  cxx-sources: external/crc32c/src/crc32c.cc"
+          , "  build-depends: base, bytestring"
+          ]
+  gpd <- parseCabalBytes cabal
+  ep <- extractComponentSpecs "9.10.3" availBase bootBase Map.empty [] [] gpd
+  lib <- maybe (Left "missing library") Right (epLibrary ep)
+  assertEq "legacy extensions extracted" ["FlexibleInstances"] (csDefaultExtensions lib)
+  assertEq "cxx-sources extracted into c_sources" ["external/crc32c/src/crc32c.cc"] (csCSources lib)
+  assertEq "cxx-options extracted into cc_options" ["-std=c++11"] (csCcOptions lib)
+
 allTests :: [(String, TestResult)]
 allTests =
   [ ("simple_and_defaults", testSimpleAndDefaults)
@@ -303,6 +325,7 @@ allTests =
   , ("paths_and_custom_doctest", testPathsAndCustomDoctest)
   , ("configure_package", testConfigurePackage)
   , ("reexported_modules", testReexportedModules)
+  , ("cxx_sources_and_old_extensions", testCxxSourcesAndOldExtensions)
   , ("stackage_yaml_parser", testStackageYamlParser)
   , ("json_encoding", testJsonEncoding)
   ]

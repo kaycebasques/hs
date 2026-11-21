@@ -44,3 +44,15 @@ register_toolchains(
     "@hs_toolchains//:all",
     dev_dependency = True,
 )
+
+# Dev-only pinned Hackage dependencies for the documentation site generator (//docs/...).
+hackage = use_extension(
+    "//hs:extensions.bzl",
+    "hackage",
+    dev_dependency = True,
+)
+hackage.from_lock(
+    name = "hackage",
+    lockfile = "//docs:hackage.lock.json",
+)
+use_repo(hackage, "hackage")

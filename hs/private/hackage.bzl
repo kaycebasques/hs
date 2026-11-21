@@ -12,6 +12,8 @@ Creates:
     Hackage package, fetched only when referenced in the build graph.
 """
 
+load("//hs/private:cabal_codegen.bzl", "alex_bootstrap_repo", "happy_bootstrap_repo")
+
 _PLATFORM_CONFIGS = [
     ("linux_x86_64", "_linux_x86_64", ["@platforms//os:linux", "@platforms//cpu:x86_64"]),
     ("linux_arm64", "_linux_arm64", ["@platforms//os:linux", "@platforms//cpu:arm64"]),
@@ -32,14 +34,17 @@ _HDR_GLOB_PATTERNS = [
 ]
 
 _HDR_GLOB_EXCLUDES = [
-    "**/*.hs",
+    "Setup.hs",
+    "Setup.lhs",
     "**/*.hs-boot",
     "**/*.hsc",
     "**/*.in",
     "**/*.lhs",
     "**/*.lhs-boot",
+    "app/**",
     "bench/**",
     "benchmarks/**",
+    "bin/**",
     "example/**",
     "examples/**",
     "test/**",
@@ -95,12 +100,17 @@ def _find_module_files(repository_ctx, hs_source_dirs, modules):
     """Resolves Haskell module names to on-disk source paths under hs_source_dirs.
 
     Only matches files for the explicit active module list, avoiding Windows
-    .hsc files, test suites, benchmarks, and Setup.hs.
+    .hsc files, test suites, benchmarks, and Setup.hs. Also detects Alex (.x)
+    and Happy (.y / .ly) grammar sources so build-time preprocessors can run.
     """
     hs_srcs = []
     hsc_srcs = []
+    alex_srcs = []
+    happy_srcs = []
     seen_hs = {}
     seen_hsc = {}
+    seen_alex = {}
+    seen_happy = {}
     search_dirs = hs_source_dirs if hs_source_dirs else ["."]
 
     for mod in modules:
@@ -115,6 +125,9 @@ def _find_module_files(repository_ctx, hs_source_dirs, modules):
                 hsc_cand = base_path + ".hsc"
                 hs_cand = base_path + ".hs"
                 lhs_cand = base_path + ".lhs"
+                alex_cand = base_path + ".x"
+                happy_cand = base_path + ".y"
+                lhappy_cand = base_path + ".ly"
                 if repository_ctx.path(hsc_cand).exists:
                     if hsc_cand not in seen_hsc:
                         seen_hsc[hsc_cand] = True
@@ -130,6 +143,21 @@ def _find_module_files(repository_ctx, hs_source_dirs, modules):
                         seen_hs[lhs_cand] = True
                         hs_srcs.append(lhs_cand)
                     found_primary = True
+                elif repository_ctx.path(alex_cand).exists:
+                    if alex_cand not in seen_alex:
+                        seen_alex[alex_cand] = True
+                        alex_srcs.append((alex_cand, base_path + ".hs"))
+                    found_primary = True
+                elif repository_ctx.path(happy_cand).exists:
+                    if happy_cand not in seen_happy:
+                        seen_happy[happy_cand] = True
+                        happy_srcs.append((happy_cand, base_path + ".hs"))
+                    found_primary = True
+                elif repository_ctx.path(lhappy_cand).exists:
+                    if lhappy_cand not in seen_happy:
+                        seen_happy[lhappy_cand] = True
+                        happy_srcs.append((lhappy_cand, base_path + ".hs"))
+                    found_primary = True
 
             # Always check for companion .hs-boot / .lhs-boot files (e.g. cborg, tls).
             for boot_ext in (".hs-boot", ".lhs-boot"):
@@ -138,7 +166,7 @@ def _find_module_files(repository_ctx, hs_source_dirs, modules):
                     seen_hs[boot_cand] = True
                     hs_srcs.append(boot_cand)
 
-    return sorted(hs_srcs), sorted(hsc_srcs)
+    return sorted(hs_srcs), sorted(hsc_srcs), sorted(alex_srcs), sorted(happy_srcs)
 
 def _collect_field_select(select_raw, field_name):
     out = {}
@@ -174,11 +202,52 @@ def _emit_component_rule(
     base_src_dirs = comp.get("hs_source_dirs", ["."])
     base_exposed = comp.get("exposed_modules", [])
     base_other = comp.get("other_modules", [])
-    base_hs, base_hsc = _find_module_files(
+    base_hs, base_hsc, base_alex, base_happy = _find_module_files(
         repository_ctx,
         base_src_dirs,
         base_exposed + base_other,
     )
+
+    codegen_blocks = []
+    for idx in range(len(base_alex)):
+        x_src, hs_out = base_alex[idx]
+        gen_name = "{}_alex_{}".format(_sanitize_repo_suffix(target_name), idx)
+        codegen_blocks.append(
+            """\
+hs_alex_gen(
+    name = {name},
+    src = {src},
+    out = {out},
+    alex = "@{hub}__bootstrap_alex//:alex",
+    alex_data = ["@{hub}__bootstrap_alex//:data_files"],
+)""".format(
+                name = repr(gen_name),
+                src = repr(x_src),
+                out = repr(hs_out),
+                hub = hub_name,
+            ),
+        )
+        base_hs.append(":" + gen_name)
+
+    for idx in range(len(base_happy)):
+        y_src, hs_out = base_happy[idx]
+        gen_name = "{}_happy_{}".format(_sanitize_repo_suffix(target_name), idx)
+        codegen_blocks.append(
+            """\
+hs_happy_gen(
+    name = {name},
+    src = {src},
+    out = {out},
+    happy = "@{hub}__bootstrap_happy//:happy",
+    happy_data = ["@{hub}__bootstrap_happy//:data_files"],
+)""".format(
+                name = repr(gen_name),
+                src = repr(y_src),
+                out = repr(hs_out),
+                hub = hub_name,
+            ),
+        )
+        base_hs.append(":" + gen_name)
 
     hs_select = {}
     hsc_select = {}
@@ -190,7 +259,7 @@ def _emit_component_rule(
             plat_mods = delta.get("exposed_modules", []) + delta.get("other_modules", [])
             plat_dirs = delta.get("hs_source_dirs", [])
             if plat_mods:
-                p_hs, p_hsc = _find_module_files(
+                p_hs, p_hsc, _, _ = _find_module_files(
                     repository_ctx,
                     base_src_dirs + plat_dirs,
                     plat_mods,
@@ -208,15 +277,33 @@ def _emit_component_rule(
     # internal/unbox-tuple-instances).
     base_c_sources = comp.get("c_sources", [])
     c_sources_select = _collect_field_select(select_raw, "c_sources")
-    all_c_sources_map = {c: True for c in base_c_sources}
+    all_compiled_files_map = {c: True for c in base_c_sources}
     for vals in c_sources_select.values():
         for c in vals:
-            all_c_sources_map[c] = True
-    hdr_excludes = sorted(_HDR_GLOB_EXCLUDES + list(all_c_sources_map.keys()))
+            all_compiled_files_map[c] = True
+    for hs_f in base_hs:
+        if not hs_f.startswith(":"):
+            all_compiled_files_map[hs_f] = True
+    for vals in hs_select.values():
+        for hs_f in vals:
+            if not hs_f.startswith(":"):
+                all_compiled_files_map[hs_f] = True
+    hdr_excludes = sorted(_HDR_GLOB_EXCLUDES + list(all_compiled_files_map.keys()))
 
     inc_base = comp.get("include_dirs", [])
     inc_sel = _collect_field_select(select_raw, "include_dirs")
     hdr_patterns_map = {p: True for p in _HDR_GLOB_PATTERNS}
+    all_src_dirs = list(base_src_dirs)
+    for vals in _collect_field_select(select_raw, "hs_source_dirs").values():
+        all_src_dirs.extend(vals)
+    for raw_sdir in all_src_dirs:
+        norm_sdir = raw_sdir.strip("/")
+        if norm_sdir and norm_sdir != ".":
+            hdr_patterns_map[norm_sdir + "/**/*.hs"] = True
+            hdr_patterns_map[norm_sdir + "/**/*.h"] = True
+            hdr_patterns_map[norm_sdir + "/**/*.inc"] = True
+        else:
+            hdr_patterns_map["**/*.hs"] = True
     all_inc_dirs = list(inc_base)
     for vals in inc_sel.values():
         all_inc_dirs.extend(vals)
@@ -340,8 +427,31 @@ def _emit_component_rule(
     if extra_cc_deps:
         lines.append("    extra_cc_deps = {},".format(_format_str_list(extra_cc_deps)))
 
+    raw_dep_names = list(comp.get("deps", []))
+    for plat_key, _, _ in _PLATFORM_CONFIGS:
+        raw_dep_names.extend(select_raw.get(plat_key, {}).get("deps", []))
+    if "file-embed" in raw_dep_names or "template-haskell" in raw_dep_names:
+        data_excludes = sorted(_HDR_GLOB_EXCLUDES + [
+            "BUILD",
+            "BUILD.bazel",
+            "REPO.bazel",
+            "WORKSPACE",
+            "WORKSPACE.bazel",
+            "**/*.c",
+            "**/*.h",
+            "**/*.hpp",
+        ])
+        lines.append(
+            "    data = glob(\n        [\"**/.*\", \"**\"],\n        exclude = {},\n        allow_empty = True,\n    ),".format(
+                _format_str_list(data_excludes, indent = "        "),
+            ),
+        )
+
     lines.append(")")
-    return "\n".join(lines)
+    has_alex = bool(base_alex)
+    has_happy = bool(base_happy)
+    full_block = "\n\n".join(codegen_blocks + ["\n".join(lines)])
+    return full_block, has_alex, has_happy
 
 def _component_uses_select(comp):
     select_raw = comp.get("select", {})
@@ -392,8 +502,6 @@ def _hackage_package_repo_impl(repository_ctx):
             needs_select = True
 
     sections = [
-        'load("@rules_hs//hs:defs.bzl", "hs_cabal_library")',
-        "",
         'package(default_visibility = ["//visibility:public"])',
     ]
 
@@ -407,44 +515,58 @@ def _hackage_package_repo_impl(repository_ctx):
                 ),
             )
 
+    used_alex = False
+    used_happy = False
+
     # Emit internal sublibraries first so the main library can depend on ":<sublib>".
     for sub_name in sorted(sublibs.keys()):
         sections.append("")
-        sections.append(
-            _emit_component_rule(
-                repository_ctx = repository_ctx,
-                hub_name = hub_name,
-                pkg_name = pkg_name,
-                component_name = sub_name,
-                version = spec["version"],
-                comp = sublibs[sub_name],
-                build_type = "Simple",
-                configure_script = "",
-                configure_srcs = [],
-                configure_outputs = [],
-                overrides = overrides,
-            ),
+        blk, ha, hh = _emit_component_rule(
+            repository_ctx = repository_ctx,
+            hub_name = hub_name,
+            pkg_name = pkg_name,
+            component_name = sub_name,
+            version = spec["version"],
+            comp = sublibs[sub_name],
+            build_type = "Simple",
+            configure_script = "",
+            configure_srcs = [],
+            configure_outputs = [],
+            overrides = overrides,
         )
+        used_alex = used_alex or ha
+        used_happy = used_happy or hh
+        sections.append(blk)
 
     if main_lib != None:
         sections.append("")
-        sections.append(
-            _emit_component_rule(
-                repository_ctx = repository_ctx,
-                hub_name = hub_name,
-                pkg_name = pkg_name,
-                component_name = "",
-                version = spec["version"],
-                comp = main_lib,
-                build_type = build_type,
-                configure_script = configure_script,
-                configure_srcs = configure_srcs,
-                configure_outputs = configure_outputs,
-                overrides = overrides,
-            ),
+        blk, ha, hh = _emit_component_rule(
+            repository_ctx = repository_ctx,
+            hub_name = hub_name,
+            pkg_name = pkg_name,
+            component_name = "",
+            version = spec["version"],
+            comp = main_lib,
+            build_type = build_type,
+            configure_script = configure_script,
+            configure_srcs = configure_srcs,
+            configure_outputs = configure_outputs,
+            overrides = overrides,
         )
+        used_alex = used_alex or ha
+        used_happy = used_happy or hh
+        sections.append(blk)
 
-    repository_ctx.file("BUILD.bazel", "\n".join(sections) + "\n")
+    loads = ['load("@rules_hs//hs:defs.bzl", "hs_cabal_library")']
+    codegen_syms = []
+    if used_alex:
+        codegen_syms.append('"hs_alex_gen"')
+    if used_happy:
+        codegen_syms.append('"hs_happy_gen"')
+    if codegen_syms:
+        loads.append('load("@rules_hs//hs/private:cabal_codegen.bzl", {})'.format(", ".join(codegen_syms)))
+
+    repository_ctx.file("BUILD.bazel", "\n".join(loads + [""] + sections) + "\n")
 
 _hackage_package_repo = repository_rule(
     implementation = _hackage_package_repo_impl,
@@ -580,6 +702,13 @@ def _hackage_impl(module_ctx):
             )
             for sub_name in sorted(spec.get("sublibraries", {}).keys()):
                 sublib_entries.append([pkg_name, sub_name])
+
+        alex_bootstrap_repo(
+            name = hub_name + "__bootstrap_alex",
+        )
+        happy_bootstrap_repo(
+            name = hub_name + "__bootstrap_happy",
+        )
 
         _hackage_hub_repo(
             name = hub_name,

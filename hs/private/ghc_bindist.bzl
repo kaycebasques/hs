@@ -166,7 +166,7 @@ filegroup(
 
 filegroup(
     name = "rts_headers",
-    srcs = glob(["{rts_include_rel}/**"]),
+    srcs = glob(["lib/{arch_libdir}/*/include/**"]),
 )
 
 staged_ghc(

@@ -1,13 +1,13 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//hs:defs.bzl", "hs_library", "hs_test")
 
 # Template Haskell support coverage:
-# - TemplateHaskellQuotes works out of the box via @hs_boot//:template-haskell.
-# - Boot-package TH splices and same-library cross-module TH splices work because
-#   GHC's boot packages ship dynamic .so libraries and GHC 9.10 compiles same-target
-#   splice helpers with .dyn_o automatically during --make.
-# - Cross-package (separate hs_library) TH splices are not yet wired in hs/private/
-#   actions.bzl because hs_library currently emits static libHS<unit_id>.a archives only
-#   (no -dynamic-too / shared libHS<unit_id>.so / dynamic-library-dirs yet).
+# 1. TemplateHaskellQuotes via @hs_boot//:template-haskell (:th_quotes_lib).
+# 2. Boot-package TH splices and same-library cross-module TH splices (:th_splice_lib).
+# 3. Cross-library and multi-hop TH splices across separate hs_library targets,
+#    including compile-time CApiFFI + runIO execution via -dynamic-too shared
+#    libraries in <name>.pkgdb/dyn, while preserving base-glibc-only static
+#    linking of final executables (:cross_lib_th_test + :cross_lib_th_elf_test).
 
 hs_library(
     name = "th_quotes_lib",
@@ -41,4 +41,45 @@ hs_test(
         "@hs_boot//:base",
         "@hs_boot//:template-haskell",
     ],
+)
+
+hs_library(
+    name = "th_cross_lib_base",
+    srcs = ["ThCrossLibBase.hs"],
+    hdrs = ["th_c_helper.h"],
+    c_sources = ["th_c_helper.c"],
+    include_dirs = ["."],
+    deps = [
+        "@hs_boot//:base",
+        "@hs_boot//:template-haskell",
+    ],
+)
+
+hs_library(
+    name = "th_cross_lib_mid",
+    srcs = ["ThCrossLibMid.hs"],
+    deps = [
+        ":th_cross_lib_base",
+        "@hs_boot//:base",
+        "@hs_boot//:template-haskell",
+    ],
+)
+
+hs_test(
+    name = "cross_lib_th_test",
+    size = "small",
+    srcs = ["CrossLibThTest.hs"],
+    deps = [
+        ":th_cross_lib_mid",
+        "@hs_boot//:base",
+        "@hs_boot//:template-haskell",
+    ],
+)
+
+sh_test(
+    name = "cross_lib_th_elf_test",
+    size = "small",
+    srcs = ["cross_lib_th_elf_test.sh"],
+    args = ["$(rootpath :cross_lib_th_test)"],
+    data = [":cross_lib_th_test"],
 )

@@ -12,6 +12,22 @@ _HEADER_EXTENSIONS = (".h", ".hh", ".hpp", ".hxx", ".inc", ".inl")
 def get_hs_toolchain(ctx):
     return ctx.toolchains[TOOLCHAIN_TYPE].hs
 
+def _toolchain_c_include_dirs(hs_tc):
+    """Returns deduplicated C include directories for RTS and boot packages (base, unix, time, etc.)."""
+    dirs = []
+    seen = {}
+    if hs_tc.rts_include_dir:
+        dirs.append(hs_tc.rts_include_dir)
+        seen[hs_tc.rts_include_dir] = True
+    for f in hs_tc.rts_headers.to_list():
+        d = f.dirname
+        idx = d.rfind("/include")
+        inc_d = d[:idx + len("/include")] if idx != -1 else d
+        if inc_d and inc_d not in seen:
+            seen[inc_d] = True
+            dirs.append(inc_d)
+    return dirs
+
 def resolve_cc_tools(ctx):
     """Resolves C compiler, archiver, linker, and sysroot/target flags from Bazel's cc_toolchain."""
     cc_toolchain = find_cc_toolchain(ctx)
@@ -382,7 +398,9 @@ def run_configure_action(
         ))
 
     script_rel = _strip_prefix_path(configure_script.path, [pkg_root])
-    cflags_list = ["-fPIC", "-I" + _execroot_or_abs(hs_tc.rts_include_dir)]
+    cflags_list = ["-fPIC"]
+    for tc_inc in _toolchain_c_include_dirs(hs_tc):
+        cflags_list.append("-I" + _execroot_or_abs(tc_inc))
     for d in extra_include_dirs:
         cflags_list.append("-I" + _execroot_or_abs(d))
 
@@ -538,7 +556,8 @@ def run_hsc2hs_actions(
         args.add("--cc=" + hs_tc.cc_wrapper.path)
         args.add("--ld=" + hs_tc.cc_wrapper.path)
         args.add("-I.")
-        args.add("-I" + hs_tc.rts_include_dir)
+        for tc_inc in _toolchain_c_include_dirs(hs_tc):
+            args.add("-I" + tc_inc)
         for d in include_dirs:
             args.add("-I" + d)
         if cabal_macros_h:
@@ -550,7 +569,8 @@ def run_hsc2hs_actions(
         for opt in cpp_options:
             args.add("--cflag=" + opt)
         for opt in cc_options:
-            args.add("--cflag=" + opt)
+            if not (opt.startswith("-std=c++") or opt.startswith("-std=gnu++")):
+                args.add("--cflag=" + opt)
         args.add("-o", out_hs.path)
         args.add(hsc_file.path)
 
@@ -650,11 +670,21 @@ def compile_c_sources(
     user_flags = [
         "-fPIC",
         "-Wno-unused-command-line-argument",
-        "-I" + hs_tc.rts_include_dir,
     ]
+    user_flags.extend(_hsc2hs_ghc_defines(hs_tc))
+    for tc_inc in _toolchain_c_include_dirs(hs_tc):
+        user_flags.append("-I" + tc_inc)
     if cabal_macros_h:
         user_flags.extend(["-include", cabal_macros_h.path])
-    user_flags.extend(cc_options)
+    conly_flags = []
+    cxx_flags = []
+    for opt in cc_options:
+        if opt.startswith("-std=c++") or opt.startswith("-std=gnu++") or opt.startswith("-stdlib="):
+            cxx_flags.append(opt)
+        elif opt.startswith("-std="):
+            conly_flags.append(opt)
+        else:
+            user_flags.append(opt)
 
     comp_ctx, comp_outs = cc_common.compile(
         actions = ctx.actions,
@@ -668,6 +698,8 @@ def compile_c_sources(
         quote_includes = [resolve_package_dir(ctx, ".")],
         compilation_contexts = [dep_cc_info.compilation_context],
         user_compile_flags = user_flags,
+        conly_flags = conly_flags,
+        cxx_flags = cxx_flags,
         additional_inputs = additional_inputs,
     )
 
@@ -705,6 +737,48 @@ def extract_cc_static_libs_and_flags(cc_info):
             link_flags.append(f)
     return archives, link_flags
 
+def _resolve_reexported_for_conf(reexported_modules, exposed_modules, other_modules, unit_id, direct_pkgs):
+    """Formats Cabal reexported-modules into ghc-pkg exposed-modules 'New from <unit_id>:Orig' entries."""
+    if not reexported_modules:
+        return []
+    resolved = []
+    for raw in reexported_modules:
+        entry = raw.strip()
+        if not entry:
+            continue
+        if " as " in entry:
+            parts = entry.split(" as ", 1)
+            orig_ref = parts[0].strip()
+            new_mod = parts[1].strip()
+        else:
+            orig_ref = entry
+            new_mod = entry
+        if ":" in orig_ref:
+            pkg_parts = orig_ref.split(":", 1)
+            orig_pkg = pkg_parts[0].strip()
+            orig_mod = pkg_parts[1].strip()
+        else:
+            orig_pkg = ""
+            orig_mod = orig_ref
+        origin_uid = ""
+        if orig_pkg:
+            for p in direct_pkgs:
+                if p.name == orig_pkg and p.unit_id:
+                    origin_uid = p.unit_id
+                    break
+        elif orig_mod in exposed_modules or orig_mod in other_modules:
+            origin_uid = unit_id
+        else:
+            for p in direct_pkgs:
+                if p.unit_id and orig_mod in p.exposed_modules:
+                    origin_uid = p.unit_id
+                    break
+        if origin_uid:
+            resolved.append("{} from {}:{}".format(new_mod, origin_uid, orig_mod))
+        else:
+            resolved.append(new_mod)
+    return resolved
+
 def compile_hs_library_action(
         ctx,
         hs_tc,
@@ -727,10 +801,14 @@ def compile_hs_library_action(
         cabal_macros_h,
         include_dirs,
         headers,
-        dep_info):
-    """Compiles Haskell modules into libHS<unit_id>.a + relocatable ${pkgroot} ghc-pkg DB."""
+        dep_info,
+        cc_info = None,
+        compile_data = [],
+        rt_shims = []):
+    """Compiles Haskell modules into libHS<unit_id>.a (+ dynamic .so for TH) + relocatable ${pkgroot} ghc-pkg DB."""
     pkg_db = ctx.actions.declare_directory(ctx.label.name + ".pkgdb")
     hs_lib = ctx.actions.declare_file("libHS" + unit_id + ".a")
+    cc_archives, cc_link_flags = extract_cc_static_libs_and_flags(cc_info) if cc_info else ([], [])
 
     # Separate .hs-boot files from directly compiled source files (GHC discovers .hs-boot via -i).
     compile_src_files = []
@@ -752,10 +830,15 @@ def compile_hs_library_action(
     else:
         compile_targets = [f.path for f in compile_src_files]
 
-    # Build -i search directories.
+    # Build -i search directories (including bin_dir equivalents when srcs contains generated .hs files).
     resolved_src_dirs = [resolve_package_dir(ctx, d) for d in (hs_source_dirs or ["."])]
+    has_generated_srcs = any([not f.is_source for f in hs_srcs])
+    bin_src_dirs = []
+    if has_generated_srcs and ctx.bin_dir.path:
+        for d in resolved_src_dirs:
+            bin_src_dirs.append(ctx.bin_dir.path + "/" + d if d != "." else ctx.bin_dir.path)
     all_import_dirs = []
-    for d in resolved_src_dirs + list(extra_import_dirs):
+    for d in resolved_src_dirs + bin_src_dirs + list(extra_import_dirs):
         if d and d not in all_import_dirs:
             all_import_dirs.append(d)
 
@@ -770,6 +853,8 @@ def compile_hs_library_action(
     ghc_args.add("--make")
     ghc_args.add("-c")
     ghc_args.add("-fPIC")
+    if hs_tc.is_dynamic_ghc:
+        ghc_args.add("-dynamic-too")
     ghc_args.add("-this-unit-id", unit_id)
     ghc_args.add("-hide-all-packages")
     ghc_args.add("-hidir", pkg_db.path + "/hi")
@@ -819,15 +904,59 @@ def compile_hs_library_action(
     # Construct relocatable ${pkgroot} paths.
     # Because pkg_db, hi_dir, and hs_lib are all declared in the same output directory,
     # `${pkgroot}/..` is their shared parent directory!
-    explicit_exposed = " ".join(exposed_modules)
+    resolved_reexports = _resolve_reexported_for_conf(
+        reexported_modules,
+        exposed_modules,
+        other_modules,
+        unit_id,
+        dep_info.direct_pkgs,
+    )
+    if resolved_reexports:
+        explicit_exposed = ", ".join(list(exposed_modules) + resolved_reexports)
+    else:
+        explicit_exposed = " ".join(exposed_modules)
     explicit_hidden = " ".join(list(other_modules) + list(hidden_modules))
-    explicit_reexported = ", ".join(reexported_modules)
+    explicit_reexported = ""
     depends_str = " ".join(direct_unit_ids)
     has_hs_targets = "1" if compile_targets else "0"
+    is_dynamic = "1" if hs_tc.is_dynamic_ghc else "0"
+    has_compile_data = "1" if compile_data else "0"
+    pkg_root = resolve_package_dir(ctx, ".")
 
-    extra_in = list(hs_srcs) + list(generated_hs_srcs)
+    action_env = dict(ghc_base_env(cc_tools))
+    extra_in = list(hs_srcs) + list(generated_hs_srcs) + list(compile_data)
     if cabal_macros_h:
         extra_in.append(cabal_macros_h)
+    if hs_tc.is_dynamic_ghc:
+        shim_archives = [f for f in rt_shims if f.path.endswith(".a")] if cc_archives else []
+        all_dyn_cc_archives = list(cc_archives) + shim_archives
+        extra_in.extend(all_dyn_cc_archives)
+        dyn_link_args = [
+            "-shared",
+            "-dynamic",
+            "-fPIC",
+            "-this-unit-id",
+            unit_id,
+            "-hide-all-packages",
+            "-no-auto-link-packages",
+        ]
+        for db in dep_info.pkg_dbs.to_list():
+            dyn_link_args.extend(["-package-db", db.path])
+        for uid in direct_unit_ids:
+            dyn_link_args.extend(["-package-id", uid])
+        dyn_link_args.extend(ghc_tool_flags(hs_tc, cc_tools))
+        dyn_link_args.append("-optl-Wl,-Bsymbolic")
+        dyn_link_args.append("-optl-L{}/{}".format(hs_tc.libdir.path, hs_tc.arch_libdir))
+        if cc_archives:
+            dyn_link_args.append("-optl-Wl,--whole-archive")
+            for a in cc_archives:
+                dyn_link_args.append("-optl" + a.path)
+            dyn_link_args.append("-optl-Wl,--no-whole-archive")
+            for sa in shim_archives:
+                dyn_link_args.append("-optl" + sa.path)
+        for lf in cc_link_flags:
+            dyn_link_args.append("-optl" + lf)
+        action_env["RULES_HS_DYN_LINK_ARGS"] = "\n".join(dyn_link_args)
 
     ctx.actions.run_shell(
         mnemonic = "HsCompileLibrary",
@@ -845,7 +974,7 @@ def compile_hs_library_action(
         ),
         tools = [hs_tc.ghc, hs_tc.ghc_pkg, hs_tc.cc_wrapper],
         outputs = [pkg_db, hs_lib],
-        env = ghc_base_env(cc_tools),
+        env = action_env,
         command = """\
 set -euo pipefail
 unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY
@@ -853,28 +982,63 @@ unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY
 GHC="$1"
 GHC_PKG="$2"
 GHC_LIB="$3"
-AR="$4"
-PKG_DB="$5"
-PKG_DB_BASE="$6"
-HS_LIB="$7"
-PKG_NAME="$8"
-PKG_VER="$9"
-UNIT_ID="${10}"
-EXPLICIT_EXPOSED="${11}"
-EXPLICIT_HIDDEN="${12}"
-EXPLICIT_REEXPORTED="${13}"
-DEPENDS_STR="${14}"
-HAS_TARGETS="${15}"
-shift 15
+GHC_VER="$4"
+AR="$5"
+PKG_DB="$6"
+PKG_DB_BASE="$7"
+HS_LIB="$8"
+PKG_NAME="$9"
+PKG_VER="${10}"
+UNIT_ID="${11}"
+EXPLICIT_EXPOSED="${12}"
+EXPLICIT_HIDDEN="${13}"
+EXPLICIT_REEXPORTED="${14}"
+DEPENDS_STR="${15}"
+HAS_TARGETS="${16}"
+IS_DYNAMIC="${17}"
+HAS_COMPILE_DATA="${18}"
+PKG_ROOT="${19}"
+shift 19
+
+EXECROOT="$(pwd)"
+case "${RULES_HS_REAL_CC:-}" in
+    ""|/*) ;;
+    *) export RULES_HS_REAL_CC="$EXECROOT/$RULES_HS_REAL_CC" ;;
+esac
+case "$GHC" in
+    /*) GHC_ABS="$GHC" ;;
+    *) GHC_ABS="$EXECROOT/$GHC" ;;
+esac
 
 HI_DIR="$PKG_DB/hi"
 mkdir -p "$HI_DIR" "$PKG_DB"
-ODIR="$(mktemp -d "${TMPDIR:-/tmp}/hs_o.XXXXXX")"
-trap 'rm -rf "$ODIR"' EXIT
+WORK_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/hs_lib.XXXXXX")"
+trap 'rm -rf "$WORK_ROOT"' EXIT
+ODIR="$WORK_ROOT/objs"
+export TMPDIR="$WORK_ROOT/tmp"
+mkdir -p "$ODIR" "$TMPDIR"
+
+GHC_CWD="$EXECROOT"
+if [ "$HAS_COMPILE_DATA" = "1" ] && [ "$PKG_ROOT" != "." ] && [ -d "$EXECROOT/$PKG_ROOT" ]; then
+    GHC_CWD="$WORK_ROOT/pkg_cwd"
+    mkdir -p "$GHC_CWD"
+    for top in "$EXECROOT"/*; do
+        [ -e "$top" ] || [ -L "$top" ] || continue
+        ln -s "$top" "$GHC_CWD/$(basename "$top")"
+    done
+    for item in "$EXECROOT/$PKG_ROOT"/* "$EXECROOT/$PKG_ROOT"/.*; do
+        [ -e "$item" ] || [ -L "$item" ] || continue
+        iname="$(basename "$item")"
+        [ "$iname" = "." ] || [ "$iname" = ".." ] && continue
+        if [ "$iname" != "bazel-out" ] && [ "$iname" != "external" ]; then
+            ln -snf "$item" "$GHC_CWD/$iname"
+        fi
+    done
+fi
 
 if [ "$HAS_TARGETS" = "1" ]; then
-    "$GHC" -odir "$ODIR" -stubdir "$ODIR" "$@"
-    OBJ_LIST="$ODIR/objects.rsp"
+    (cd "$GHC_CWD" && "$GHC_ABS" -odir "$ODIR" -stubdir "$ODIR" "$@")
+    OBJ_LIST="$WORK_ROOT/objects.rsp"
     find "$ODIR" -name '*.o' | sort > "$OBJ_LIST"
     if [ -s "$OBJ_LIST" ]; then
         "$AR" rcs "$HS_LIB" "@$OBJ_LIST"
@@ -883,6 +1047,29 @@ if [ "$HAS_TARGETS" = "1" ]; then
     fi
 else
     "$AR" rcs "$HS_LIB"
+fi
+
+if [ "$IS_DYNAMIC" = "1" ]; then
+    DYN_DIR="$PKG_DB/dyn"
+    mkdir -p "$DYN_DIR"
+    DYN_LIB="$DYN_DIR/libHS${UNIT_ID}-ghc${GHC_VER}.so"
+    DYN_ARGV=()
+    if [ -n "${RULES_HS_DYN_LINK_ARGS:-}" ]; then
+        while IFS= read -r darg; do
+            [ -z "$darg" ] && continue
+            DYN_ARGV+=("$darg")
+        done <<EOF_DYN
+$RULES_HS_DYN_LINK_ARGS
+EOF_DYN
+    fi
+    if [ "$HAS_TARGETS" = "1" ]; then
+        while IFS= read -r dyn_obj; do
+            [ -z "$dyn_obj" ] && continue
+            DYN_ARGV+=("$dyn_obj")
+        done < <(find "$ODIR" -name '*.dyn_o' | sort)
+    fi
+    DYN_ARGV+=("-o" "$DYN_LIB")
+    "$GHC" "${DYN_ARGV[@]}"
 fi
 
 # Auto-discover exposed-modules from produced .hi files when not explicitly specified.
@@ -903,6 +1090,9 @@ if [ -z "$EXPOSED" ] && [ "$HAS_TARGETS" = "1" ]; then
 fi
 
 # Note: In GHC's package DB format, ${pkgroot} expands to dirname($PKG_DB).
+# Static archives live in ${pkgroot} (library-dirs / library-dirs-static), while
+# dynamic shared libraries for Template Haskell live strictly in ${pkgroot}/<pkgdb>/dyn
+# (dynamic-library-dirs) so static hs_binary / hs_test links never pick up libHS*.so.
 CONF="$PKG_DB/${UNIT_ID}.conf"
 {
     printf 'name: %s\n' "$PKG_NAME"
@@ -912,6 +1102,10 @@ CONF="$PKG_DB/${UNIT_ID}.conf"
     printf 'exposed: True\n'
     printf 'import-dirs: ${pkgroot}/%s/hi\n' "$PKG_DB_BASE"
     printf 'library-dirs: ${pkgroot}\n'
+    printf 'library-dirs-static: ${pkgroot}\n'
+    if [ "$IS_DYNAMIC" = "1" ]; then
+        printf 'dynamic-library-dirs: ${pkgroot}/%s/dyn\n' "$PKG_DB_BASE"
+    fi
     printf 'hs-libraries: HS%s\n' "$UNIT_ID"
     if [ -n "$EXPOSED" ]; then
         printf 'exposed-modules: %s\n' "$EXPOSED"
@@ -933,6 +1127,7 @@ CONF="$PKG_DB/${UNIT_ID}.conf"
             hs_tc.ghc.path,
             hs_tc.ghc_pkg.path,
             hs_tc.libdir.path,
+            hs_tc.version,
             cc_tools.ar,
             pkg_db.path,
             pkg_db.basename,
@@ -945,6 +1140,9 @@ CONF="$PKG_DB/${UNIT_ID}.conf"
             explicit_reexported,
             depends_str,
             has_hs_targets,
+            is_dynamic,
+            has_compile_data,
+            pkg_root,
             ghc_args,
         ],
     )

@@ -6,6 +6,11 @@ toolchain_type(
     name = "toolchain_type",
 )
 
+filegroup(
+    name = "all_bzl_srcs",
+    srcs = glob(["*.bzl"]) + ["//hs/private:all_bzl_srcs"],
+)
+
 bzl_library(
     name = "providers",
     srcs = ["providers.bzl"],

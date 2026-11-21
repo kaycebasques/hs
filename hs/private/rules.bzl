@@ -136,6 +136,9 @@ def _hs_library_impl(ctx):
         include_dirs = [resolve_package_dir(ctx, d) for d in ctx.attr.include_dirs],
         headers = depset(ctx.files.hdrs),
         dep_info = dep_info,
+        cc_info = merged_cc_info,
+        compile_data = ctx.files.data,
+        rt_shims = extract_cc_static_libs_and_flags(ctx.attr._rt_shims[CcInfo])[0],
     )
 
     runfiles = ctx.runfiles(files = ctx.files.data).merge_all([
@@ -201,6 +204,10 @@ hs_library = rule(
         "cpp_options": attr.string_list(default = []),
         "cc_options": attr.string_list(default = []),
         "data": attr.label_list(allow_files = True, default = []),
+        "_rt_shims": attr.label(
+            default = Label("//hs/private:rt_shims"),
+            providers = [CcInfo],
+        ),
     },
     toolchains = [TOOLCHAIN_TYPE] + use_cc_toolchain(),
     fragments = ["cpp"],
@@ -233,6 +240,8 @@ def _hs_executable_impl(ctx):
     )
 
     cc_archives, cc_link_flags = extract_cc_static_libs_and_flags(merged_cc_info)
+    if cc_archives:
+        cc_archives = list(cc_archives) + extract_cc_static_libs_and_flags(ctx.attr._rt_shims[CcInfo])[0]
 
     out_exe = ctx.actions.declare_file(ctx.label.name)
 
@@ -311,7 +320,7 @@ def _hs_executable_impl(ctx):
     for f in compile_src_files:
         ghc_args.add(f.path)
 
-    extra_in = list(ctx.files.srcs) + list(ctx.files.hdrs) + list(cc_archives)
+    extra_in = list(ctx.files.srcs) + list(ctx.files.hdrs) + list(cc_archives) + list(ctx.files.data)
     if hs_tc.gmp_static_lib:
         extra_in.append(hs_tc.gmp_static_lib)
 
@@ -336,8 +345,11 @@ set -euo pipefail
 unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY
 GHC="$1"
 shift
-WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/hs_bin.XXXXXX")"
-trap 'rm -rf "$WORKDIR"' EXIT
+WORK_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/hs_bin.XXXXXX")"
+trap 'rm -rf "$WORK_ROOT"' EXIT
+WORKDIR="$WORK_ROOT/objs"
+export TMPDIR="$WORK_ROOT/tmp"
+mkdir -p "$WORKDIR" "$TMPDIR"
 "$GHC" -outputdir "$WORKDIR" "$@"
 """,
         arguments = [hs_tc.ghc.path, ghc_args],
@@ -387,6 +399,10 @@ _EXECUTABLE_ATTRS = {
     "cpp_options": attr.string_list(default = []),
     "cc_options": attr.string_list(default = []),
     "data": attr.label_list(allow_files = True, default = []),
+    "_rt_shims": attr.label(
+        default = Label("//hs/private:rt_shims"),
+        providers = [CcInfo],
+    ),
 }
 
 hs_binary = rule(

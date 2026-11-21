@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SITE_DIR="$1"
+DOCS_GEN_BIN="$2"
+SERVE_BIN="$3"
+
+echo "=== 1. Verifying //docs:site directory outputs ==="
+if [ ! -d "$SITE_DIR" ]; then
+    echo "FAIL: built site directory not found at $SITE_DIR" >&2
+    exit 1
+fi
+
+for required in \
+    "internals/docs-engine.html" \
+    "static/style.css" \
+    "static/syntax.css" \
+    "static/docs.js" \
+    "search-index.json"; do
+    if [ ! -s "$SITE_DIR/$required" ]; then
+        echo "FAIL: missing or empty required site artifact: $SITE_DIR/$required" >&2
+        exit 1
+    fi
+done
+
+grep -qF "Haskell Docs Engine" "$SITE_DIR/internals/docs-engine.html"
+grep -qF "admonition" "$SITE_DIR/internals/docs-engine.html"
+grep -qF "docs-engine.html" "$SITE_DIR/search-index.json"
+echo "OK: all core HTML, CSS, JS, and search-index.json outputs verified"
+
+echo "=== 2. Verifying ELF DT_NEEDED hermeticity of //docs:docs_gen and //docs:serve ==="
+for bin in "$DOCS_GEN_BIN" "$SERVE_BIN"; do
+    if [ ! -x "$bin" ]; then
+        echo "FAIL: binary not executable: $bin" >&2
+        exit 1
+    fi
+    NEEDED="$(readelf -d "$bin" | awk '/\(NEEDED\)/{print $NF}' | tr -d '[]' | sort)"
+    echo "DT_NEEDED ($bin):"
+    echo "$NEEDED"
+    BAD=""
+    while IFS= read -r lib; do
+        [ -z "$lib" ] && continue
+        case "$lib" in
+            libc.so.6|libm.so.6|libdl.so.2|libpthread.so.0|librt.so.1|libutil.so.1|ld-linux-*.so.*)
+                ;;
+            *)
+                BAD="${BAD}${lib}"$'\n'
+                ;;
+        esac
+    done <<< "$NEEDED"
+    if [ -n "$BAD" ]; then
+        echo "FAIL: $bin dynamically links non-glibc libraries:" >&2
+        echo "$BAD" >&2
+        exit 1
+    fi
+done
+echo "OK: both //docs:docs_gen and //docs:serve link strictly base glibc"
+
+echo "=== 3. Verifying execution under env -i PATH=/nonexistent ==="
+HELP_GEN="$(env -i PATH=/nonexistent "$DOCS_GEN_BIN" --help)"
+echo "$HELP_GEN" | grep -qF "Usage: docs_gen"
+
+HELP_SERVE="$(env -i PATH=/nonexistent "$SERVE_BIN" --help)"
+echo "$HELP_SERVE" | grep -qF "Usage: serve"
+
+echo "=== 4. Verifying //docs:serve HTTP/1.1 static server over loopback ==="
+SERVE_LOG="${TEST_TMPDIR:-/tmp}/serve_test.$$.log"
+"$SERVE_BIN" --host 127.0.0.1 --port 0 --site-dir "$SITE_DIR" >"$SERVE_LOG" 2>&1 &
+SERVE_PID=$!
+cleanup_serve() {
+    kill "$SERVE_PID" 2>/dev/null || true
+    wait "$SERVE_PID" 2>/dev/null || true
+    rm -f "$SERVE_LOG"
+}
+trap cleanup_serve EXIT
+
+ACTUAL_PORT=""
+for _ in $(seq 1 50); do
+    if grep -q "http://127.0.0.1:" "$SERVE_LOG" 2>/dev/null; then
+        ACTUAL_PORT="$(sed -n 's/.*http:\/\/127\.0\.0\.1:\([0-9][0-9]*\)\/.*/\1/p' "$SERVE_LOG" | head -n 1)"
+        [ -n "$ACTUAL_PORT" ] && break
+    fi
+    sleep 0.05
+done
+
+if [ -z "$ACTUAL_PORT" ]; then
+    echo "FAIL: //docs:serve did not start listening in time:" >&2
+    cat "$SERVE_LOG" >&2
+    exit 1
+fi
+
+exec 3<>"/dev/tcp/127.0.0.1/${ACTUAL_PORT}"
+printf 'GET /internals/docs-engine.html HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n' >&3
+HTTP_RESP="$(cat <&3)"
+exec 3>&-
+
+echo "$HTTP_RESP" | grep -qF "HTTP/1.1 200 OK"
+echo "$HTTP_RESP" | grep -qF "Haskell Documentation Engine"
+echo "OK: //docs:serve served /internals/docs-engine.html over HTTP/1.1 on port $ACTUAL_PORT"
+echo "DOCS SITE & ELF HERMETICITY TEST PASSED!"

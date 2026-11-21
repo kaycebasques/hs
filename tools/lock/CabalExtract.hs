@@ -483,14 +483,14 @@ extractRawComp selfPkg pathsModName selfSublibs extraInst lib =
       srcDirs0 = map (normalizePath . getSymbolicPath) (hsSourceDirs bi)
       srcDirs = if null srcDirs0 then ["."] else nub srcDirs0
       defLang = maybe "Haskell98" (T.pack . prettyShow) (defaultLanguage bi)
-      defExts = sort . nub $ map (T.pack . prettyShow) (defaultExtensions bi)
+      defExts = sort . nub $ map (T.pack . prettyShow) (defaultExtensions bi ++ oldExtensions bi)
       PerCompilerFlavor ghcOptsRaw _ = options bi
       ghcOpts = sanitizeGhcOpts (map T.pack ghcOptsRaw)
-      cSrcs = nub $ map normalizePath (cSources bi)
+      cSrcs = nub $ map normalizePath (cSources bi ++ cxxSources bi ++ asmSources bi)
       incDirs = nub $ map normalizePath (includeDirs bi)
       instIncs = sort . nub $ map normalizePath (installIncludes bi) ++ extraInst
       cppOpts = map T.pack (cppOptions bi)
-      ccOpts = map T.pack (ccOptions bi)
+      ccOpts = nub $ map T.pack (ccOptions bi ++ cxxOptions bi)
       extLibs = map T.pack (extraLibs bi)
       (deps, subDeps) = extractDeps selfPkg selfSublibs (targetBuildDepends bi)
    in RawComp

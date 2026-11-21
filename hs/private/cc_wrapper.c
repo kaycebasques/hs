@@ -275,6 +275,9 @@ static void rewrite_tokens(
                 continue;
             }
             vec_push(out, xstrdup(a));
+        } else if (strcmp(a, "-o") == 0 && i + 1 < n) {
+            vec_push(out, xstrdup(a));
+            vec_push(out, xstrdup(in[++i]));
         } else if (strcmp(a, "-Wl,-h") == 0 && i + 1 < n && starts_with(in[i + 1], "-Wl,")) {
             const char *soname = in[i + 1] + 4;
             char *buf = (char *)malloc(strlen("-Wl,-soname,") + strlen(soname) + 1);

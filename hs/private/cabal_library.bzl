@@ -9,6 +9,7 @@ load(
     "collect_deps",
     "compile_c_sources",
     "compile_hs_library_action",
+    "extract_cc_static_libs_and_flags",
     "get_hs_toolchain",
     "resolve_cc_tools",
     "resolve_package_dir",
@@ -207,6 +208,9 @@ def _hs_cabal_library_impl(ctx):
         include_dirs = ghc_inc_dirs,
         headers = depset(ctx.files.hdrs + configure_outputs),
         dep_info = dep_info,
+        cc_info = merged_cc_info,
+        compile_data = ctx.files.data,
+        rt_shims = extract_cc_static_libs_and_flags(ctx.attr._rt_shims[CcInfo])[0],
     )
 
     return [
@@ -219,7 +223,10 @@ def _hs_cabal_library_impl(ctx):
             version = version,
             unit_id = unit_id,
             pkg_db = pkg_db,
-            exposed_modules = list(ctx.attr.exposed_modules),
+            exposed_modules = list(ctx.attr.exposed_modules) + [
+                (r.split(" as ", 1)[1].strip() if " as " in r else r.split(":", 1)[-1].strip())
+                for r in ctx.attr.reexported_modules
+            ],
             is_boot = False,
             hs_lib = hs_lib,
             hi_dir = hi_dir,
@@ -283,6 +290,10 @@ hs_cabal_library = rule(
             default = [],
         ),
         "data": attr.label_list(allow_files = True, default = []),
+        "_rt_shims": attr.label(
+            default = Label("//hs/private:rt_shims"),
+            providers = [CcInfo],
+        ),
     },
     toolchains = [TOOLCHAIN_TYPE] + use_cc_toolchain(),
     fragments = ["cpp"],

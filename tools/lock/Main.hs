@@ -22,7 +22,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Distribution.Types.Version (Version, mkVersion)
 import LockJson
-import System.Directory (createDirectoryIfMissing, doesFileExist)
+import System.Directory (createDirectoryIfMissing, doesFileExist, getFileSize, removeFile, renameFile)
 import System.Environment (getArgs)
 import System.Exit (ExitCode (..), die, exitSuccess)
 import System.FilePath ((</>))
@@ -237,13 +237,35 @@ cabalConfigUrl snap = "https://www.stackage.org/" ++ T.unpack snap ++ "/cabal.co
 fetchUrlToFile :: String -> FilePath -> IO ()
 fetchUrlToFile url dest = do
   exists <- doesFileExist dest
-  if exists
+  valid <-
+    if exists
+      then (> 0) <$> getFileSize dest
+      else pure False
+  if valid
     then pure ()
     else do
-      (code, _, err) <- readProcessWithExitCode "curl" ["-fsSL", "-A", "rules_hs-lock/0.1", url, "-o", dest] ""
+      let tmpDest = dest ++ ".tmp"
+          curlArgs =
+            [ "-fsSL"
+            , "--http1.1"
+            , "--retry"
+            , "5"
+            , "--retry-delay"
+            , "1"
+            , "--retry-all-errors"
+            , "-A"
+            , "rules_hs-lock/0.1"
+            , url
+            , "-o"
+            , tmpDest
+            ]
+      (code, _, err) <- readProcessWithExitCode "curl" curlArgs ""
       case code of
-        ExitSuccess -> pure ()
-        ExitFailure n -> die ("curl failed (" ++ show n ++ ") fetching " ++ url ++ ": " ++ err)
+        ExitSuccess -> renameFile tmpDest dest
+        ExitFailure n -> do
+          tmpExists <- doesFileExist tmpDest
+          if tmpExists then removeFile tmpDest else pure ()
+          die ("curl failed (" ++ show n ++ ") fetching " ++ url ++ ": " ++ err)
 
 computeSha256 :: FilePath -> IO Text
 computeSha256 path = do

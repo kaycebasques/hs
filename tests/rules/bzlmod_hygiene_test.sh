@@ -90,8 +90,8 @@ function flush_call(kind, buf,    dep_name, allowed, tmp) {
         }
         tc_checked++
     } else if (kind == "use_extension") {
-        if (buf ~ /@hermetic_cc_toolchain/ && buf !~ /dev_dependency[[:space:]]*=[[:space:]]*True/) {
-            print "FAIL: hermetic_cc_toolchain use_extension in MODULE.bazel must set dev_dependency = True: " buf > "/dev/stderr"
+        if ((buf ~ /@hermetic_cc_toolchain/ || buf ~ /"hackage"/) && buf !~ /dev_dependency[[:space:]]*=[[:space:]]*True/) {
+            print "FAIL: dev use_extension in MODULE.bazel must set dev_dependency = True: " buf > "/dev/stderr"
             exit 1
         }
     }

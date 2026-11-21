@@ -1,0 +1,154 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//docs:app/site.bzl", "hs_docs_site")
+load("//hs:defs.bzl", "hs_binary", "hs_library", "hs_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "README.md",
+    "hackage.lock.json",
+])
+
+filegroup(
+    name = "templates",
+    srcs = glob(["templates/*"]),
+)
+
+filegroup(
+    name = "static_assets",
+    srcs = glob(["static/**"]),
+)
+
+filegroup(
+    name = "content_srcs",
+    srcs = glob(["content/**/*.md"]),
+)
+
+hs_library(
+    name = "docs_engine_lib",
+    srcs = [
+        "app/Docs/CrossRef.hs",
+        "app/Docs/Directive.hs",
+        "app/Docs/LinkCheck.hs",
+        "app/Docs/Nav.hs",
+        "app/Docs/Search.hs",
+        "app/Docs/Site.hs",
+        "app/Docs/Starlark.hs",
+        "app/Docs/Toc.hs",
+        "app/Docs/Types.hs",
+    ],
+    ghc_opts = [
+        "-Wall",
+        "-Wcompat",
+    ],
+    hs_source_dirs = ["app"],
+    deps = [
+        "@hackage//:aeson",
+        "@hackage//:base",
+        "@hackage//:bytestring",
+        "@hackage//:containers",
+        "@hackage//:directory",
+        "@hackage//:filepath",
+        "@hackage//:hakyll",
+        "@hackage//:mtl",
+        "@hackage//:pandoc",
+        "@hackage//:pandoc-types",
+        "@hackage//:skylighting",
+        "@hackage//:tagsoup",
+        "@hackage//:text",
+        "@hackage//:yaml",
+    ],
+)
+
+hs_binary(
+    name = "docs_gen",
+    srcs = ["app/Main.hs"],
+    ghc_opts = [
+        "-Wall",
+        "-Wcompat",
+    ],
+    hs_source_dirs = ["app"],
+    main_module = "Main",
+    deps = [
+        ":docs_engine_lib",
+        "@hackage//:base",
+        "@hackage//:directory",
+        "@hackage//:filepath",
+    ],
+)
+
+hs_docs_site(
+    name = "site",
+    bzl_dir = "hs",
+    bzl_srcs = ["//hs:all_bzl_srcs"],
+    compiler = ":docs_gen",
+    content = [":content_srcs"],
+    content_dir = "docs/content",
+    static = [":static_assets"],
+    static_dir = "docs/static",
+    templates = [":templates"],
+    templates_dir = "docs/templates",
+)
+
+hs_binary(
+    name = "serve",
+    srcs = ["app/ServeMain.hs"],
+    data = [":site"],
+    ghc_opts = [
+        "-Wall",
+        "-Wcompat",
+    ],
+    hs_source_dirs = ["app"],
+    main_module = "Main",
+    deps = [
+        "@hackage//:base",
+        "@hackage//:bytestring",
+        "@hackage//:directory",
+        "@hackage//:filepath",
+        "@hackage//:network",
+    ],
+)
+
+hs_test(
+    name = "engine_test",
+    size = "small",
+    srcs = ["test/EngineTest.hs"],
+    data = [
+        ":static_assets",
+        ":templates",
+        "//hs:all_bzl_srcs",
+    ],
+    ghc_opts = [
+        "-Wall",
+        "-Wcompat",
+    ],
+    hs_source_dirs = ["test"],
+    main_module = "Main",
+    deps = [
+        ":docs_engine_lib",
+        "@hackage//:aeson",
+        "@hackage//:base",
+        "@hackage//:bytestring",
+        "@hackage//:containers",
+        "@hackage//:directory",
+        "@hackage//:filepath",
+        "@hackage//:pandoc",
+        "@hackage//:text",
+    ],
+)
+
+sh_test(
+    name = "site_test",
+    size = "small",
+    srcs = ["test/site_test.sh"],
+    args = [
+        "$(rootpath :site)",
+        "$(rootpath :docs_gen)",
+        "$(rootpath :serve)",
+    ],
+    data = [
+        ":docs_gen",
+        ":serve",
+        ":site",
+    ],
+)

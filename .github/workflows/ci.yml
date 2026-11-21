@@ -50,7 +50,7 @@ jobs:
           path: |
             ~/.cache/bazel-repo
             ~/.cache/bazelisk
-          key: bazel-native-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'hs/private/ghc_versions.bzl', 'examples/size/MODULE.bazel', 'examples/size/hackage.lock.json') }}
+          key: bazel-native-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'hs/private/ghc_versions.bzl', 'docs/hackage.lock.json', 'examples/size/MODULE.bazel', 'examples/size/hackage.lock.json') }}
           restore-keys: |
             bazel-native-${{ runner.os }}-
 
@@ -199,7 +199,7 @@ jobs:
           path: |
             ~/.cache/bazel-repo
             ~/.cache/bazelisk
-          key: bazel-container-${{ matrix.name }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'hs/private/ghc_versions.bzl', 'examples/size/MODULE.bazel', 'examples/size/hackage.lock.json') }}
+          key: bazel-container-${{ matrix.name }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'hs/private/ghc_versions.bzl', 'docs/hackage.lock.json', 'examples/size/MODULE.bazel', 'examples/size/hackage.lock.json') }}
           restore-keys: |
             bazel-container-${{ matrix.name }}-
 
