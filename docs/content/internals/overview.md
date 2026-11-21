@@ -10,6 +10,7 @@ order: 10
 
 This page introduces the architectural philosophy of `rules_hs`, examines the structural bottlenecks in prior Haskell-on-Bazel designs, defines the strict boundary between Bzlmod evaluation and Bazel build execution, and maps every module in the repository. Subsequent chapters in this section examine each subsystem in full implementation detail:
 
+- `doc:internals/rulesets-comparison` — exhaustive multi-ruleset architectural comparison against `tweag/rules_haskell`, Buck2's Haskell prelude (`prelude/haskell` and `buck2-haskell`), Please Build, `haskell.nix`, and Cabal/Stack wrappers.
 - `doc:internals/hermeticity` — pure-Starlark bindist sanitization, `$ORIGIN` staging, the 8-symbol `libtinfo.so.6` stub, static-GMP user binaries, and the native C11 `ghc_cc_wrapper`.
 - `doc:internals/providers-and-actions` — direct vs. transitive providers, strict dependency visibility, `${pkgroot}` package databases, C archive linking, runfiles, and Template Haskell execution.
 - `doc:internals/ecosystem-and-hackage` — the dogfooded `Cabal-syntax` lock generator (`cli:lock`), `@hackage` repository synthesis, and the 5-stage `bzl:rule:hs_cabal_library` build pipeline.
@@ -33,6 +34,10 @@ Six invariants govern every rule, repository extension, and C/Haskell helper in 
 ---
 
 ## Prior-Art Post-Mortem: Why Not Patch `tweag/rules_haskell`? {#prior-art-rules-haskell}
+
+::: {.tip title="Full Multi-Ruleset Architectural Comparison"}
+This section summarizes the six Bazel-specific bottlenecks in `tweag/rules_haskell` that motivated `rules_hs`. For an exhaustive, subsystem-by-subsystem comparison across **`tweag/rules_haskell`**, **Meta's `facebook/buck2` (`prelude/haskell` & `buck2-haskell`)**, **Please Build**, **`input-output-hk/haskell.nix`**, and **Cabal/Stack wrappers** — including compilation granularity trade-offs (`ghc --make -c` vs. `haskell_module` vs. Buck2 `dynamic_output_new`), provider schemas, and an engineering decision guide — see `doc:internals/rulesets-comparison`.
+:::
 
 Auditing `tweag/rules_haskell` (both `master` and BCR `1.0`) reveals **six structural bottlenecks** that are deeply intertwined across its repository rules, toolchain wrappers, and Cabal build driver. Addressing them cleanly on Bazel 9 favors a focused ground-up design over incremental workarounds:
 

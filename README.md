@@ -24,6 +24,8 @@ Modern, **Bzlmod-only** Bazel 9 ruleset for Haskell (`bazel_compatibility = [">=
 | **Dependency pinning & boot libs** | Dogfooded boot-only `Cabal-syntax` lock generator (`@rules_hs//tools/lock:lock`); automatic `@hs_boot` & `@hackage` boot targets | External `stack` / `stack_snapshot` pinning + manual `haskell_toolchain_library` boilerplate |
 | **Linux binary runtime deps** | Static `libgmp.a`; `DT_NEEDED` strictly base glibc (`libc`, `libm`, `libdl`, `libpthread`) | Dynamic linking / `$ORIGIN` rpath rewriting (`fully_static_link = False` on bindists) |
 
+> See [Comparison with Other Haskell Build Rulesets](docs/content/internals/rulesets-comparison.md) for the full architectural comparison across `rules_hs`, `tweag/rules_haskell`, Buck2's `prelude/haskell` & `buck2-haskell`, Please Build, `haskell.nix`, and Cabal/Stack wrappers.
+
 ---
 
 ## Quickstart
@@ -300,7 +302,7 @@ bazel test //docs:...
 - **API & CLI Reference** ([`docs/content/reference/`](docs/content/reference/rules.md)):
   - [Rules Reference](docs/content/reference/rules.md) · [Extensions & Providers](docs/content/reference/extensions-and-providers.md) · [Lock Generator CLI](docs/content/reference/lock-cli.md)
 - **Internals & Architecture** ([`docs/content/internals/`](docs/content/internals/overview.md)):
-  - [Architecture Overview](docs/content/internals/overview.md) · [Hermeticity & Toolchain](docs/content/internals/hermeticity.md) · [Providers & Action Graph](docs/content/internals/providers-and-actions.md) · [Hackage & Cabal Pipeline](docs/content/internals/ecosystem-and-hackage.md) · [Cross-OS & Platforms](docs/content/internals/cross-os-and-platforms.md) · [Haskell Docs Engine](docs/content/internals/docs-engine.md) · [Dependency Decisions](docs/content/internals/dependencies.md)
+  - [Architecture Overview](docs/content/internals/overview.md) · [Comparison with Other Rulesets](docs/content/internals/rulesets-comparison.md) · [Hermeticity & Toolchain](docs/content/internals/hermeticity.md) · [Providers & Action Graph](docs/content/internals/providers-and-actions.md) · [Hackage & Cabal Pipeline](docs/content/internals/ecosystem-and-hackage.md) · [Cross-OS & Platforms](docs/content/internals/cross-os-and-platforms.md) · [Haskell Docs Engine](docs/content/internals/docs-engine.md) · [Dependency Decisions](docs/content/internals/dependencies.md)
 - **Standalone Sitemap Counter Showcase**: [`examples/size/README.md`](examples/size/README.md)
 
 ## License

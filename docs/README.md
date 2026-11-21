@@ -49,11 +49,11 @@ order: 10
 ---
 ```
 
-- **Sections** are ordered canonically in the left sidebar:
-  1. `overview` ("Overview")
-  2. `guide` ("User Guide")
-  3. `reference` ("API & CLI Reference")
-  4. `internals` ("Internals & Architecture")
+- **Sections** are ordered canonically in the left sidebar across all 18 documentation pages:
+  1. `overview` ("Overview"): `index.md`
+  2. `guide` ("User Guide"): `quickstart.md`, `hackage.md`, `c-interop-and-toolchains.md`, `language-rts-runfiles-th.md`, `showcase-size.md`, `troubleshooting-and-migration.md`
+  3. `reference` ("API & CLI Reference"): `rules.md`, `extensions-and-providers.md`, `lock-cli.md`
+  4. `internals` ("Internals & Architecture"): `overview.md`, `rulesets-comparison.md`, `hermeticity.md`, `providers-and-actions.md`, `ecosystem-and-hackage.md`, `cross-os-and-platforms.md`, `docs-engine.md`, `dependencies.md`
 - Within each section, pages sort deterministically by `(order, route)` and automatically receive breadcrumbs and sequential Previous / Next footer cards.
 - Start the Markdown body directly with prose or `##` (`H2`) headings; the page template renders `title` as `<h1>` (any duplicate leading `# Title` in the Markdown body is stripped automatically).
 
@@ -89,6 +89,7 @@ Inline code spans with role prefixes resolve into typed cross-reference links:
 | `` `bzl:provider:HsPackageInfo` `` | `/reference/extensions-and-providers.html#hspackageinfo` | `HsPackageInfo` |
 | `` `cli:lock` `` | `/reference/lock-cli.html` | `//tools/lock:lock` |
 | `` `doc:guide/quickstart` `` | `/guide/quickstart.html` | Target page's `nav_title` |
+| `` `doc:internals/rulesets-comparison` `` | `/internals/rulesets-comparison.html` | `Comparison with Other Rulesets` |
 
 ### 3. Starlark Introspection & `bzl-autodoc` (`Docs.Starlark`)
 

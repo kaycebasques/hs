@@ -53,6 +53,8 @@ flowchart LR
 | **Dependency pinning & boot libs** | Dogfooded boot-only `Cabal-syntax` `cli:lock` generator; automatic `@hs_boot` & `@hackage` targets | External `stack` binary / `stack_snapshot` + manual `haskell_toolchain_library` boilerplate |
 | **Linux binary runtime deps** | Static `libgmp.a`; `DT_NEEDED` strictly base glibc (`libc`, `libm`, `libdl`, `libpthread`) | Dynamic linking / `$ORIGIN` rpath rewriting (`fully_static_link = False` on bindists) |
 
+For a deep implementation-level comparison across `tweag/rules_haskell`, Buck2's Haskell prelude, Please Build, `haskell.nix`, and Cabal/Stack wrappers, see `doc:internals/rulesets-comparison`.
+
 ## Documentation Map
 
 ### User Guide
@@ -73,6 +75,7 @@ flowchart LR
 ### Internals & Architecture
 
 - **`doc:internals/overview`** — Architectural philosophy, `tweag/rules_haskell` post-mortem, Buck2 Haskell & Bzlmod inspirations, and repository layout.
+- **`doc:internals/rulesets-comparison`** — Deep architectural comparison against `tweag/rules_haskell`, Buck2's `prelude/haskell` & `buck2-haskell`, Please Build, `haskell.nix`, and Cabal/Stack wrappers.
 - **`doc:internals/hermeticity`** — Pure-Starlark bindist sanitization, `$ORIGIN` staging, the 8-symbol `libtinfo.so.6` stub, static-GMP linking, and every rewrite inside `ghc_cc_wrapper`.
 - **`doc:internals/providers-and-actions`** — Direct vs. transitive provider split, `-hide-all-packages` visibility enforcement, `${pkgroot}` relocatable package DBs, and Template Haskell internals.
 - **`doc:internals/ecosystem-and-hackage`** — `Cabal-syntax` multi-platform evaluation, lazy hub/package repositories, and the 5-stage `bzl:rule:hs_cabal_library` action graph.

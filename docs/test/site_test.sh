@@ -12,7 +12,24 @@ if [ ! -d "$SITE_DIR" ]; then
 fi
 
 for required in \
+    "index.html" \
+    "guide/quickstart.html" \
+    "guide/hackage.html" \
+    "guide/c-interop-and-toolchains.html" \
+    "guide/language-rts-runfiles-th.html" \
+    "guide/showcase-size.html" \
+    "guide/troubleshooting-and-migration.html" \
+    "reference/rules.html" \
+    "reference/extensions-and-providers.html" \
+    "reference/lock-cli.html" \
+    "internals/overview.html" \
+    "internals/rulesets-comparison.html" \
+    "internals/hermeticity.html" \
+    "internals/providers-and-actions.html" \
+    "internals/ecosystem-and-hackage.html" \
+    "internals/cross-os-and-platforms.html" \
     "internals/docs-engine.html" \
+    "internals/dependencies.html" \
     "static/style.css" \
     "static/syntax.css" \
     "static/docs.js" \
@@ -24,9 +41,12 @@ for required in \
 done
 
 grep -qF "Haskell Docs Engine" "$SITE_DIR/internals/docs-engine.html"
+grep -qF "Comparison with Other Rulesets" "$SITE_DIR/internals/rulesets-comparison.html"
 grep -qF "admonition" "$SITE_DIR/internals/docs-engine.html"
+grep -qF "admonition" "$SITE_DIR/internals/rulesets-comparison.html"
 grep -qF "docs-engine.html" "$SITE_DIR/search-index.json"
-echo "OK: all core HTML, CSS, JS, and search-index.json outputs verified"
+grep -qF "rulesets-comparison.html" "$SITE_DIR/search-index.json"
+echo "OK: all 18 HTML pages, CSS, JS, and search-index.json outputs verified"
 
 echo "=== 2. Verifying ELF DT_NEEDED hermeticity of //docs:docs_gen and //docs:serve ==="
 for bin in "$DOCS_GEN_BIN" "$SERVE_BIN"; do

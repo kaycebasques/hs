@@ -10,7 +10,7 @@ This guide provides step-by-step migration recipes from `tweag/rules_haskell`, C
 
 ## Migrating from `tweag/rules_haskell`
 
-`rules_hs` is a clean-slate Bazel 9 Bzlmod ruleset designed to eliminate `WORKSPACE` boilerplate, `rules_nixpkgs`, Python `cc_wrapper` scripts, and manual `haskell_toolchain_library` declarations.
+`rules_hs` is a clean-slate Bazel 9 Bzlmod ruleset designed to eliminate `WORKSPACE` boilerplate, `rules_nixpkgs`, Python `cc_wrapper` scripts, and manual `haskell_toolchain_library` declarations. (For an architectural deep dive comparing `rules_hs`, `tweag/rules_haskell`, Buck2's Haskell rules, Please Build, and `haskell.nix`, see `doc:internals/rulesets-comparison`.)
 
 ### Concept & Rule Mapping
 
