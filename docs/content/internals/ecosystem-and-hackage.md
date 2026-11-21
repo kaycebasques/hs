@@ -351,7 +351,7 @@ Every stage and edge-case handler above exists to support concrete packages in `
 ### 5. Dogfooding the Documentation Engine (`hakyll`, `pandoc`, `skylighting`)
 
 - `docs/hackage.lock.json` locks `hakyll`, `pandoc`, `pandoc-types`, `skylighting`, `citeproc`, and `aeson` on `lts-24.67` using:
-  - `--flag hakyll:checkexternal=false --flag hakyll:watchserver=false --flag hakyll:previewserver=false` (keeping Hakyll's full `Rules` / `Compiler` / `Pandoc` / `Context` / `RelativizeUrls` engine while pruning `warp`/`wai`/`http-conduit`/`fsnotify`).
+  - `--flag hakyll:checkexternal=false --flag hakyll:watchserver=false --flag hakyll:previewserver=false` (keeping Hakyll's full `Rules` / `Compiler` / `Pandoc` / `Context` / `RelativizeUrls` engine while pruning `http-conduit`/`fsnotify`).
   - `--flag pandoc:embed_data_files=true --flag citeproc:embed_data_files=true` (compiling Pandoc and Citeproc data files directly into the binary via cross-library `file-embed` Template Haskell splices so `//docs:docs_gen` needs zero runtime `Paths_pandoc` data lookups in Bazel sandboxes).
   - `--flag zlib:bundled-c-zlib=true --flag zlib:pkg-config=false` (compiling `zlib-clib` from C source).
 - For full details on the vanilla Hakyll documentation site and mounted Haddock API docs, see [Hakyll & Haddock Docs](docs-engine.md).
