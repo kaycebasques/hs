@@ -22,6 +22,8 @@ for required in \
     "reference/rules.html" \
     "reference/extensions-and-providers.html" \
     "reference/lock-cli.html" \
+    "internals/bazel-rules-primer.html" \
+    "internals/haskell-and-ghc-primer.html" \
     "internals/overview.html" \
     "internals/rulesets-comparison.html" \
     "internals/hermeticity.html" \
@@ -49,7 +51,7 @@ grep -qF "Vanilla Hakyll" "$SITE_DIR/internals/docs-engine.html"
 grep -qF "../haddock/lock/index.html" "$SITE_DIR/internals/docs-engine.html"
 grep -qF "CabalExtract.html" "$SITE_DIR/haddock/lock/index.html"
 grep -qF "parseStackageYaml" "$SITE_DIR/haddock/lock/doc-index.json"
-echo "OK: all 18 Hakyll HTML pages, Skylighting CSS, and mounted //tools/lock Haddock verified"
+echo "OK: all 20 Hakyll HTML pages, Skylighting CSS, and mounted //tools/lock Haddock verified"
 
 echo "=== 2. Verifying ELF DT_NEEDED hermeticity of //docs:docs_gen and //docs:serve ==="
 for bin in "$DOCS_GEN_BIN" "$SERVE_BIN"; do

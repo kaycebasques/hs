@@ -16,6 +16,11 @@ Modern, **Bzlmod-only** Bazel 9 ruleset for Haskell (`bazel_compatibility = [">=
 - **Fine-grained Hackage builds**: Dogfoods GHC's boot `Cabal-syntax` library (`@rules_hs//tools/lock:lock`) to generate a deterministic `hackage.lock.json`, consumed by pure Starlark (`reproducible = True`) and built with a 5-stage `hs_cabal_library` pipeline instead of opaque `Setup.hs` wrappers.
 - **Minimal non-dev `MODULE.bazel` graph**: Directly depends only on `platforms`, `bazel_skylib`, `rules_cc`, and `gmp`.
 
+> **New to Bazel Rulesets or Haskell?** Our documentation assumes zero prior Bazel ruleset-authoring or Haskell/GHC background:
+> - **[Bazel Ruleset Primer](docs/content/internals/bazel-rules-primer.md)** — Loading/Analysis/Execution phases, `dev_dependency = True`, lazy Bzlmod hubs, `Provider`s & `depset`s, `TreeArtifact`s, `cfg = "exec"`, and `CcInfo` C/C++ interop.
+> - **[Haskell & GHC Primer](docs/content/internals/haskell-and-ghc-primer.md)** — `GHC` vs. `Cabal` vs. `Hackage` vs. `Stackage`, GHC's 41 boot libraries, `.hi` interfaces & `${pkgroot}` package DBs, RTS C linking, `gmp` & `libtinfo`, `hsc2hs`/Alex/Happy, Template Haskell, and Haddock.
+> - **[Dependency Decisions & `MODULE.bazel` Anatomy](docs/content/internals/dependencies.md#module-bazel-anatomy)** — Plain-English explanation of what every dependency across `rules_hs`, `examples/size`, and `//docs` is, why we need it, and what would happen without it.
+
 ---
 
 ## Comparison with `rules_haskell`
@@ -319,7 +324,7 @@ bazel test //docs:...
 - **API & CLI Reference** ([`docs/content/reference/`](docs/content/reference/rules.md)):
   - [Rules Reference](docs/content/reference/rules.md) · [Extensions & Providers](docs/content/reference/extensions-and-providers.md) · [Lock Generator CLI](docs/content/reference/lock-cli.md)
 - **Internals & Architecture** ([`docs/content/internals/`](docs/content/internals/overview.md)):
-  - [Architecture Overview](docs/content/internals/overview.md) · [Comparison with Other Rulesets](docs/content/internals/rulesets-comparison.md) · [Hermeticity & Toolchain](docs/content/internals/hermeticity.md) · [Providers & Action Graph](docs/content/internals/providers-and-actions.md) · [Hackage & Cabal Pipeline](docs/content/internals/ecosystem-and-hackage.md) · [Cross-OS & Platforms](docs/content/internals/cross-os-and-platforms.md) · [Hakyll & Haddock Docs](docs/content/internals/docs-engine.md) · [Dependency Decisions](docs/content/internals/dependencies.md)
+  - [Bazel Ruleset Primer](docs/content/internals/bazel-rules-primer.md) · [Haskell & GHC Primer](docs/content/internals/haskell-and-ghc-primer.md) · [Architecture Overview](docs/content/internals/overview.md) · [Comparison with Other Rulesets](docs/content/internals/rulesets-comparison.md) · [Hermeticity & Toolchain](docs/content/internals/hermeticity.md) · [Providers & Action Graph](docs/content/internals/providers-and-actions.md) · [Hackage & Cabal Pipeline](docs/content/internals/ecosystem-and-hackage.md) · [Cross-OS & Platforms](docs/content/internals/cross-os-and-platforms.md) · [Hakyll & Haddock Docs](docs/content/internals/docs-engine.md) · [Dependency Decisions](docs/content/internals/dependencies.md)
 - **Standalone Sitemap Counter Showcase**: [`examples/size/README.md`](examples/size/README.md)
 
 ## License

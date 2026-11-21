@@ -165,12 +165,33 @@ hs_binary(
 
 hs_haddock(
     name = "size_haddock",
+    title = "size — Sitemap Size Tracker API",
+    visibility = ["//visibility:public"],
     deps = [
-        ":fetch",
         ":sitemap",
+        ":fetch",
     ],
 )
 ```
+
+### Direct Dependency Breakdown (`examples/size/BUILD.bazel`) {#dependency-breakdown}
+
+Across its library, binary, and test targets (`:sitemap`, `:fetch`, `:size`, `:sitemap_test`, and `:http_e2e_test`), `examples/size/BUILD.bazel` declares **12 direct `@hackage//:*` dependencies** — 5 GHC boot packages and 7 third-party Hackage libraries (which transitively resolve to the 69-package closure in `examples/size/hackage.lock.json`; see [Dependency Decisions](../internals/dependencies.md#showcase-libraries) for a full Go/Rust/Python comparison and rejected alternatives):
+
+| Dependency Target | Source | Go / Rust / Python Analog | Imported By (`BUILD.bazel` Targets -> Modules) | Why It Is Needed |
+|---|---|---|---|---|
+| `@hackage//:base` | GHC Boot (`4.20.2.0`) | Rust `std`, Go `builtin` + `os` + `sync` | All 5 Haskell targets (`Main`, `Fetch`, `Sitemap`, `SitemapTest`, `HttpE2eTest`) | Standard library: `IO`, CLI `getArgs`/`exitFailure`, exceptions, `MVar` & `QSem` concurrency primitives, and pure `ST` state threads (`runST`). |
+| `@hackage//:bytestring` | GHC Boot | Rust `&[u8]` / `bytes::Bytes`, Go `[]byte`, Python `bytes` | `:sitemap`, `:fetch`, `:sitemap_test`, `:http_e2e_test` (`Sitemap`, `Fetch`, `SitemapTest`, `HttpE2eTest`) | Contiguous raw byte buffers (`ByteString`) for HTTP response bodies, gzip magic-byte detection (`0x1f 0x8b`), and loopback TCP socket I/O. |
+| `@hackage//:text` | GHC Boot | Rust `String` / `&str`, Go `string`, Python `str` | All 5 Haskell targets (`Main`, `Fetch`, `Sitemap`, `SitemapTest`, `HttpE2eTest`) | Contiguous packed UTF-8 text (`Text`), strict UTF-8 decoding (`decodeUtf8'`), UTF-8 BOM stripping, and URL/XML element text. |
+| `@hackage//:containers` | GHC Boot | Rust `BTreeSet` / `BTreeMap`, C++ `std::set` / `std::map` | `:sitemap` (`Sitemap`), `:sitemap_test` (`SitemapTest`) | `Data.Set` deduplicates discovered page URLs and tracks visited `<sitemapindex>` URLs; `Data.Map.Strict` backs offline test fixtures. |
+| `@hackage//:filepath` | GHC Boot | Rust `std::path`, Go `path/filepath`, Python `pathlib` | `:sitemap_test` (`SitemapTest`), `:http_e2e_test` (`HttpE2eTest`) | Joins `TEST_SRCDIR` / `TEST_WORKSPACE` runfile paths (`</>`) when loading `testdata/` XML and `.xml.gz` fixtures. |
+| `@hackage//:async` | Hackage (`2.2.6`) | Go `errgroup.Group`, Rust `tokio::task::JoinSet` | `:sitemap` (`Sitemap`), `:http_e2e_test` (`HttpE2eTest`) | Structured concurrency over GHC green threads: `mapConcurrently` crawls child sitemaps concurrently and `withAsync` scopes the loopback test HTTP server. |
+| `@hackage//:xml-conduit` | Hackage (`1.10.1.0`) | Rust `quick-xml` / `roxmltree`, Python `lxml` | `:sitemap` (`Sitemap`: `Text.XML`, `Text.XML.Cursor`) | Spec-compliant XML 1.0 parser and cursor query combinators (`$/`) handling XML namespaces, `<xhtml:link/>` siblings, and `&amp;` entity decoding. |
+| `@hackage//:zlib` | Hackage (`0.7.1.1`) | Rust `flate2` (vendored `zlib`), Go `compress/gzip` | `:sitemap` (`Sitemap`: `Codec.Compression.GZip`, `Codec.Compression.Zlib.Internal`) | Pure streaming `decompressST` gunzipping of `.xml.gz` sitemaps with total corrupt-archive error handling, statically linked against vendored C `zlib-clib`. |
+| `@hackage//:http-client` | Hackage (`0.7.19`) | Go `net/http`, Rust `hyper` / `reqwest` | `:fetch` (`Fetch`: `Network.HTTP.Client`) | Connection-pooled HTTP/1.1 client providing 30-second response timeouts, automatic `302` redirect following, and streaming response buffers. |
+| `@hackage//:http-client-tls` | Hackage (`0.3.6.4`) | Rust `reqwest` + `rustls` | `:fetch` (`Fetch`: `Network.HTTP.Client.TLS`) | Plugs pure-Haskell TLS 1.2/1.3 (`tls` + `crypton` + `crypton-x509-system`) into `http-client` — enabling HTTPS with **zero** C OpenSSL (`libssl.so`) dependency. |
+| `@hackage//:http-types` | Hackage (`0.12.6`) | Rust `http` crate, Go `net/http` status/headers | `:fetch` (`Fetch`: `Network.HTTP.Types.Header`, `Network.HTTP.Types.Status`) | Standard HTTP header names (`hUserAgent`) and status-code predicates (`statusIsSuccessful`, `statusCode`). |
+| `@hackage//:network` | Hackage (`3.2.14.0`) | Go `net`, Python `socket` | `:http_e2e_test` (`HttpE2eTest`: `Network.Socket`, `Network.Socket.ByteString`) | Binds an ephemeral `127.0.0.1:0` loopback TCP socket to test HTTP redirects, `.xml.gz` responses, `User-Agent` headers, and `404` handling offline inside Bazel's sandbox. |
 
 ### Injectable Transport & Deadlock-Free Concurrency (`src/Sitemap.hs`)
 

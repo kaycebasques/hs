@@ -21,6 +21,16 @@ flowchart LR
     HUB --> LAZY["@hackage__pkg (lazy download + 5-stage hs_cabal_library)"]
 ```
 
+## How Haskell Packaging Works (Hackage, Stackage, and Cabal Flags) {#packaging-concepts}
+
+If you are coming from Go, Rust, or Python, five plain-English concepts explain every flag and label on this page (see [Haskell & GHC Primer](../internals/haskell-and-ghc-primer.md#ecosystem-map) for the full architectural picture):
+
+- **Hackage (`hackage.haskell.org`)**: Haskell's central open-source package registry (analogous to Rust's `crates.io` or Python's `PyPI`). Each package version ships a `.tar.gz` source archive and a `.cabal` manifest declaring open version ranges (e.g., `text >= 2.0 && < 2.2`).
+- **Stackage Snapshots (`lts-24.67`)**: Because raw Hackage uses open version bounds that normally require a backtracking SAT solver (`cabal-install`), **Stackage** publishes curated, CI-verified **LTS (Long-Term Support)** snapshots. A snapshot like `lts-24.67` (paired with GHC `9.10.3`) pins ~3,300 Hackage packages to exact compatible versions and sensible default flags — letting [`//tools/lock:lock`](../reference/lock-cli.md) resolve your transitive dependency closure deterministically via simple breadth-first search with zero SAT solver!
+- **Root `--package` Flags**: You pass `--package <name>` only for the direct third-party libraries your project imports (such as `aeson` or `http-client`); `//tools/lock:lock` automatically discovers and locks every transitive dependency they need.
+- **Cabal Flags (`--flag <pkg>:<flag>=<bool>`)**: Compile-time boolean switches defined inside a package's `.cabal` file (directly analogous to Cargo `--features` in Rust). Flags toggle optional dependencies, pure-Haskell vs. C backends (such as `zlib:bundled-c-zlib=true` to compile vendored C `zlib` sources instead of querying host `pkg-config`), or compile-time asset embedding (`pandoc:embed_data_files=true`).
+- **`@hackage//:<pkg>` & Sublibraries (`@hackage//:<pkg>__<sublib>`)**: Loading `hackage.lock.json` creates one unified `@hackage` Bazel repository containing both GHC's 41 built-in boot libraries (`@hackage//:base`, `@hackage//:text`) and your locked third-party packages (`@hackage//:aeson`). When a `.cabal` package also defines helper **sublibraries** inside the same archive (such as `attoparsec`'s internal helper `attoparsec-internal`), `rules_hs` compiles them automatically and exposes them as `@hackage//:<pkg>__<sublib>`.
+
 ## Step 1: Generate `hackage.lock.json`
 
 Invoke `@rules_hs//tools/lock:lock` via `bazel run`, passing a Stackage snapshot (`--snapshot`), one or more root Hackage packages (`--package`), any Cabal flag overrides (`--flag`), and an absolute `--output` path:

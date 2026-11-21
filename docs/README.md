@@ -10,6 +10,11 @@
 1. **Vanilla Hakyll + Pandoc + Skylighting** (`docs/site.hs` -> `//docs:docs_gen`): compiles pure GitHub-flavored Markdown prose, guides, Starlark references, and architecture internals into static HTML with Skylighting syntax highlighting and Pandoc's native table of contents.
 2. **GHC Haddock** (`hs_haddock` -> `//tools/lock:lock_haddock`): invokes GHC's `$ORIGIN`-staged `bin/haddock-ghc-<ver>` to generate Haskell module API documentation, QuickJump `doc-index.json`, and hyperlinked source (`src/*.html`), mounted into `//docs:site` at `/haddock/lock/`.
 
+> **New to Bazel Rulesets or Haskell?** Start with our zero-prerequisite background guides and code walkthroughs:
+> - **[Bazel Ruleset Primer](content/internals/bazel-rules-primer.md)** — Bazel ruleset authoring from first principles (`MODULE.bazel` `dev_dependency`, Loading/Analysis/Execution, lazy Bzlmod hubs, `Provider`s, `depset`s, `TreeArtifact`s, `CcInfo`).
+> - **[Haskell & GHC Primer](content/internals/haskell-and-ghc-primer.md)** — GHC, Cabal, Hackage, Stackage, boot libraries, `.hi` interfaces, RTS C linking, `gmp`/`libtinfo`, Template Haskell, and Haddock.
+> - **[Walking Through `docs/site.hs`](content/internals/docs-engine.md#site-hs-walkthrough)** & **[Dependency Decisions](content/internals/dependencies.md#module-bazel-anatomy)** — Line-by-line plain-English guide to `docs/site.hs` and every dependency in `MODULE.bazel` and `docs/hackage.lock.json`.
+
 ---
 
 ## Quick Commands
@@ -63,11 +68,11 @@ order: 10
 ---
 ```
 
-- **Sections** appear in canonical order in the left sidebar across all 18 pages:
+- **Sections** appear in canonical order in the left sidebar across all 20 pages:
   1. `overview` ("Overview"): `index.md`
   2. `guide` ("User Guide"): `quickstart.md`, `hackage.md`, `c-interop-and-toolchains.md`, `language-rts-runfiles-th.md`, `showcase-size.md`, `troubleshooting-and-migration.md`
   3. `reference` ("API & CLI Reference"): `rules.md`, `extensions-and-providers.md`, `lock-cli.md`
-  4. `internals` ("Internals & Architecture"): `overview.md`, `rulesets-comparison.md`, `hermeticity.md`, `providers-and-actions.md`, `ecosystem-and-hackage.md`, `cross-os-and-platforms.md`, `docs-engine.md`, `dependencies.md`
+  4. `internals` ("Internals & Architecture"): `bazel-rules-primer.md`, `haskell-and-ghc-primer.md`, `overview.md`, `rulesets-comparison.md`, `hermeticity.md`, `providers-and-actions.md`, `ecosystem-and-hackage.md`, `cross-os-and-platforms.md`, `docs-engine.md`, `dependencies.md`
 - **Links**: use ordinary relative Markdown links (`[Quickstart](../guide/quickstart.md)` or `[`hs_library`](../reference/rules.md#hs_library)`). `docs/site.hs` rewrites relative `.md` targets to `.html` during Pandoc compilation, so links work both when browsing raw `.md` files on GitHub and in the built site.
 - **Callouts**: use standard Markdown blockquotes (`> **Note:** ...`, `> **Tip:** ...`, `> **Important:** ...`).
 - **Haskell API docs**: document Haskell modules with standard `-- |` Haddock comments and expose an `hs_haddock` target; mount it in `docs/BUILD.bazel` via the `haddocks` attribute of `hs_docs_site`.
