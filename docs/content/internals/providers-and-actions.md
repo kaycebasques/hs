@@ -72,8 +72,8 @@ How the 8 fields of `bzl:provider:HsPackageInfo` are populated across the three 
 
 `bzl:provider:HsLinkInfo` aggregates transitive inputs across the entire dependency DAG using Bazel `depset`s so analysis-phase memory and time remain `O(1)` per target edge:
 
-- `pkg_dbs` (`depset[File]`): Every transitive `<name>.pkgdb` directory needed for GHC to resolve `.hi` interface files and transitive package keys.
-- `hs_libs` (`depset[File]`): Every transitive static Haskell archive (`libHS<unit_id>.a`) (plus any companion dynamic shared objects when cross-library Template Haskell is active) so Bazel stages them into the sandbox input tree of downstream compile/link actions.
+- `pkg_dbs` (`depset[File]`): Every transitive `<name>.pkgdb` `TreeArtifact` directory needed for GHC to resolve `.hi`/`.dyn_hi` interface files, transitive package keys, and (when `HsToolchainInfo.is_dynamic_ghc == True`) isolated `<name>.pkgdb/dyn/libHS<unit_id>-ghc<ver>.so` shared libraries for compile-time Template Haskell evaluation.
+- `hs_libs` (`depset[File]`): Every transitive static Haskell archive (`libHS<unit_id>.a`) so Bazel stages them into the sandbox input tree of downstream compile/link actions.
 - `include_dirs` (`depset[str]`): Execroot-relative C header search paths (`-I`) for `CApiFFI`, `CPP`, and `hsc2hs`.
 - `headers` (`depset[File]`): Tracked C header `File` objects staged into downstream action sandboxes.
 - `cc_info` (`CcInfo`): Merged native C/C++ compilation and linking context (`cc_common.merge_cc_infos`).
@@ -127,7 +127,7 @@ In `compile_hs_library_action` (`hs/private/actions.bzl`), every compiled librar
 - `hs_lib = ctx.actions.declare_file("libHS" + unit_id + ".a")`
 - `pkg_db = ctx.actions.declare_directory(ctx.label.name + ".pkgdb")`
 
-Inside `HsCompileLibrary`, GHC writes `.hi` interface files directly into `$PKG_DB/hi` (`-hidir <pkg_db.path>/hi`), `ar` writes `libHS<unit_id>.a` next to `<name>.pkgdb`, and the action writes `$PKG_DB/<unit_id>.conf`:
+Inside `HsCompileLibrary`, GHC writes `.hi` (and `.dyn_hi`) interface files directly into `$PKG_DB/hi` (`-hidir <pkg_db.path>/hi`), `ar` writes static `libHS<unit_id>.a` next to `<name>.pkgdb`, dynamic toolchains link `$PKG_DB/dyn/libHS<unit_id>-ghc<ver>.so`, and the action writes `$PKG_DB/<unit_id>.conf`:
 
 ```text
 name: http-client
@@ -137,6 +137,8 @@ key: http-client-0.7.19
 exposed: True
 import-dirs: ${pkgroot}/http-client.pkgdb/hi
 library-dirs: ${pkgroot}
+library-dirs-static: ${pkgroot}
+dynamic-library-dirs: ${pkgroot}/http-client.pkgdb/dyn
 hs-libraries: HShttp-client-0.7.19
 exposed-modules: Network.HTTP.Client ...
 hidden-modules: Network.HTTP.Client.Internal ...
@@ -149,12 +151,13 @@ Followed by:
 "$GHC_PKG" --global-package-db="$GHC_LIB/package.conf.d" --package-db="$PKG_DB" recache
 ```
 
-::: {.note title="How ghc-pkg Expands ${pkgroot}"}
+::: {.note title="How ghc-pkg Expands ${pkgroot} (and Isolates Static vs. Dynamic Libs)"}
 In GHC's `ghc-pkg` specification, `${pkgroot}` for `<parent>/<name>.pkgdb/package.cache` expands to `<parent>` — i.e., `dirname($PKG_DB)`, *not* `$PKG_DB` itself!
 
 Because `libHS<unit_id>.a` and `<name>.pkgdb` share the exact same `<parent>` directory in `bazel-out/<cfg>/bin/<pkg>/`:
-- `library-dirs: ${pkgroot}` resolves directly to `<parent>/libHS<unit_id>.a` (with **zero** Bazel `TreeArtifact` overlap between the archive file and the `.pkgdb` directory — avoiding `rules_haskell` issues #2496 and #2499!).
+- `library-dirs: ${pkgroot}` and `library-dirs-static: ${pkgroot}` resolve directly to `<parent>/libHS<unit_id>.a` (with **zero** Bazel `TreeArtifact` overlap between the static archive file and the `.pkgdb` directory — avoiding `rules_haskell` issues #2496 and #2499!).
 - `import-dirs: ${pkgroot}/<pkgdb_base>/hi` resolves directly to `<parent>/<name>.pkgdb/hi`.
+- `dynamic-library-dirs: ${pkgroot}/<pkgdb_base>/dyn` places `libHS<unit_id>-ghc<ver>.so` **inside** `<name>.pkgdb/dyn/` — propagating `.so` files transitively via `HsLinkInfo.pkg_dbs` with zero extra provider fields while keeping `${pkgroot}` strictly free of `.so` files during static executable linking!
 :::
 
 ### Automatic `exposed-modules` Discovery vs. Explicit Cabal Lists
@@ -260,7 +263,9 @@ When a module enables `{-# LANGUAGE TemplateHaskell #-}` and evaluates `$( ... )
 
 Ecosystem workhorses such as `file-embed`, `aeson`, `skylighting`, and `pandoc` (used to compile `rules_hs`'s own Hakyll documentation engine in `//docs`) define Template Haskell splice functions in library `A` and evaluate `$(embedFile ...)` or `$(deriveJSON ...)` while compiling downstream library `B`.
 
-Because `GHC Dynamic = YES` evaluates splices in GHC's dynamic linker context, cross-library TH requires upstream `HsPackageInfo` / `HsLinkInfo` packages to provide **shared libraries (`libHS<unit_id>-ghc<ver>.so`)** alongside static archives (`libHS<unit_id>.a`):
+Cross-library Template Haskell works **out of the box** in `rules_hs` whenever `HsToolchainInfo.is_dynamic_ghc == True` (verified end-to-end by `//tests/rules/th:cross_lib_th_test` and `//tests/rules/th:cross_lib_th_elf_test`, with zero opt-in rule attributes required):
 
-1. **Dual static + dynamic emission (`-dynamic-too`)**: Compiling libraries with `-dynamic-too` causes a single `ghc --make -c` pass to emit both `.o`/`.hi` (for static `libHS<unit_id>.a` archiving) and `.dyn_o`/`.dyn_hi`, which are then linked into `libHS<unit_id>-ghc<ver>.so` (embedding any per-library native C objects/deps needed at splice time) and registered via `dynamic-library-dirs: ${pkgroot}` in `<unit_id>.conf`.
-2. **Strict static isolation for final executables**: Even when `.pkgdb` directories carry `.so` libraries for compile-time TH splice evaluation, `HsLinkExecutable` (`bzl:rule:hs_binary` / `bzl:rule:hs_test`) links in static way (without `-dynamic`), using `libHS<unit_id>.a` and `gmp_static/libgmp.a`. Consequently, compiled user executables (including `//docs:docs_gen` itself!) retain **zero** `libHS*.so` or `libgmp.so.10` entries in `DT_NEEDED`.
+1. **Dual static + dynamic compilation (`-dynamic-too`)**: `HsCompileLibrary` (`hs/private/actions.bzl`) passes `-dynamic-too` to `ghc --make -c`, emitting both static `.o`/`.hi` and dynamic `.dyn_o`/`.dyn_hi` artifacts in a single compiler pass.
+2. **Self-contained TH shared library (`<name>.pkgdb/dyn/`)**: `HsCompileLibrary` archives static `.o` objects into `${pkgroot}/libHS<unit_id>.a` (`library-dirs` / `library-dirs-static`) and links `.dyn_o` objects into `<name>.pkgdb/dyn/libHS<unit_id>-ghc<ver>.so` with `-Wl,-Bsymbolic` plus any attached `c_sources` / `cc_deps` archives — ensuring multi-hop TH splices calling C FFI, `CApiFFI`, or `runIO` resolve native C symbols cleanly at compile time, registered via `dynamic-library-dirs: ${pkgroot}/<pkgdb_base>/dyn` in `<unit_id>.conf`.
+3. **Compile-time `data` sandboxing for `file-embed`**: `data` files declared on `bzl:rule:hs_library`, `bzl:rule:hs_cabal_library`, `bzl:rule:hs_binary`, and `bzl:rule:hs_test` are staged into the compile action sandbox (including package-root `pkg_cwd` staging on `bzl:rule:hs_cabal_library`), so compile-time `embedFile` / `embedDir` splices succeed hermetically under `linux-sandbox`.
+4. **Strict static isolation for final executables**: Because `<name>.pkgdb/dyn/` is physically isolated from `${pkgroot}`, `HsLinkExecutable` (`bzl:rule:hs_binary` / `bzl:rule:hs_test`) links exclusively against static `libHS<unit_id>.a` and `gmp_static/libgmp.a`. Compiled user executables (including `//docs:docs_gen` and `//tests/rules/th:cross_lib_th_elf_test`) retain **zero** `libHS*.so` or `libgmp.so.10` entries in `DT_NEEDED`.

@@ -169,11 +169,12 @@ Every source file in `rules_hs` has a single, bounded responsibility:
 | `hs/private/cc_wrapper.c` | Native POSIX C11 compiler/linker/preprocessor wrapper (`//hs/private:ghc_cc_wrapper`). |
 | `hs/private/actions.bzl` | Shared action builders: `resolve_cc_tools`, `collect_deps`, `write_cabal_macros_h`, `write_paths_module`, `ghc_tool_flags`, `run_configure_action`, `run_hsc2hs_actions`, `compile_c_sources`, `compile_hs_library_action`. |
 | `hs/private/rules.bzl` | Implementations of `bzl:rule:hs_toolchain_library`, `bzl:rule:hs_library`, `bzl:rule:hs_binary`, and `bzl:rule:hs_test` (`HsLinkExecutable`). |
-| `hs/private/hackage.bzl` | `bzl:ext:hackage` extension, `_hackage_hub_repo`, and `_hackage_package_repo` (`_find_module_files`, `_emit_component_rule`, `_PLATFORM_CONFIGS`). |
-| `hs/private/cabal_library.bzl` | 5-stage `bzl:rule:hs_cabal_library` rule implementation (including C-only package short-circuiting). |
+| `hs/private/hackage.bzl` | `bzl:ext:hackage` extension, `_hackage_hub_repo`, and `_hackage_package_repo` (`_find_module_files`, `_emit_component_rule`, `_PLATFORM_CONFIGS`, lazy Alex/Happy grammar wiring). |
+| `hs/private/cabal_codegen.bzl` | Lazy boot-only bootstrap and codegen actions for `alex-3.5.4.2` (`.x`) and `happy-2.1.7` (`.y`/`.ly`) grammar sources (zero host tools, zero fetches when unused). |
+| `hs/private/cabal_library.bzl` | 5-stage `bzl:rule:hs_cabal_library` rule implementation (including C/C++ compilation, `pkg_cwd` compile-time `data` staging, and C-only package short-circuiting). |
 | `tools/lock/{Main,CabalExtract,LockJson,LockTest}.hs` | Boot-only `Cabal-syntax` lockfile generator (`cli:lock`) and offline unit tests (`//tools/lock:lock_test`). |
 | `tests/starlark/rules_analysis_test.bzl` | `@bazel_skylib//lib:unittest.bzl` `analysistest` suite inspecting providers, action `argv`s, strict `-package-id` visibility, static `libgmp.a`, `cabal_macros.h`, C-only Cabal targets, and `CcInfo` propagation. |
-| `tests/basic/` & `tests/rules/` | End-to-end tests covering multi-library DAGs, `.hs-boot` cycles, `Configure` + `hsc2hs` + C-only Cabal pipelines, C FFI (`cc_deps` + `c_sources`), language editions (`Haskell98`/`Haskell2010`/`GHC2021`), threaded/non-threaded RTS, 2-hop runfiles, Template Haskell, ELF `DT_NEEDED`, and Bzlmod hygiene. |
+| `tests/basic/` & `tests/rules/` | End-to-end tests covering multi-library DAGs, `.hs-boot` cycles, `Configure` + `hsc2hs` + C-only Cabal pipelines, C FFI (`cc_deps` + `c_sources`), language editions (`Haskell98`/`Haskell2010`/`GHC2021`), threaded/non-threaded RTS, 2-hop runfiles, same-library & cross-library Template Haskell (`th_test`, `cross_lib_th_test`, `cross_lib_th_elf_test`), ELF `DT_NEEDED`, and Bzlmod hygiene. |
 | `examples/size/` | Standalone consumer workspace compiling 69 Hackage packages (`xml-conduit`, `http-client-tls`, `zlib-clib`, `async`) into a concurrent HTTPS sitemap page counter. |
 | `docs/` | Self-hosted Hakyll + Pandoc + Skylighting documentation site generator (`//docs:docs_gen`, `//docs:site`, `//docs:serve`), Markdown content (`docs/content/`), and tests (`//docs:engine_test`, `//docs:site_test`). |
 

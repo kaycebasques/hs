@@ -279,7 +279,7 @@ For deep implementation walkthroughs of the subsystems referenced below, see `do
   - **Granular Bazel caching & native C interop**: `hsc2hs` and C files compile in parallel; `CcInfo` propagates transitive headers cleanly (`zlib-clib` -> `zlib` -> `streaming-commons/cbits/zlib-helper.c`).
 - **Catalysts to reconsider or extend**:
   - **Non-Stackage packages / custom version overrides**: Users needing Hackage packages outside Stackage LTS, Hackage revisions, or git checkouts — catalyst to extend `cli:lock` to ingest `cabal.project.freeze` (or direct Hackage constraints/extra-deps) while keeping the exact same `hackage.lock.json` schema and build pipeline.
-  - **Build-tool preprocessors (`alex`, `happy`, `c2hs`, `hsc2hs #def`)**: Demand from parser/FFI-heavy consumers (`language-c`, `haskell-src-exts`, `gtk2hs`) is the catalyst to add optional prebuilt/bootstrapped preprocessor actions ahead of Stage 5.
+  - **Additional build-tool preprocessors (`c2hs`, `cpphs`, `hsc2hs #def`)**: `alex` (`3.5.4.2`) and `happy` (`2.1.7`) are already lazily bootstrapped purely from `@hs_boot` via `hs/private/cabal_codegen.bzl` whenever a locked package contains `.x`/`.y`/`.ly` grammars (incurring zero fetches on closures like `examples/size` that have 0 grammar packages); demand from C-binding-heavy consumers (`language-c`, `gtk2hs`) is the catalyst to add optional `c2hs` / `cpphs` / `hsc2hs #def` object-emitting actions ahead of Stage 5.
   - **Boot `Cabal-syntax` lag**: If newer Hackage packages adopt a `cabal-version` unsupported by the active GHC's bundled `Cabal-syntax`, catalyst to allow building `cli:lock` against a newer GHC or an optional pinned `Cabal-syntax` package at dev time.
 
 ### Not Adopted
