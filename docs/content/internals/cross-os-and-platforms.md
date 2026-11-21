@@ -14,7 +14,7 @@ This page documents how multi-platform toolchain resolution and cross-platform `
 
 ## Declarative Bindist Matrix (`hs/private/ghc_versions.bzl`) {#ghc-versions-table}
 
-`hs/private/ghc_versions.bzl` is a pure data module defining `DEFAULT_GHC_VERSION = "9.10.3"`, `SUPPORTED_PLATFORMS = ["linux_x86_64", "linux_arm64"]`, `BOOT_PACKAGE_NAMES` (41 boot packages for `9.10.3`; 42 for `9.12.4`, adding `file-io`), and `GHC_BINDISTS`.
+`hs/private/ghc_versions.bzl` is a pure data module defining `DEFAULT_GHC_VERSION = "9.10.3"`, `SUPPORTED_PLATFORMS = ["linux_x86_64", "linux_arm64"]`, `BOOT_PACKAGE_NAMES` (42 entries for `9.10.3` and 43 for `9.12.4`, adding `file-io` — covering the 41/42 Haskell boot libraries plus GHC's virtual `system-cxx-std-lib` entry), and `GHC_BINDISTS`.
 
 Every entry in `GHC_BINDISTS[ghc_version][platform_key]` specifies eleven orthogonal fields:
 

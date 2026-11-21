@@ -183,7 +183,7 @@ The resulting ELF executable dynamically links **only** base `glibc` (`libc.so.6
 | **4. Rewrite `-Wl,-h` soname flags** | `rewrite_tokens` (`-Wl,-h` + `-Wl,<soname>` and `-Wl,-h,<soname>`) | When linking dynamic libraries (such as `-dynamic-too` `.so` outputs for cross-library Template Haskell), GHC emits Solaris/GNU `-Wl,-h,<soname>`. `zig cc` rejects `-h`; `cc_wrapper.c` rewrites both 1-arg and 2-arg forms to `-Wl,-soname,<soname>`. |
 | **5. Strip `-fuse-ld=gold`** | `rewrite_tokens` | Drops any residual `-fuse-ld=gold` flag incompatible with `lld` and `zig cc`. |
 | **6. Upgrade `-fno-PIC` to `-fPIC`** | `rewrite_tokens` (when `RULES_HS_FORCE_PIC != "0"`) | GHC's native codegen passes `-fno-PIC` to `-pgma` on certain assembly invocations; `zig cc` `gnu.*` targets mandate PIC and error out unless rewritten to `-fPIC`. |
-| **7. Alias `.dyn_o` & `.p_o` objects** | `ensure_dot_o_alias` | During dynamic (`-dynamic-too`) or profiled compilation, GHC passes `.dyn_o` or `.p_o` inputs to the linker. `zig cc` classifies inputs strictly by file extension and rejects non-`.o` object files. `ensure_dot_o_alias` resolves `realpath(path)` and `symlink`s it to `$TMPDIR/hs_obj_<pid>_<counter>.o`. |
+| **7. Alias `.dyn_o` & `.p_o` inputs** | `ensure_dot_o_alias` (`-o <out>` preserved) | During dynamic (`-dynamic-too`) or profiled compilation, GHC passes `.dyn_o` or `.p_o` inputs to the linker. `zig cc` classifies inputs strictly by file extension and rejects non-`.o` object files. `rewrite_tokens` passes `-o <out>` output paths through untouched (`strcmp(a, "-o") == 0`) so GHC writes expected output filenames, while symlinking `.dyn_o`/`.p_o` *inputs* via `realpath(path)` to `$TMPDIR/hs_obj_<pid>_<counter>.o`. |
 | **8. Silence unused-arg warnings** | `main` (skipped on `--version`, `-dumpversion`, `-dumpmachine`) | `hermetic_cc_toolchain`'s `zig-wrapper` injects `-fno-sanitize=undefined`, which triggers Clang warnings during `-E` preprocessing, `-x assembler`, and autoconf `./configure` probes unless `-Wno-unused-command-line-argument` is prepended. |
 | **9. Restore C header order (`-nostdinc++`)** | `detect_cxx_invocation` + `-nostdinc++` | See the deep dive box below. |
 
@@ -217,6 +217,15 @@ Overriding GHC's `-pgmP`, `-pgmCmmP`, `-pgml`, or `-pgmlm` command clears the co
 ```
 
 Passing `-pgmlm <ld> -optlm-r` is particularly subtle: when a module uses `CApiFFI`, GHC compiles a generated C stub `.o` alongside the Haskell `.o` and merges them into a single relocatable object via `ld -r`. Omitting `-optlm-r` after overriding `-pgmlm` drops relocatable merging and breaks `CApiFFI` builds.
+
+### Compiler-RT `__cpu_model` Shim (`hs/private/rt_shims.c`)
+
+C sources in SIMD-aware Hackage libraries (such as `bitvec`) invoke Clang/GCC's `__builtin_cpu_supports(...)` intrinsic on `x86_64`, which emits `R_X86_64_PC32` relocations against the compiler-runtime global `__cpu_model`. While GCC (`libgcc`) and upstream LLVM (`libclang_rt.builtins`) provide `__cpu_model`, `hermetic_cc_toolchain` (`zig cc`) omits `cpu_model.c` from its bundled `libcompiler_rt.a` — leaving `__cpu_model` unresolved when linking shared libraries for Template Haskell (`-dynamic-too`) or final executables.
+
+`//hs/private:rt_shims` (`hs/private/rt_shims.c`) provides a 26-line C11 archive linked automatically whenever a target carries native C archives:
+
+- Defines a zero-initialized `__cpu_model` struct marked `__attribute__((weak, visibility("hidden")))` on `x86_64` ELF targets (and an empty translation unit elsewhere).
+- Marking the symbol **hidden** resolves `R_X86_64_PC32` locally inside each `.so` DSO without requiring GOT/PLT indirection, while marking it **weak** guarantees that GCC (`libgcc`) and LLVM (`libclang_rt.builtins`) toolchains automatically override it with their strong runtime CPU-detection symbol (and `zig cc` safely selects baseline `x86_64` SSE2 code paths).
 
 ---
 

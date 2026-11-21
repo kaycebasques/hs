@@ -166,6 +166,7 @@ Every source file in `rules_hs` has a single, bounded responsibility:
 | `hs/private/ghc_bindist.bzl` | Repository rules `ghc_bindist_repo` (`_sanitize_settings`, `_parse_pkg_conf`), `hs_toolchains_repo`, and `hs_boot_repo`. |
 | `hs/private/staged_ghc.bzl` | `staged_ghc` build rule (`HsLinkGmpShared` + `HsStageGhc`), assembling `<prefix>/bin/`, `<prefix>/lib/` TreeArtifact, and `<prefix>/gmp_static/libgmp.a`. |
 | `hs/private/tinfo_stub.c` & `hs/private/tinfo_stub.lds` | 8-symbol `@NCURSES6_TINFO_5.0.19991023` C11 shared-library stub compiled to `//hs/private:libtinfo.so.6`. |
+| `hs/private/rt_shims.c` | Hidden weak `x86_64` `__cpu_model` fallback (`//hs/private:rt_shims`) satisfying `R_X86_64_PC32` relocations from `__builtin_cpu_supports` under `zig cc` while yielding to strong symbols on GCC/LLVM. |
 | `hs/private/cc_wrapper.c` | Native POSIX C11 compiler/linker/preprocessor wrapper (`//hs/private:ghc_cc_wrapper`). |
 | `hs/private/actions.bzl` | Shared action builders: `resolve_cc_tools`, `collect_deps`, `write_cabal_macros_h`, `write_paths_module`, `ghc_tool_flags`, `run_configure_action`, `run_hsc2hs_actions`, `compile_c_sources`, `compile_hs_library_action`. |
 | `hs/private/rules.bzl` | Implementations of `bzl:rule:hs_toolchain_library`, `bzl:rule:hs_library`, `bzl:rule:hs_binary`, and `bzl:rule:hs_test` (`HsLinkExecutable`). |
