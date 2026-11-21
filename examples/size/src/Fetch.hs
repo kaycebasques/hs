@@ -37,7 +37,7 @@ newHttpManager =
 
 -- | Build a 'Fetcher' that issues HTTP(S) GET requests with
 -- @User-Agent: docs-size-tracker/0.1@, follows redirects automatically, and
--- returns @Left "HTTP <code> fetching <url>"@ on non-2xx responses.
+-- returns @Left "HTTP \<code\> fetching \<url\>"@ on non-2xx responses.
 httpFetcher :: Manager -> Fetcher
 httpFetcher mgr url = do
   outcome <- try @HttpException $ do

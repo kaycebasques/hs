@@ -278,7 +278,7 @@ computeSha256 path = do
         ExitSuccess -> pure (T.takeWhile (/= ' ') (T.strip (T.pack out2)))
         ExitFailure n -> die ("sha256sum/shasum failed (" ++ show n ++ "): " ++ err2)
 
--- | List relative file paths inside a Hackage @<pkg>-<ver>.tar.gz@ tarball.
+-- | List relative file paths inside a Hackage @\<pkg\>-\<ver\>.tar.gz@ tarball.
 listTarballFiles :: Text -> FilePath -> IO [Text]
 listTarballFiles prefix tbPath = do
   (code, out, err) <- readProcessWithExitCode "tar" ["-tzf", tbPath] ""
@@ -302,7 +302,7 @@ readTarballFile prefix tbPath relPath = do
     ExitSuccess -> pure (Just (T.pack out))
     ExitFailure _ -> pure Nothing
 
--- | Inspect @<pkg>.buildinfo@ and @configure.ac@ inside a Configure tarball
+-- | Inspect @\<pkg\>.buildinfo@ and @configure.ac@ inside a Configure tarball
 -- to discover generated headers added to @install-includes:@ (e.g.
 -- @HsNetworkConfig.h@ for @network@, @HsTimeConfig.h@ for @old-time@).
 discoverConfigureInstallIncludes :: Text -> Text -> FilePath -> [Text] -> IO [Text]
