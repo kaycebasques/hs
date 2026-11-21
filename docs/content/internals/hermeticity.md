@@ -6,6 +6,8 @@ nav_title: "Hermeticity & Toolchain"
 order: 20
 ---
 
+> **New to Bazel Rulesets or GHC Internals?** Read the [Bazel Ruleset Primer](bazel-rules-primer.md) (especially [Toolchains & Configurations](bazel-rules-primer.md#toolchains-and-configs) and [C/C++ Interop](bazel-rules-primer.md#cc-interop)) and the [Haskell & GHC Primer](haskell-and-ghc-primer.md) (especially [C Toolchain & RTS](haskell-and-ghc-primer.md#c-toolchain-and-rts) and [Why GMP and libtinfo Show Up](haskell-and-ghc-primer.md#gmp-and-tinfo)) first for background context.
+
 Achieving true end-to-end hermeticity for GHC on Linux without Nix requires closing six distinct host-leakage vectors that affect naive bindist setups:
 
 1. **Fetch-time build scripts**: Running `./configure && make install` inside a repository rule invokes host `make`, `perl`, `/bin/sh` probes, and host C compilers/libraries (`libgmp-dev`, `libtinfo5`).
@@ -19,9 +21,9 @@ Achieving true end-to-end hermeticity for GHC on Linux without Nix requires clos
 
 ---
 
-## Pure-Starlark GHC Bindist Extraction {#ghc-bindist-repo}
+## `$ORIGIN`, `DT_NEEDED`, and Pure-Starlark GHC Bindist Extraction {#ghc-bindist-repo}
 
-Official Haskell.org `deb10` Linux tarballs (`ghc-9.10.3-{x86_64,aarch64}-deb10-linux.tar.xz` and `ghc-9.12.4-...`) already contain compiled ELF binaries under `bin/` (`ghc-<ver>`, `ghc-pkg-<ver>`, `hsc2hs-ghc-<ver>`, `haddock-ghc-<ver>`, `unlit-ghc-<ver>`, `ghc-iserv-dyn-ghc-<ver>`) alongside a pre-populated, relocatable `lib/package.conf.d/package.cache` whose paths are expressed relative to `${pkgroot}/../lib/...`.
+Official Haskell.org `deb10` Linux tarballs (`ghc-9.10.3-{x86_64,aarch64}-deb10-linux.tar.xz` and `ghc-9.12.4-...`) already contain compiled ELF binaries under `bin/` (`ghc-<ver>`, `ghc-pkg-<ver>`, `hsc2hs-ghc-<ver>`, `haddock-ghc-<ver>`, `unlit-ghc-<ver>`, `ghc-iserv-dyn-ghc-<ver>`) alongside a pre-populated, relocatable `lib/package.conf.d/package.cache` whose paths are expressed relative to `${pkgroot}/../lib/...` (see [How GHC Compiles Code](haskell-and-ghc-primer.md#compilation-model)).
 
 Because the upstream bindist is already relocatable, `./configure && make install` is completely unnecessary. Instead, `ghc_bindist_repo` (`hs/private/ghc_bindist.bzl`) executes three deterministic, pure-Starlark steps during repository fetch:
 
@@ -65,20 +67,27 @@ Rather than spawning `ghc-pkg dump` during `bazel fetch` (which cannot run befor
 
 ## `$ORIGIN` Toolchain Staging & Shared Library Shims {#origin-staging}
 
+### Background: ELF `DT_NEEDED`, `RUNPATH`, and `$ORIGIN` on Linux
+
+When Linux executes a dynamically linked ELF binary (such as `bin/ghc-9.10.3`), the kernel maps the ELF dynamic linker (`ld-linux-x86-64.so.2` or `ld-linux-aarch64.so.1`) into memory *before `main()` ever runs*. `ld-linux.so` reads two key entries from the binary's `.dynamic` table (inspectable via `readelf -d`):
+
+- **`DT_NEEDED`**: The list of required shared-library `SONAME`s (e.g., `libgmp.so.10`, `libtinfo.so.6`, `libc.so.6`). If **any** `DT_NEEDED` library cannot be found, the process aborts immediately before executing a single instruction.
+- **`DT_RUNPATH` (`RUNPATH`) & `$ORIGIN`**: A colon-separated list of search directories baked directly into the binary's ELF header. Inside `RUNPATH`, the Linux dynamic linker expands the special token **`$ORIGIN`** at runtime to **the directory containing the executable itself** — even when Bazel mounts that executable at a different sandbox or RBE path on every build! Unlike `LD_LIBRARY_PATH` (an environment variable that leaks into every `/bin/sh` and C compiler subprocess) or `patchelf` (which mutates binary ELF headers post-link), `$ORIGIN` is 100% self-contained and side-effect-free.
+
 Auditing every executable and shared library inside the official GHC `9.10.3` `deb10` bindists (`x86_64` and `aarch64`) via `readelf -d` and `nm -D` establishes three facts:
 
 1. **Bundled `libffi`, zero `libnuma`**: `libffi.so.8` and static `libCffi*.a` are already shipped inside `lib/<arch>-linux-ghc-<ver>/`, and `libHSrts` is compiled without `libnuma`.
-2. **Baked-in `$ORIGIN` `RUNPATH`**: Every compiler executable in `bin/` (`ghc-9.10.3`, `ghc-pkg-9.10.3`, `hsc2hs-ghc-9.10.3`, `haddock-ghc-9.10.3`, `ghc-iserv-dyn-ghc-9.10.3`, `unlit-ghc-9.10.3`) carries a baked-in ELF `RUNPATH`:
+2. **Baked-in `$ORIGIN` `RUNPATH`**: Every compiler executable in `bin/` (`ghc-9.10.3`, `ghc-pkg-9.10.3`, `hsc2hs-ghc-9.10.3`, `haddock-ghc-9.10.3`, `ghc-iserv-dyn-ghc-9.10.3`, `unlit-ghc-9.10.3`) already carries a baked-in ELF `RUNPATH`:
    ```text
    $ORIGIN/../lib/<arch>-linux-ghc-<ver>:$ORIGIN/../../../lib/<arch>-linux-ghc-<ver>
    ```
-3. **Minimal external dynamic surface**: Across all compiler binaries and `libHS*.so` libraries, only **two** non-glibc shared objects are dynamically imported: `libgmp.so.10` and `libtinfo.so.6`.
+3. **Minimal external dynamic surface**: Across all compiler binaries and `libHS*.so` libraries, only **two** non-glibc shared objects are dynamically imported ([Why GMP and libtinfo Show Up](haskell-and-ghc-primer.md#gmp-and-tinfo)): `libgmp.so.10` and `libtinfo.so.6`.
 
 `staged_ghc` (`hs/private/staged_ghc.bzl`) satisfies both libraries hermetically using Bazel's active `cc_toolchain` and places them directly into `<prefix>/lib/<arch_libdir>/`:
 
 ### 1. Hermetic `libgmp.so.10` (`HsLinkGmpShared`)
 
-`_find_gmp_static_archives` inspects `@gmp//:gmp[CcInfo]` (from BCR `gmp@6.3.0.bcr.5`) to extract both `pic_static_library` (`libgmp.pic.a`) and `static_library` (`libgmp.a`). When `is_dynamic_ghc = True`, the `HsLinkGmpShared` action links `libgmp.so.10` from the PIC archive:
+`_find_static_archives` inspects `@gmp//:gmp[CcInfo]` (from BCR `gmp@6.3.0.bcr.5`) to extract both `pic_static_library` (`libgmp.pic.a`) and `static_library` (`libgmp.a`). When `is_dynamic_ghc = True`, the `HsLinkGmpShared` action links `libgmp.so.10` from the PIC archive:
 
 ```bash
 "$CC" -shared -fPIC -Wno-unused-command-line-argument \
@@ -89,9 +98,14 @@ Auditing every executable and shared library inside the official GHC `9.10.3` `d
 
 Because GHC `deb10` imports unversioned `__gmpn_*` / `__gmpz_*` symbols, `--whole-archive` exports the complete GMP ABI with `SONAME = libgmp.so.10`.
 
-### 2. The 8-Symbol `libtinfo.so.6` Stub (`tinfo_stub.c` + `tinfo_stub.lds`)
+### 2. The 8-Symbol `libtinfo.so.6` Stub & ELF Symbol Versioning (`tinfo_stub.c` + `tinfo_stub.lds`)
 
-Symbol auditing across all `libHS*.so` files in `deb10` proves that `libtinfo.so.6` is imported **solely** by `libHSterminfo` for interactive terminal capability queries in GHCi / `haskeline`. Batch compilation actions never require live curses capabilities, but the ELF dynamic linker (`ld-linux`) still verifies that `libtinfo.so.6` exists and exports 8 symbols under exact GNU symbol version `NCURSES6_TINFO_5.0.19991023`.
+Symbol auditing across all `libHS*.so` files in `deb10` proves that `libtinfo.so.6` is imported **solely** by `libHSterminfo` for interactive terminal capability queries in GHCi / `haskeline`. Batch compilation actions never require live curses capabilities, but `ld-linux.so` still checks two things at startup: that `libtinfo.so.6` exists, and that its exported symbols carry **exact GNU ELF symbol version tags**.
+
+> **Background — Why ELF Symbol Versioning Requires a `.lds` Version Script:** On Linux, libraries like `glibc` and `ncurses` maintain ABI compatibility across decades without bumping their `SONAME` by attaching a version node string to every exported symbol (`setupterm@@NCURSES6_TINFO_5.0.19991023` in `nm -D`). When GHC's `libHSterminfo` was linked on Debian 10 against `ncurses6`, the linker recorded **both** the symbol name *and* the required version node `NCURSES6_TINFO_5.0.19991023` inside `libHSterminfo`'s `.gnu.version_r` ("version needed") ELF section.
+>
+> If you compiled `int setupterm(...)` into `libtinfo.so.6` *without* a linker version script, the resulting `.so` would export an **unversioned** (`Base`) `setupterm` symbol — and `ld-linux.so` would immediately reject it at startup with:
+> `libtinfo.so.6: no version information available (required by libHSterminfo-...)` or `version 'NCURSES6_TINFO_5.0.19991023' not found`! Passing `-Wl,--version-script=tinfo_stub.lds` populates the `.gnu.version_d` ("version definition") section so every symbol matches Debian 10's exact ABI contract.
 
 Rather than pulling a heavyweight `ncurses` + `gawk` + terminfo-database build into every consumer's module graph, `//hs/private:libtinfo.so.6` (`hs/private/BUILD.bazel`) compiles a 56-line C11 shared library (`hs/private/tinfo_stub.c`) paired with a 13-line linker version script (`hs/private/tinfo_stub.lds`):
 
@@ -146,16 +160,20 @@ When Linux's `ld-linux` kernel interpreter launches `staged_ghc/bin/ghc-9.10.3`,
 
 ---
 
-## Static-GMP User Executables {#static-gmp-executables}
+## Static-GMP User Executables & PIC vs. `-no-pie` {#static-gmp-executables}
 
 A subtle linker hazard arises if GHC links a user executable ([`hs_binary`](../reference/rules.md#hs_binary) or [`hs_test`](../reference/rules.md#hs_test)) while `libgmp.so` is visible on the library search path: GHC's `ghc-bignum` package declares `extra-libraries: gmp`, causing GHC to pass `-lgmp` to the C linker. Whenever GNU `ld` or `lld` sees both `libgmp.so` and `libgmp.a` in a `-L` directory (without global `-static`), it prefers `libgmp.so` — saddling the output executable with a runtime `DT_NEEDED: libgmp.so.10` dependency!
 
-`rules_hs` solves this cleanly via directory isolation:
+`rules_hs` solves this cleanly via directory isolation and explicit executable relocation control:
 
 1. `staged_ghc` places `libgmp.so.10` and `libtinfo.so.6` inside `staged_ghc/lib/<arch_libdir>/` (which GHC's compiler binary uses via `$ORIGIN`, *not* as a static link `-L` path for `rts`/`ghc-bignum`/`terminfo`), and creates a separate directory `staged_ghc/gmp_static/` containing **exclusively** static archive symlinks (`libgmp.a` and `libtinfo.a`, with zero `.so` files).
 2. `HsLinkExecutable` (`hs/private/rules.bzl`) passes:
    - `-optl-L<gmp_static_dir>` — the linker finds `gmp_static/libgmp.a` (and `libtinfo.a` when `terminfo`/`haskeline`/`ghc` is linked) and links only the required object members statically into the executable.
-   - `-optl-no-pie` — allows `lld`, Clang, and `zig cc` to link GHC's non-PIC static boot `.a` archives (`libHSbase-*.a`, `libHSrts-*.a`, `libCffi.a`) without R_X86_64_32S / R_AARCH64_ADR_PREL_PG_HI21 relocation errors.
+   - `-optl-no-pie` — links a fixed-base executable (`ET_EXEC`) rather than a Position-Independent Executable (`PIE` / `ET_DYN`).
+
+> **Background — Position-Independent Code (`-fPIC`) vs. Non-PIC Static Archives (`-no-pie`):** Modern Linux C compilers default to linking **PIE** executables so the OS kernel's Address Space Layout Randomization (ASLR) can map the binary anywhere in 64-bit virtual memory. However, linking a PIE executable requires *every* input `.o` object file to have been compiled with `-fPIC` (using instruction-pointer-relative / GOT-indirect addressing).
+>
+> Upstream GHC `deb10` compiles its static boot `.a` archives (`libHSbase-*.a`, `libHSrts-*.a`, `libCffi.a`) *without* `-fPIC` to save register pressure and GOT indirections, emitting fixed 32-bit relocations (`R_X86_64_32S` on `x86_64` and `R_AARCH64_ADR_PREL_PG_HI21` on `arm64`). Passing `-optl-no-pie` instructs `lld`, Clang, and `zig cc` to emit a classic fixed-address `ET_EXEC` binary, linking GHC's non-PIC static boot archives cleanly while all `rules_hs`-compiled library objects use `-fPIC` so they work in both `.a` static executables and `.so` Template Haskell libraries!
 
 The resulting ELF executable dynamically links **only** base `glibc` (`libc.so.6`, `libm.so.6`, `libdl.so.2`, `libpthread.so.0`), verified automatically by `//tests/basic:elf_hermeticity_test`, `//tests/rules:bzlmod_hygiene_test`, `examples/size`'s `//:elf_hermeticity_test`, and `//docs:site_test`.
 
@@ -163,7 +181,7 @@ The resulting ELF executable dynamically links **only** base `glibc` (`libc.so.6
 
 ## Native C11 `ghc_cc_wrapper` & C-Toolchain Agnosticism {#ghc-cc-wrapper}
 
-`rules_hs` never hardcodes a specific C compiler. Instead, `resolve_cc_tools` (`hs/private/actions.bzl`) inspects `@bazel_tools//tools/cpp:toolchain_type` via `rules_cc` (`find_cc_toolchain` + `cc_common`):
+`rules_hs` never hardcodes a specific C compiler. Instead, `resolve_cc_tools` (`hs/private/actions.bzl`) inspects `@bazel_tools//tools/cpp:toolchain_type` via `rules_cc` (`find_cc_toolchain` + `cc_common`, see [C/C++ Interop in the Bazel Primer](bazel-rules-primer.md#cc-interop)):
 
 - Extracts `cc` (`ACTION_NAMES.c_compile`), `ar` (`ACTION_NAMES.cpp_link_static_library`), and `ld` (`cc_toolchain.ld_executable`, ignoring placeholder `/false` paths such as macOS Zig).
 - Queries `cc_common.create_compile_variables` and `cc_common.get_memory_inefficient_command_line` (plus `cc_toolchain.sysroot` fallback) to extract any `--sysroot`, `--target`, or `-target` flags configured by toolchains like `toolchains_llvm` or Pigweed.
@@ -174,25 +192,38 @@ The resulting ELF executable dynamically links **only** base `glibc` (`libc.so.6
 
 ### Inside `hs/private/cc_wrapper.c`
 
-`//hs/private:ghc_cc_wrapper` is a zero-dependency 460-line POSIX C11 executable (`-std=c11 -O2 -Wall -Wextra`) invoked for every GHC tool hook (`-pgmc`, `-pgmcxx`, `-pgml`, `-pgma`, `-pgmP`, `-pgmCmmP`), `hsc2hs` (`--cc`, `--ld`), and Cabal `./configure` (`CC`, `CXX`). On every invocation, `main` executes the following pipeline before calling `execv(real_cc, ...)`:
+`//hs/private:ghc_cc_wrapper` is a zero-dependency 552-line POSIX C11 executable (`-std=c11 -O2 -Wall -Wextra`) invoked for every GHC tool hook (`-pgmc`, `-pgmcxx`, `-pgml`, `-pgma`, `-pgmP`, `-pgmCmmP`), `hsc2hs` (`--cc`, `--ld`), and Cabal `./configure` (`CC`, `CXX`). On every invocation, `main` executes the following pipeline before calling `execv(real_cc, ...)` (or `fork`/`waitpid` when cleaning up temporary symlinks):
 
 | Step in `cc_wrapper.c` | Function / Mechanism | Root Cause & Exact Behavior |
 |---|---|---|
 | **1. Scrub Bazel runfiles env** | `unsetenv("RUNFILES_DIR")`, `RUNFILES_MANIFEST_FILE`, `RUNFILES_MANIFEST_ONLY` | Prevents Bazel runfiles variables from leaking into `zig cc`, Clang wrappers, `hsc2hs` probe binaries, or `./configure` subshells. |
-| **2. Intercept `--print-file-name`** | `handle_print_file_name(argc, argv)` | GHC queries `--print-file-name=libm.a` / `.so` during linking and TH loading. Unwrapped Clang/Zig either leaks host `/usr/lib/x86_64-linux-gnu/libm.a` GNU `ld` scripts (`loadArchive: Not an archive`) or errors on Zig's `.2.32` target triple suffix. `handle_print_file_name` searches explicit `-B` and `-L` directories via `access(..., F_OK)` and prints the match, or echoes `<file>` verbatim and exits `0`. |
-| **3. Parse & rewrite `@rsp` files** | `parse_rsp`, `write_rsp`, recursive `rewrite_tokens` | GHC passes long link argument lists via `@response_file`. `parse_rsp` tokenizes single quotes, double quotes, and `\` escapes, recursively applies flag/object rewrites, and writes back to `rsp_path` (or `$TMPDIR/hs_rsp_<pid>_<n>.rsp` if read-only). |
+| **2. Intercept `--print-file-name`** | `handle_print_file_name(argc, argv)` | GHC queries `--print-file-name=libm.a` / `.so` during linking and TH loading. Unwrapped Clang/GCC leaks host `/usr/lib/x86_64-linux-gnu/libm.a` (a GNU `ld` text script — see note below!), while `zig cc` errors on `.2.32` target triple suffixes. `handle_print_file_name` searches explicit `-B` and `-L` directories via `access(..., F_OK)` and prints the match, or echoes `<file>` verbatim and exits `0`. |
+| **3. Parse & rewrite `@rsp` files** | `parse_rsp`, `write_rsp`, recursive `rewrite_tokens` | GHC passes long link argument lists via `@response_file`. `parse_rsp` tokenizes single quotes, double quotes, and `\` escapes, recursively applies flag/object rewrites, and writes back to `rsp_path` (or `$TMPDIR/hs_ccw.XXXXXX/hs_rsp_<n>.rsp` if read-only, cleaned up on exit). |
 | **4. Rewrite `-Wl,-h` soname flags** | `rewrite_tokens` (`-Wl,-h` + `-Wl,<soname>` and `-Wl,-h,<soname>`) | When linking dynamic libraries (such as `-dynamic-too` `.so` outputs for cross-library Template Haskell), GHC emits Solaris/GNU `-Wl,-h,<soname>`. `zig cc` rejects `-h`; `cc_wrapper.c` rewrites both 1-arg and 2-arg forms to `-Wl,-soname,<soname>`. |
 | **5. Strip `-fuse-ld=gold`** | `rewrite_tokens` | Drops any residual `-fuse-ld=gold` flag incompatible with `lld` and `zig cc`. |
 | **6. Upgrade `-fno-PIC` to `-fPIC`** | `rewrite_tokens` (when `RULES_HS_FORCE_PIC != "0"`) | GHC's native codegen passes `-fno-PIC` to `-pgma` on certain assembly invocations; `zig cc` `gnu.*` targets mandate PIC and error out unless rewritten to `-fPIC`. |
-| **7. Alias `.dyn_o` & `.p_o` inputs** | `ensure_dot_o_alias` (`-o <out>` preserved) | During dynamic (`-dynamic-too`) or profiled compilation, GHC passes `.dyn_o` or `.p_o` inputs to the linker. `zig cc` classifies inputs strictly by file extension and rejects non-`.o` object files. `rewrite_tokens` passes `-o <out>` output paths through untouched (`strcmp(a, "-o") == 0`) so GHC writes expected output filenames, while symlinking `.dyn_o`/`.p_o` *inputs* via `realpath(path)` to `$TMPDIR/hs_obj_<pid>_<counter>.o`. |
+| **7. Alias `.dyn_o` & `.p_o` inputs** | `ensure_dot_o_alias` (`-o <out>` preserved) | During dynamic (`-dynamic-too`) or profiled compilation, GHC passes `.dyn_o` or `.p_o` inputs to the linker. `zig cc` classifies inputs strictly by file extension and rejects non-`.o` object files. `rewrite_tokens` passes `-o <out>` output paths through untouched (`strcmp(a, "-o") == 0`) so GHC writes expected output filenames, while symlinking `.dyn_o`/`.p_o` *inputs* via `realpath(path)` to `$TMPDIR/hs_ccw.XXXXXX/hs_obj_<counter>.o`. |
 | **8. Silence unused-arg warnings** | `main` (skipped on `--version`, `-dumpversion`, `-dumpmachine`) | `hermetic_cc_toolchain`'s `zig-wrapper` injects `-fno-sanitize=undefined`, which triggers Clang warnings during `-E` preprocessing, `-x assembler`, and autoconf `./configure` probes unless `-Wno-unused-command-line-argument` is prepended. |
-| **9. Restore C header order (`-nostdinc++`)** | `detect_cxx_invocation` + `-nostdinc++` | See the deep dive box below. |
+| **9. Restore C header order (`-nostdinc++`)** | `detect_cxx_invocation` + `-nostdinc++` | Prevents `zig c++`'s `libc++` headers from prematurely locking `<features.h>` without `_GNU_SOURCE` (see below). |
 
-> **Warning — Why `-nostdinc++` Is Essential for C / `hsc2hs` Under `hermetic_cc_toolchain`:** `hermetic_cc_toolchain` routes `ACTION_NAMES.c_compile` through a `zig c++` wrapper that places LLVM's `libcxx/include` **ahead** of standard C libc headers on the default include search path.
->
-> When `hsc2hs` compiles `network`'s `.hsc` files, GHC's `template-hsc.h` includes `<stddef.h>` at the very top of the translation unit — *before* the `.hsc` file's own `#include "HsNet.h"` (`#define _GNU_SOURCE 1`). Under `libcxx/include/stddef.h`, `<__config>` transitively pulls glibc's `<features.h>` **without `_GNU_SOURCE`**, permanently locking out GNU socket extensions (`struct ucred`, `struct in6_pktinfo`) when `HsNet.h` subsequently includes `<sys/socket.h>` and `<netinet/in.h>`!
->
-> `detect_cxx_invocation` inspects `argv` for explicit C++ markers (`-xc++*`, `-x c++*`, `-std=c++*`, `-std=gnu++*`, `-stdlib=*`, or `.cc`/`.cpp`/`.cxx`/`.C`/`.hh`/`.hpp`/`.hxx` inputs) and injects `-nostdinc++` on all C, assembler, preprocessor, and linker invocations — restoring canonical C header ordering without disturbing C++ FFI sources.
+#### Why `/usr/lib/.../libm.a` on Debian/Ubuntu Is a Text Linker Script, Not an `ar` Archive
+
+On modern Debian and Ubuntu (`glibc >= 2.34`), `/usr/lib/x86_64-linux-gnu/libm.a` is **not** a binary `!<arch>` static archive! Instead, it is a ~100-byte ASCII **GNU `ld` linker script**:
+
+```text
+OUTPUT_FORMAT(elf64-x86-64)
+GROUP ( /usr/lib/x86_64-linux-gnu/libm-2.39.a /usr/lib/x86_64-linux-gnu/libmvec.a )
+```
+
+Distributions use this script so `-lm` transparently pulls in both scalar math (`libm-2.39.a`) and SIMD vector math (`libmvec.a`) inside GNU `ld` or `lld`. However, when GHC's runtime loader (`loadArchive` in `rts/Linker.c`) asks `-pgmc --print-file-name=libm.a` and opens the returned path directly, it checks for the 8-byte binary `!<arch>\n` archive magic header and crashes with `loadArchive "/usr/lib/.../libm.a": failed (Not an archive)`. Intercepting `--print-file-name` in `cc_wrapper.c` prevents host `/usr/lib` linker scripts from ever leaking into GHC!
+
+#### Why `<features.h>`, `_GNU_SOURCE`, and `-nostdinc++` Matter Under `zig c++`
+
+> **Warning — One-Shot `<features.h>` Evaluation in `glibc`:** In GNU `glibc`, feature-test macros such as `#define _GNU_SOURCE 1` **only work if defined before the very first standard C header is included**. Every `glibc` header includes `<features.h>`, which is wrapped in a one-shot `#ifndef _FEATURES_H` guard that snapshots `_GNU_SOURCE` into internal `__USE_GNU` flags once for the entire translation unit; any `#define _GNU_SOURCE` *after* `<features.h>` has been included is silently ignored!
+
+`hermetic_cc_toolchain` routes `ACTION_NAMES.c_compile` through a `zig c++` driver that places LLVM's C++ library directory (`libcxx/include`) **ahead** of Clang's freestanding C headers. When `hsc2hs` compiles `network`'s `.hsc` files, GHC's `template-hsc.h` includes `<stddef.h>` on line 1 — *before* the `.hsc` file's own `#include "HsNet.h"` (`#define _GNU_SOURCE 1`). Under standard C include order, Clang's freestanding `<stddef.h>` defines `size_t` *without* touching `glibc`'s `<features.h>`. Under `libcxx/include/stddef.h`, `<__config>` transitively pulls `<features.h>` **without `_GNU_SOURCE`**, hiding GNU socket structs (`struct ucred`, `struct in6_pktinfo`) when `HsNet.h` subsequently includes `<sys/socket.h>` and `<netinet/in.h>`!
+
+`detect_cxx_invocation` inspects `argv` (and `@rsp` files) for explicit C++ markers (`-xc++*`, `-x c++*`, `-std=c++*`, `-std=gnu++*`, `-stdlib=*`, or `.cc`/`.cpp`/`.cxx`/`.C`/`.hh`/`.hpp`/`.hxx` inputs) and injects `-nostdinc++` on all C, assembler, preprocessor, and linker invocations — restoring canonical C header ordering without disturbing C++ FFI sources.
 
 ### Explicit GHC Tool Flags (`ghc_tool_flags`)
 
@@ -217,18 +248,29 @@ Overriding GHC's `-pgmP`, `-pgmCmmP`, `-pgml`, or `-pgmlm` command clears the co
 
 Passing `-pgmlm <ld> -optlm-r` is particularly subtle: when a module uses `CApiFFI`, GHC compiles a generated C stub `.o` alongside the Haskell `.o` and merges them into a single relocatable object via `ld -r`. Omitting `-optlm-r` after overriding `-pgmlm` drops relocatable merging and breaks `CApiFFI` builds.
 
-### Compiler-RT `__cpu_model` Shim (`hs/private/rt_shims.c`)
+### Compiler-RT `__cpu_model` Shim & `R_X86_64_PC32` Relocations (`hs/private/rt_shims.c`)
 
-C sources in SIMD-aware Hackage libraries (such as `bitvec`) invoke Clang/GCC's `__builtin_cpu_supports(...)` intrinsic on `x86_64`, which emits `R_X86_64_PC32` relocations against the compiler-runtime global `__cpu_model`. While GCC (`libgcc`) and upstream LLVM (`libclang_rt.builtins`) provide `__cpu_model`, `hermetic_cc_toolchain` (`zig cc`) omits `cpu_model.c` from its bundled `libcompiler_rt.a` — leaving `__cpu_model` unresolved when linking shared libraries for Template Haskell (`-dynamic-too`) or final executables.
+C sources in SIMD-aware Hackage libraries (such as `bitvec`) invoke Clang/GCC's `__builtin_cpu_supports(...)` intrinsic on `x86_64`, which emits **`R_X86_64_PC32`** relocations against the compiler-runtime global struct `__cpu_model`:
+
+- **What `R_X86_64_PC32` means**: On `x86_64`, `R_X86_64_PC32` is a signed 32-bit instruction-pointer-relative offset (`[rip + disp32]`) that reads a variable directly rather than dereferencing a 64-bit pointer in the Global Offset Table (`GOT`). When linking a shared library (`.so`, such as `-dynamic-too` libraries for Template Haskell), ELF linkers forbid `R_X86_64_PC32` against undefined or externally preemptible symbols because another `.so` could be mapped more than $\pm 2\text{ GiB}$ away in 64-bit address space!
+- **Why `zig cc` needs a shim**: While GCC (`libgcc`) and upstream LLVM (`libclang_rt.builtins`) bundle a hidden `__cpu_model` definition, `hermetic_cc_toolchain` (`zig cc`) omits `cpu_model.c` from its bundled `libcompiler_rt.a` — leaving `__cpu_model` unresolved.
 
 `//hs/private:rt_shims` (`hs/private/rt_shims.c`) provides a 26-line C11 archive linked automatically whenever a target carries native C archives:
 
 - Defines a zero-initialized `__cpu_model` struct marked `__attribute__((weak, visibility("hidden")))` on `x86_64` ELF targets (and an empty translation unit elsewhere).
-- Marking the symbol **hidden** resolves `R_X86_64_PC32` locally inside each `.so` DSO without requiring GOT/PLT indirection, while marking it **weak** guarantees that GCC (`libgcc`) and LLVM (`libclang_rt.builtins`) toolchains automatically override it with their strong runtime CPU-detection symbol (and `zig cc` safely selects baseline `x86_64` SSE2 code paths).
+- Marking the symbol **`visibility("hidden")`** guarantees `__cpu_model` resides inside the *same* `.so` or executable (always within $\pm 2\text{ GiB}$, resolving `R_X86_64_PC32` locally without GOT/PLT entries), while marking it **`weak`** guarantees that GCC (`libgcc`) and LLVM (`libclang_rt.builtins`) toolchains automatically override it with their strong runtime CPU-detection symbol (and `zig cc` safely selects portable baseline `x86_64` SSE2 code paths).
 
 ---
 
 ## The `glibc` Compatibility Window & Clean-Container CI {#glibc-window-and-ci}
+
+### Background: How `glibc` Symbol Versioning Governs Linux Binary Portability
+
+On Linux, `libc.so.6` (`glibc`) is **forward-compatible** (a binary linked against `glibc 2.32` runs unmodified on newer distros shipping `glibc 2.34`–`2.39`), but **never backward-compatible**:
+
+- Every time `glibc` introduces a new syscall wrapper or updates a function's ABI (e.g., `memfd_create@GLIBC_2.27`, `statx@GLIBC_2.28`, or C23 `__isoc23_strtol@GLIBC_2.38`), linking against a newer host `glibc` stamps that `@GLIBC_2.xx` version requirement into the output executable's `.gnu.version_r` header.
+- Consequently, a binary compiled against Ubuntu 24.04's host `glibc 2.39` fails immediately at startup (`GLIBC_2.38 not found`) when deployed to Debian 12 (`glibc 2.36`) or Rocky Linux 9 (`glibc 2.34`)!
+- `hermetic_cc_toolchain` (`zig cc`) solves this by bundling multi-version `glibc` headers and stub libraries inside the compiler SDK itself (`-target x86_64-linux-gnu.2.32`), letting `MODULE.bazel` pin the exact target `glibc` floor deterministically regardless of the build machine's host distro.
 
 ### Selecting `gnu.2.32` on `hermetic_cc_toolchain`
 
@@ -248,7 +290,7 @@ Why `gnu.2.32` is the exact compatibility sweet spot:
 
 1. **Why wildcard default (`gnu.2.17`) is too old**: Registering `@zig_sdk//toolchain/...` alone causes Bazel to pick `linux_amd64_gnu.2.17` alphabetically. Linking GHC `deb10` boot archives against `glibc 2.17` fails with undefined symbol references to `memfd_create` (`GLIBC_2.27` in `libCffi.a`) as well as `statx` and `fcntl64` (`GLIBC_2.28`).
 2. **Why `gnu.2.28` is almost enough, and `gnu.2.32` is required**: GHC `deb10` itself requires only `glibc <= 2.28`. However, building BCR `gmp@6.3.0.bcr.5` compiles BCR `m4` as an exec build tool, and under Zig's bundled headers `m4`'s gnulib includes `<sys/single_threaded.h>`, which was added in **`glibc 2.32`**.
-3. **Broad production portability**: Targeting `gnu.2.32` satisfies both GHC `deb10` and BCR `gmp`/`m4` while producing binaries that run unmodified on every modern Linux distribution:
+3. **Broad production portability**: Targeting `gnu.2.32` satisfies both GHC `deb10` and BCR `gmp`/`m4` while keeping `@GLIBC_*` symbol requirements at `<= 2.32`, producing binaries that run unmodified on every modern Linux distribution:
    - Debian 12 Bookworm (`glibc 2.36`) & distroless `gcr.io/distroless/cc-debian12`
    - Ubuntu 22.04 Jammy (`glibc 2.35`) & Ubuntu 24.04 Noble (`glibc 2.39`)
    - Rocky Linux 9 / RHEL 9 / AlmaLinux 9 (`glibc 2.34`)
