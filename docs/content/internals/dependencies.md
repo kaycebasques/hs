@@ -14,9 +14,7 @@ For every entry, we state:
 - **Why** (or **Why Not Adopted**): the concrete technical findings from live prototyping and CI verification.
 - **Catalysts**: the specific conditions (*"if X, Y, and Z changed..."*) that would trigger reconsidering an adopted dependency or promoting a rejected/deferred alternative to a default or first-class option.
 
-::: {.note title="Companion Architecture Chapters"}
-For deep implementation walkthroughs of the subsystems referenced below, see `doc:internals/overview`, `doc:internals/hermeticity`, `doc:internals/providers-and-actions`, `doc:internals/ecosystem-and-hackage`, `doc:internals/cross-os-and-platforms`, and `doc:internals/docs-engine`.
-:::
+> **Note — Companion Architecture Chapters:** For deep implementation walkthroughs of the subsystems referenced below, see [Architecture Overview](overview.md), [Comparison with Other Rulesets](rulesets-comparison.md), [Hermeticity & Toolchain](hermeticity.md), [Providers & Action Graph](providers-and-actions.md), [Hackage & Cabal Pipeline](ecosystem-and-hackage.md), [Cross-OS & Platforms](cross-os-and-platforms.md), and [Hakyll & Haddock Docs](docs-engine.md).
 
 ---
 
@@ -28,17 +26,15 @@ For deep implementation walkthroughs of the subsystems referenced below, see `do
 | **2. GHC Distribution & Version** | Official Haskell.org `deb10` glibc bindists, GHC `9.10.3` (`x86_64` + `aarch64`), pure-Starlark extraction + `$ORIGIN` staging | `alpine3_12-linux-static-int_native` (`musl`), `rules_nixpkgs` / Nix, GHC `9.12.4` / `9.14.1` as default | `x86_64` + `arm64` parity, full dynamic TH + C FFI, clean BCR `CcInfo` interop, RBE/BCR friendliness, Stackage LTS 24.x stability |
 | **3. Native Runtime & Compiler Libraries** | BCR `gmp@6.3.0.bcr.5` (`libgmp.so.10` + static `libgmp.a`), in-tree 8-symbol `libtinfo.so.6` stub, GHC-bundled `libffi.so.8`/`libCffi.a` | Full BCR `ncurses` build, host `libgmp-dev` / `libtinfo5` (`apt install`) | Zero host C `-dev` libraries, base-glibc-only user binary `DT_NEEDED`, avoids heavy `ncurses`/`gawk` graph for 8 unused batch-compiler symbols |
 | **4. Bazel Rule Foundations & Action Wrappers** | `platforms@1.1.0`, `bazel_skylib@1.9.2`, `rules_cc@0.2.28`, dev-only `rules_shell@0.6.1`, native C11 `ghc_cc_wrapper` | `rules_python` + Python `cc_wrapper.py` / `cabal_wrapper.py`, legacy non-dev deps (`rules_java`, `protobuf`, `rules_nodejs`, `aspect_rules_js`, `rules_sh`, non-dev `stardoc`) | Bazel 9+ clean minimal non-dev `MODULE.bazel` graph; zero Python runtime in build actions |
-| **5. 3p Hackage Resolution & Build Pipeline** | Dogfooded boot-only `cli:lock` (`Cabal-syntax`) + Stackage LTS -> `hackage.lock.json` -> pure-Starlark `bzl:ext:hackage` + 5-stage `bzl:rule:hs_cabal_library` | `stack_snapshot` (Stack CLI + YAML pinning), pure-Starlark `.cabal` parser, opaque `cabal-install` / `runghc Setup.hs` actions | 100% Cabal spec fidelity with zero host `cabal`/`stack`/`python`, `reproducible = True` Bzlmod eval, fine-grained parallel caching & `CcInfo` propagation |
+| **5. 3p Hackage Resolution & Build Pipeline** | Dogfooded boot-only [`//tools/lock:lock`](../reference/lock-cli.md) (`Cabal-syntax`) + Stackage LTS -> `hackage.lock.json` -> pure-Starlark [`hackage`](../reference/extensions-and-providers.md#hackage) + 5-stage [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) | `stack_snapshot` (Stack CLI + YAML pinning), pure-Starlark `.cabal` parser, opaque `cabal-install` / `runghc Setup.hs` actions | 100% Cabal spec fidelity with zero host `cabal`/`stack`/`python`, `reproducible = True` Bzlmod eval, fine-grained parallel caching & `CcInfo` propagation |
 | **6. Showcase App 3p Haskell Libraries** (`examples/size`, 69 Hackage + 41 boot pkgs on `lts-24.67`) | `xml-conduit` `1.10.1.0`, `http-client` `0.7.19` + `http-client-tls` `0.3.6.4` + `http-types` `0.12.6`, `zlib` `0.7.1.1` (`bundled-c-zlib=true` / `zlib-clib` `1.3.2`), `async` `2.2.6` | `xml`, `xeno`, `hexml`, `hexpat`, `hxt`, `xmlbf`; `http-conduit`, `req`, `wreq`, `http-client-openssl`; BCR `@zlib` default, system `libz.so.1`; raw `Control.Concurrent`, `ki`, `streamly` | Idiomatic spec-compliant XML, pure-Haskell TLS (zero OpenSSL), zero host C libs (`zlib-clib`), zero-cost `async`, minimal 69-pkg closure |
-| **7. Documentation Engine & SSG** (`//docs`, strictly `dev_dependency = True`) | **Hakyll + Pandoc + Skylighting** (locked via `cli:lock` on `lts-24.67`, compiled hermetically by `rules_hs`) | Emanote / Ema, Slick, raw Shake + Pandoc, standalone Haddock, non-Haskell SSGs (Sphinx, MkDocs, mdBook, Docusaurus) | Dogfoods `rules_hs` on flagship Haskell SSG + cross-library TH (`file-embed`), rich Pandoc AST directives/roles/Starlark autodoc, zero Python/Node/Rust toolchains |
+| **7. Documentation Engine & API Docs** (`//docs` & [`hs_haddock`](../reference/rules.md#hs_haddock)) | **Vanilla Hakyll + Pandoc + Skylighting + Bundled GHC Haddock** (`docs/site.hs` + `hs/private/haddock.bzl`) | Bespoke Sphinx-like Pandoc AST DSLs, Emanote / Ema, Slick, raw Shake + Pandoc, standalone Haddock without Hakyll, non-Haskell SSGs (Sphinx, MkDocs, mdBook, Docusaurus) | Canonical vanilla Haskell docs stack: standard GitHub/Pandoc Markdown in Hakyll + GHC Haddock for `.hs` APIs; dogfoods `rules_hs` & cross-library TH (`file-embed`) with zero custom AST hacks and zero Python/Node/Rust toolchains |
 
 ---
 
 ## 1. C/C++ Toolchains (Dev & Showcase Hermeticity) {#cc-toolchains}
 
-::: {.important title="Crucial Architectural Boundary: C-Toolchain Agnosticism"}
-`rules_hs` itself is **100% C-toolchain agnostic**. Every rule queries `@bazel_tools//tools/cpp:toolchain_type` through `rules_cc` (`find_cc_toolchain` + `cc_common`) and forwards any resolved `--sysroot` and `--target` flags into `ghc_cc_wrapper` (`hs/private/cc_wrapper.c`). Neither `hermetic_cc_toolchain` nor any other concrete C toolchain is a non-dev dependency of `rules_hs` (in `MODULE.bazel`, `hermetic_cc_toolchain` is strictly `dev_dependency = True`). Downstream consumers can bring any compliant Linux `cc_toolchain`.
-:::
+> **Important — Crucial Architectural Boundary (C-Toolchain Agnosticism):** `rules_hs` itself is **100% C-toolchain agnostic**. Every rule queries `@bazel_tools//tools/cpp:toolchain_type` through `rules_cc` (`find_cc_toolchain` + `cc_common`) and forwards any resolved `--sysroot` and `--target` flags into `ghc_cc_wrapper` (`hs/private/cc_wrapper.c`). Neither `hermetic_cc_toolchain` nor any other concrete C toolchain is a non-dev dependency of `rules_hs` (in `MODULE.bazel`, `hermetic_cc_toolchain` is strictly `dev_dependency = True`). Downstream consumers can bring any compliant Linux `cc_toolchain`.
 
 ### Adopted (Dev & Showcase)
 
@@ -123,7 +119,7 @@ For deep implementation walkthroughs of the subsystems referenced below, see `do
   3. **glibc ABI mismatch**: Cannot link against glibc `cc_toolchain`s (`undefined symbol: posix_spawn_file_actions_addchdir_np` in `libHSprocess.a` on glibc `<= 2.28`, plus musl/glibc struct layout mismatches), forcing every BCR `cc_library` dependency (`@zlib`, etc.) onto `@zig_sdk//libc:musl`.
   4. **Hackage GMP flag friction**: Uses `bignum = native`, requiring consumers to override default GMP flags on packages like `crypton` (`integer-gmp=false`) and `cborg` (`optimize-gmp=false`) and forfeiting GMP arbitrary-precision performance.
 - **Catalysts to adopt**:
-  - **As a first-class opt-in flavor** (for `FROM scratch` zero-glibc static `x86_64` binaries without runtime TH + C FFI splices — note `examples/size`'s 69-pkg graph has 0 runtime TH splices!): Wire a musl platform constraint matching `@zig_sdk//libc:musl`, expose a `libc = "musl"` / flavor selector on `bzl:ext:hs.toolchain`, and document the `crypton`/`cborg` lockfile flags.
+  - **As a first-class opt-in flavor** (for `FROM scratch` zero-glibc static `x86_64` binaries without runtime TH + C FFI splices — note `examples/size`'s 69-pkg graph has 0 runtime TH splices!): Wire a musl platform constraint matching `@zig_sdk//libc:musl`, expose a `libc = "musl"` / flavor selector on [`hs.toolchain`](../reference/extensions-and-providers.md#hs-toolchain), and document the `crypton`/`cborg` lockfile flags.
   - **As the default Linux bindist**: Would require (a) upstream GHC publishing official `aarch64` static musl bindists alongside `x86_64`, (b) upstream fixing the static RTS linker / `ghc-iserv` dual-libc crash on TH + C FFI, and (c) broad BCR `cc_library` support for musl builds.
 
 #### `rules_nixpkgs` / Nix-Managed GHC
@@ -142,7 +138,7 @@ For deep implementation walkthroughs of the subsystems referenced below, see `do
 - **Why Not Adopted as Default**:
   - `9.12.4` currently tracks **Stackage Nightly** rather than an LTS series, bringing moving-target package churn (+5 packages in `examples/size`: 74 vs. 69, plus newer Cabal features like `reexported-modules` in `crypton-asn1-encoding`/`crypton-asn1-parse` and `autogen-modules` in `mlkem`).
   - `9.14.1` is too recent for broad Hackage upper-bound compatibility.
-  - *(Note: `rules_hs` is already forward-compatible with `9.12.4`: all six platform URLs, SHA-256 checksums, and `BOOT_PACKAGE_NAMES` including `file-io` are pre-wired in `hs/private/ghc_versions.bzl`, and `reexported-modules` is already implemented in `bzl:rule:hs_cabal_library` and `cli:lock`.)*
+  - *(Note: `rules_hs` is already forward-compatible with `9.12.4`: all six platform URLs, SHA-256 checksums, and `BOOT_PACKAGE_NAMES` including `file-io` are pre-wired in `hs/private/ghc_versions.bzl`, and `reexported-modules` is already implemented in [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) and [`//tools/lock:lock`](../reference/lock-cli.md).)*
 - **Catalysts to adopt as default**:
   - Stackage cuts a stable **LTS series** for GHC `9.12.x` (e.g., LTS 25+), `ghcup` promotes `9.12.x` to `Recommended`, and the full `rules_hs` + `examples/size` + `//docs` CI matrix passes cleanly on that LTS. (Same criteria apply to `9.14.x` in a subsequent release cycle.)
 
@@ -223,7 +219,7 @@ For deep implementation walkthroughs of the subsystems referenced below, see `do
 - **Catalysts to reconsider or replace**:
   - **Upgrade `rules_cc`**: As soon as a newer `rules_cc` release removes its transitive `protobuf` BCR dependency, bump `rules_cc` to make the entire resolved module graph even cleaner.
   - **Add `bazel_features`**: If Bazel 10 introduces Starlark API changes requiring conditional feature detection across Bazel 9 and 10, adding the tiny pure-Starlark `bazel_features` BCR module is justified.
-  - **Drop dev-only `rules_shell`**: If all ELF/hygiene integration tests are rewritten in pure Haskell (`bzl:rule:hs_test`) or Starlark analysis tests, even dev-only `rules_shell` can be removed.
+  - **Drop dev-only `rules_shell`**: If all ELF/hygiene integration tests are rewritten in pure Haskell ([`hs_test`](../reference/rules.md#hs_test)) or Starlark analysis tests, even dev-only `rules_shell` can be removed.
 
 #### Native C11 `ghc_cc_wrapper` (`hs/private/cc_wrapper.c`)
 
@@ -244,10 +240,10 @@ For deep implementation walkthroughs of the subsystems referenced below, see `do
 - **Why Not Adopted**:
   - Leaks `rules_python` (and a Python runtime toolchain or host `python3` assumption) into every downstream consumer's non-dev `MODULE.bazel` graph and every Haskell build action's inputs.
   - Adds noticeable interpreter startup latency across hundreds of actions and historically accumulated platform-specific wrapper bugs (`rules_haskell` #2492/#2493, #2317).
-  - Completely redundant when Bazel already requires a `cc_toolchain` capable of compiling a 460-line C11 wrapper natively, and our 5-stage `bzl:rule:hs_cabal_library` pipeline eliminates `cabal_wrapper.py` altogether.
+  - Completely redundant when Bazel already requires a `cc_toolchain` capable of compiling a 460-line C11 wrapper natively, and our 5-stage [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) pipeline eliminates `cabal_wrapper.py` altogether.
 - **Catalysts to adopt**:
   - **Never** on the build action hot path (`cc_wrapper` or `hs_cabal_library`).
-  - Only conceivable for an isolated optional dev-only helper tool if third-party Python libraries were uniquely required — and even then, dogfooding Haskell (`cli:lock` and `//docs:docs_gen`) avoids adding an extra language runtime.
+  - Only conceivable for an isolated optional dev-only helper tool if third-party Python libraries were uniquely required — and even then, dogfooding Haskell ([`//tools/lock:lock`](../reference/lock-cli.md) and `//docs:docs_gen`) avoids adding an extra language runtime.
 
 #### Legacy / Unrelated Non-Dev Deps (`rules_java`, `protobuf`, `abseil-cpp`, `rules_proto`, `rules_nodejs`, `aspect_rules_js`, `rules_sh`, Non-Dev `stardoc`)
 
@@ -255,7 +251,7 @@ For deep implementation walkthroughs of the subsystems referenced below, see `do
 - **Why Not Adopted**:
   - Directly caused Bazel 8 and 9 evaluation failures in `rules_haskell` (`rules_sh@0.4.0` calling removed `get_cpu_value`, `aspect_rules_js@1.34.0` loading removed `npm_import.bzl`, `protobuf` Windows overrides) and polluted every downstream consumer with unrelated Java/Node/Protobuf module graphs.
 - **Catalysts to adopt**:
-  - **`stardoc`**: Attractive strictly as **`dev_dependency = True`** (or in an isolated submodule) only if semantic Starlark evaluation beyond `Docs.Starlark`'s `.bzl` autodoc introspection is needed — never as a non-dev dependency.
+  - **`stardoc`**: Attractive strictly as **`dev_dependency = True`** (or in an isolated submodule) if automated `.bzl` Markdown generation from Starlark `doc` strings is desired alongside hand-curated reference pages — never as a non-dev dependency.
   - **JS/WASM rules**: Only inside a separate optional module (e.g., `rules_hs_wasm`) if GHC's modern `wasm32-wasi` backend is supported and needs JS/WASI test runners — never in core `rules_hs`.
   - **`rules_java` / `protobuf` / `abseil-cpp` / `rules_sh`**: Never as non-dev deps of core `rules_hs` (`rules_shell` supersedes `rules_sh` as dev-only).
 
@@ -268,8 +264,8 @@ For deep implementation walkthroughs of the subsystems referenced below, see `do
 #### Dogfooded Boot-Only `//tools/lock` (`Cabal-syntax`) + Stackage LTS -> `hackage.lock.json` -> Pure-Starlark `hackage` Extension + 5-Stage `hs_cabal_library`
 
 - **What & Role**: Two-phase dependency pipeline split cleanly between dev time and build time:
-  1. **Dev-time lock generator (`cli:lock` in `tools/lock/BUILD.bazel`)**: A Haskell binary compiled strictly from `@hs_boot` (`Cabal-syntax`, `base`, `bytestring`, `containers`, `directory`, `filepath`, `process`, `text`) — zero third-party deps — that reads a Stackage LTS snapshot (`lts-24.67`), evaluates `.cabal` conditionals across four platforms (`linux_x86_64`, `linux_arm64`, `macos_arm64`, `macos_x86_64`) via `Distribution.PackageDescription.Configuration.finalizePD`, verifies Hackage tarball SHA-256s, normalizes doctest-only `build-type: Custom` (`xml-conduit`), inspects `build-type: Configure` outputs (`network`, `unix-time`, `old-time`), and writes deterministic `hackage.lock.json` (`schema_version = 1`).
-  2. **Build-time pure-Starlark extension (`hs/private/hackage.bzl`)**: Reads `hackage.lock.json` via `json.decode` (`reproducible = True`, zero network calls during extension eval), emits one uniform `@hackage` hub repo (boot `bzl:rule:hs_toolchain_library` targets + Hackage aliases) and lazy per-package `@hackage__<pkg>` repos downloaded only when referenced.
+  1. **Dev-time lock generator ([`//tools/lock:lock`](../reference/lock-cli.md) in `tools/lock/BUILD.bazel`)**: A Haskell binary compiled strictly from `@hs_boot` (`Cabal-syntax`, `base`, `bytestring`, `containers`, `directory`, `filepath`, `process`, `text`) — zero third-party deps — that reads a Stackage LTS snapshot (`lts-24.67`), evaluates `.cabal` conditionals across four platforms (`linux_x86_64`, `linux_arm64`, `macos_arm64`, `macos_x86_64`) via `Distribution.PackageDescription.Configuration.finalizePD`, verifies Hackage tarball SHA-256s, normalizes doctest-only `build-type: Custom` (`xml-conduit`), inspects `build-type: Configure` outputs (`network`, `unix-time`, `old-time`), and writes deterministic `hackage.lock.json` (`schema_version = 1`).
+  2. **Build-time pure-Starlark extension (`hs/private/hackage.bzl`)**: Reads `hackage.lock.json` via `json.decode` (`reproducible = True`, zero network calls during extension eval), emits one uniform `@hackage` hub repo (boot [`hs_toolchain_library`](../reference/rules.md#hs_toolchain_library) targets + Hackage aliases) and lazy per-package `@hackage__<pkg>` repos downloaded only when referenced.
   3. **Fine-grained 5-stage builder (`hs/private/cabal_library.bzl`)**: Compiles each package through up to five cacheable, parallelizable Bazel actions — Stage 1 `HsConfigure`, Stage 2 zero-subprocess `cabal_macros.h` + `Paths_*`, Stage 3 parallel per-file `HsHsc2hs`, Stage 4 native `cc_common.compile` (including C-only packages like `zlib-clib` and transitive `install-includes` via `CcInfo`), and Stage 5 `HsCompileLibrary` (`ghc --make -c` + `ar` + relocatable `${pkgroot}` `ghc-pkg` DB).
 - **Why**:
   - **Zero host `cabal`, `stack`, or `python`** at both lock generation time and build time.
@@ -278,9 +274,9 @@ For deep implementation walkthroughs of the subsystems referenced below, see `do
   - **Fast, reproducible Bzlmod evaluation** (`reproducible = True` confirmed via `--lockfile_mode=update`) with lazy per-package fetches and uniform `@hackage//:<pkg>` target names across boot and non-boot packages.
   - **Granular Bazel caching & native C interop**: `hsc2hs` and C files compile in parallel; `CcInfo` propagates transitive headers cleanly (`zlib-clib` -> `zlib` -> `streaming-commons/cbits/zlib-helper.c`).
 - **Catalysts to reconsider or extend**:
-  - **Non-Stackage packages / custom version overrides**: Users needing Hackage packages outside Stackage LTS, Hackage revisions, or git checkouts — catalyst to extend `cli:lock` to ingest `cabal.project.freeze` (or direct Hackage constraints/extra-deps) while keeping the exact same `hackage.lock.json` schema and build pipeline.
+  - **Non-Stackage packages / custom version overrides**: Users needing Hackage packages outside Stackage LTS, Hackage revisions, or git checkouts — catalyst to extend [`//tools/lock:lock`](../reference/lock-cli.md) to ingest `cabal.project.freeze` (or direct Hackage constraints/extra-deps) while keeping the exact same `hackage.lock.json` schema and build pipeline.
   - **Additional build-tool preprocessors (`c2hs`, `cpphs`, `hsc2hs #def`)**: `alex` (`3.5.4.2`) and `happy` (`2.1.7`) are already lazily bootstrapped purely from `@hs_boot` via `hs/private/cabal_codegen.bzl` whenever a locked package contains `.x`/`.y`/`.ly` grammars (incurring zero fetches on closures like `examples/size` that have 0 grammar packages); demand from C-binding-heavy consumers (`language-c`, `gtk2hs`) is the catalyst to add optional `c2hs` / `cpphs` / `hsc2hs #def` object-emitting actions ahead of Stage 5.
-  - **Boot `Cabal-syntax` lag**: If newer Hackage packages adopt a `cabal-version` unsupported by the active GHC's bundled `Cabal-syntax`, catalyst to allow building `cli:lock` against a newer GHC or an optional pinned `Cabal-syntax` package at dev time.
+  - **Boot `Cabal-syntax` lag**: If newer Hackage packages adopt a `cabal-version` unsupported by the active GHC's bundled `Cabal-syntax`, catalyst to allow building [`//tools/lock:lock`](../reference/lock-cli.md) against a newer GHC or an optional pinned `Cabal-syntax` package at dev time.
 
 ### Not Adopted
 
@@ -291,7 +287,7 @@ For deep implementation walkthroughs of the subsystems referenced below, see `do
   - Requires an external `stack` binary and ecosystem assumptions outside Bazel, imposes noisy `setup_deps = ["@Cabal//:Cabal"]` boilerplate (`rules_haskell` #1871), and couples resolution to Stack's opaque build driver rather than Bazel-native actions.
 - **Catalysts to adopt**:
   - **Never** as a build-time dependency or runtime tool in `rules_hs`.
-  - Attractive **only as an optional input format** in `cli:lock` (e.g., `--stack-yaml stack.yaml` to import an existing Stack project's resolver, `extra-deps`, and flags directly into `hackage.lock.json`).
+  - Attractive **only as an optional input format** in [`//tools/lock:lock`](../reference/lock-cli.md) (e.g., `--stack-yaml stack.yaml` to import an existing Stack project's resolver, `extra-deps`, and flags directly into `hackage.lock.json`).
 
 #### Pure-Starlark `.cabal` Parser Inside the Bzlmod Extension
 
@@ -307,16 +303,16 @@ For deep implementation walkthroughs of the subsystems referenced below, see `do
 - **What & Role**: Executing `runghc Setup.hs configure && build && copy && register && clean` (or `cabal v2-build`) inside a single Bazel action per package (`rules_haskell`'s `cabal_wrapper.py` architecture).
 - **Why Not Adopted**:
   - Collapses configure, `hsc2hs`, C compilation, and GHC compilation into one opaque, non-parallelizable action; mutates `cwd`; requires relocating `libHS*.a` to dodge TreeArtifact overlaps with `.hi` directories and regex-patching `.conf` files (`rules_haskell` #2496/#2499); drops transitive `data-files` and native `CcInfo` C header propagation; and pays `Setup.hs` compilation overhead on every package.
-  - **Doctest-only `Custom` distinction**: Across all 69 Hackage packages in `examples/size`, the sole `build-type: Custom` package (`xml-conduit`) uses `Setup.hs = defaultMainWithDoctests "doctest"` (`cabal-doctest`), which is a **complete no-op for library builds** — cleanly normalized to `Simple` by `cli:lock` with zero `Setup.hs` execution.
+  - **Doctest-only `Custom` distinction**: Across all 69 Hackage packages in `examples/size`, the sole `build-type: Custom` package (`xml-conduit`) uses `Setup.hs = defaultMainWithDoctests "doctest"` (`cabal-doctest`), which is a **complete no-op for library builds** — cleanly normalized to `Simple` by [`//tools/lock:lock`](../reference/lock-cli.md) with zero `Setup.hs` execution.
 - **Catalysts to adopt**:
-  - **Not for `Simple`, `Configure`, or doctest-only `Custom` packages** (which remain on the 5-stage `bzl:rule:hs_cabal_library` pipeline).
+  - **Not for `Simple`, `Configure`, or doctest-only `Custom` packages** (which remain on the 5-stage [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) pipeline).
   - **Real non-trivial `build-type: Custom` packages** (such as `entropy`, `HsOpenSSL`, `gi-gtk`, or packages whose `Setup.hs` runs arbitrary build-time codegen, custom C probes beyond autoconf, or dynamic `HookedBuildInfo` hooks): If consumer dependency graphs require such packages and static lockfile metadata cannot represent them, that is the concrete catalyst to add a **scoped, opt-in fallback `hs_cabal_custom_library` rule** that compiles and executes `Setup.hs` (with pinned `setup-depends`) inside a hermetic sandboxed Bazel action strictly for those packages.
 
 ---
 
 ## 6. Showcase App 3p Haskell Libraries (`examples/size`) {#showcase-libraries}
 
-All package counts and versions below are verified directly against `examples/size/hackage.lock.json` on Stackage `lts-24.67` / GHC `9.10.3` (**69 Hackage packages + 41 GHC boot packages**, **0 external Linux C libraries**, **0 runtime TH splices**; see `doc:guide/showcase-size`).
+All package counts and versions below are verified directly against `examples/size/hackage.lock.json` on Stackage `lts-24.67` / GHC `9.10.3` (**69 Hackage packages + 41 GHC boot packages**, **0 external Linux C libraries**, **0 runtime TH splices**; see [Showcase: examples/size](../guide/showcase-size.md)).
 
 ### 6.1 XML Parsing
 
@@ -372,7 +368,7 @@ All package counts and versions below are verified directly against `examples/si
   - *Catalysts to adopt*: Building a full-featured typed JSON REST client that already depends on `aeson` + `lens`/`mtl` and benefits from typed URL/query/auth DSLs (paired with a `Custom` `Setup.hs` fallback if `entropy` remains in the closure).
 - **`http-client-openssl`**:
   - *Why Not Adopted*: Requires external C `libssl`/`libcrypto` via `HsOpenSSL` (which also uses a non-trivial `Custom` setup), adding OpenSSL build/version/linking complexity where pure-Haskell `tls` works hermetically out of the box.
-  - *Catalysts to adopt*: Mandatory FIPS-140-3 / BoringSSL compliance or enterprise TLS extensions/ciphers unsupported by Haskell `tls`, backed by BCR `@boringssl` or `@openssl` via `bzl:ext:hackage.override`.
+  - *Catalysts to adopt*: Mandatory FIPS-140-3 / BoringSSL compliance or enterprise TLS extensions/ciphers unsupported by Haskell `tls`, backed by BCR `@boringssl` or `@openssl` via [`hackage.override`](../reference/extensions-and-providers.md#hackage-override).
 
 ### 6.3 Gzip Decompression
 
@@ -381,7 +377,7 @@ All package counts and versions below are verified directly against `examples/si
 - **What & Role**: Gzip stream decompression in `examples/size/src/Sitemap.hs` (`Codec.Compression.GZip` + `Codec.Compression.Zlib.Internal.decompressST` for total error handling on corrupt archives), backed by `zlib`'s vendored C-only Hackage package `zlib-clib` (`1.3.2`).
 - **Why**:
   - **Zero extra Hackage packages**: `http-client` already pulls `streaming-commons` -> `zlib`.
-  - **Zero system C libraries & zero consumer `MODULE.bazel` boilerplate**: `zlib-clib` ships 11 ANSI C files + 11 `install-includes` headers (zero Haskell modules), compiled hermetically by `bzl:rule:hs_cabal_library` Stage 4 (`cc_common.compile`) and statically linked into `//:size` — keeping `libz.so.1` completely out of `DT_NEEDED` while also exercising `rules_hs`'s C-only package support and transitive `install-includes` propagation (`streaming-commons/cbits/zlib-helper.c` -> `<zlib.h>`).
+  - **Zero system C libraries & zero consumer `MODULE.bazel` boilerplate**: `zlib-clib` ships 11 ANSI C files + 11 `install-includes` headers (zero Haskell modules), compiled hermetically by [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) Stage 4 (`cc_common.compile`) and statically linked into `//:size` — keeping `libz.so.1` completely out of `DT_NEEDED` while also exercising `rules_hs`'s C-only package support and transitive `install-includes` propagation (`streaming-commons/cbits/zlib-helper.c` -> `<zlib.h>`).
 - **Catalysts to reconsider or replace**:
   - In a polyglot Bazel monorepo (such as the multi-language `size` repo) that already depends on BCR `zlib` across C++/Rust/etc., switching to BCR `@zlib//:zlib` deduplicates C builds and shares one C security patch plane.
   - If an urgent C `zlib` CVE lands in BCR before Hackage publishes a new `zlib-clib` release — immediate catalyst to override `zlib` to patched BCR `@zlib//:zlib`.
@@ -405,7 +401,7 @@ All package counts and versions below are verified directly against `examples/si
   - **Safe structured concurrency**: `mapConcurrently` cleanly propagates exceptions and cancels sibling threads without leaks, while releasing `QSem` prior to recursive descent guarantees arbitrary `<sitemapindex>` nesting depth can never deadlock.
 - **Catalysts to reconsider or replace**:
   - If crawling scales to tens of thousands of child sitemaps per index where spawning one green thread per child ahead of `QSem` adds excessive scheduling/memory pressure — catalyst to replace `mapConcurrently` + `QSem` with a fixed-size worker pool or bounded streaming queue.
-  - If a pure boot-only executable has zero Hackage dependencies (`cli:lock`) and cannot pull `async`.
+  - If a pure boot-only executable has zero Hackage dependencies ([`//tools/lock:lock`](../reference/lock-cli.md)) and cannot pull `async`.
 
 #### Not Adopted
 
@@ -418,35 +414,45 @@ All package counts and versions below are verified directly against `examples/si
 
 ---
 
-## 7. Documentation Engine & Static Site Generator (`//docs`, Dev-Only) {#docs-engine-decisions}
+## 7. Documentation Engine & API Docs (`//docs` & `hs_haddock`, Dev-Only) {#docs-engine-decisions}
 
-::: {.important title="Strict Dev-Only Isolation"}
-`//docs` (`docs/BUILD.bazel`, `docs/hackage.lock.json`) is wired in root `MODULE.bazel` via `use_extension("//hs:extensions.bzl", "hackage", dev_dependency = True)`. Downstream consumers of `rules_hs` download **zero** documentation packages (enforced by `//tests/rules:bzlmod_hygiene_test`). For the internal design of `docs/app/`, see `doc:internals/docs-engine`.
-:::
+> **Important — Strict Dev-Only Isolation:** `//docs` (`docs/BUILD.bazel`, `docs/hackage.lock.json`) is wired in root `MODULE.bazel` via `use_extension("//hs:extensions.bzl", "hackage", dev_dependency = True)`. Downstream consumers of `rules_hs` download **zero** documentation packages (enforced by `//tests/rules:bzlmod_hygiene_test`), while [`hs_haddock`](../reference/rules.md#hs_haddock) uses GHC's already-bundled `$ORIGIN`-staged `haddock` binary with zero extra dependencies. For the internal design of `docs/site.hs` and Haddock integration, see [Hakyll & Haddock Docs](docs-engine.md).
 
 ### Adopted
 
-#### Hakyll + Pandoc + Skylighting (Hermetically Dogfooded on `rules_hs`)
+#### Vanilla Hakyll + Pandoc + Skylighting (`docs/site.hs`) + Bundled GHC Haddock (`hs_haddock`)
 
-- **What & Role**: The canonical Haskell static site generator (`hakyll`), universal document AST compiler (`pandoc` + `pandoc-types`), and pure-Haskell syntax highlighter (`skylighting`), pinned in `docs/hackage.lock.json` via `cli:lock` on Stackage `lts-24.67` and compiled hermetically by `rules_hs` into `//docs:docs_gen` (`bzl:rule:hs_binary`), `//docs:site`, and the pure-Haskell preview server `//docs:serve`. Locked with:
-  - `--flag hakyll:checkexternal=false --flag hakyll:watchserver=false --flag hakyll:previewserver=false` (retaining Hakyll's core `Rules`, `Compiler`, `Pandoc`, `Context`, and `RelativizeUrls` engine while pruning `warp`, `wai`, `http-conduit`, and `fsnotify`).
-  - `--flag pandoc:embed_data_files=true --flag citeproc:embed_data_files=true` (embedding Pandoc/Citeproc data templates at compile time via `file-embed` cross-library Template Haskell rather than runtime `Paths_*` filesystem lookups).
-  - `--flag zlib:bundled-c-zlib=true --flag zlib:pkg-config=false` (building `zlib` hermetically from C sources via `zlib-clib`).
+- **What & Role**: A canonical two-part Haskell documentation stack using each ecosystem standard for its intended role:
+  1. **Vanilla Hakyll + Pandoc + Skylighting (`docs/site.hs`)**: Pinned in `docs/hackage.lock.json` via [`//tools/lock:lock`](../reference/lock-cli.md) on Stackage `lts-24.67` and compiled hermetically by `rules_hs` into `//docs:docs_gen` ([`hs_binary`](../reference/rules.md#hs_binary)), `//docs:site`, and the pure-Haskell preview server `//docs:serve` — rendering 100% standard GitHub/Pandoc Markdown (`docs/content/**/*.md`) for conceptual guides, architecture chapters, and Starlark `.bzl` references. Locked with:
+     - `--flag hakyll:checkexternal=false --flag hakyll:watchserver=false --flag hakyll:previewserver=false` (retaining Hakyll's standard `Rules`, `Compiler`, `Pandoc`, `Context`, `loadAndApplyTemplate`, and `relativizeUrls` engine while pruning `warp`, `wai`, `http-conduit`, and `fsnotify`).
+     - `--flag pandoc:embed_data_files=true --flag citeproc:embed_data_files=true` (embedding Pandoc/Citeproc data templates at compile time via `file-embed` cross-library Template Haskell rather than runtime `Paths_*` filesystem lookups).
+     - `--flag zlib:bundled-c-zlib=true --flag zlib:pkg-config=false` (building `zlib` hermetically from C sources via `zlib-clib`).
+  2. **Bundled GHC Haddock ([`hs_haddock`](../reference/rules.md#hs_haddock) in `hs/private/haddock.bzl`)**: Uses GHC's official `bin/haddock-ghc-<ver>` binary and `lib/html/` theme assets already `$ORIGIN`-staged by `staged_ghc` to generate standard Haskell API documentation, hyperlinked sources, and QuickJump `doc-index.json` indices for Haskell libraries (`//tools/lock:lock_haddock` mounted into `//docs:site` at `/haddock/lock/`, plus `examples/size//:size_haddock`).
 - **Why**:
-  - **Real-world dogfooding stress test for `rules_hs`**: Compiling `pandoc` + `hakyll` + `skylighting` + `aeson` exercises cross-library Template Haskell (`-dynamic-too` shared libraries + `file-embed`), massive multi-module packages, C FFI libraries, internal sublibraries, and `Configure` packages — while still producing a `//docs:docs_gen` ELF executable whose `DT_NEEDED` is strictly base `glibc` (`//docs:site_test`).
+  - **Idiomatic vanilla Markdown & canonical Haskell API docs over bespoke AST DSLs**: Rather than inventing a custom Sphinx-like dialect on top of Pandoc (proprietary cross-reference code spans, custom fenced-div directives, or bespoke Starlark AST autodoc modules), every Markdown page in `docs/content/**/*.md` uses standard relative `.md` links, standard Markdown blockquotes/tables/code fences, and standard Hakyll compilation (`docs/site.hs`). Pages remain readable directly on GitHub, in any IDE previewer, or in vanilla Pandoc without custom AST preprocessors — while Haskell library APIs (`//tools/lock:lock_lib`, `examples/size`) get authentic GHC Haddock output (`--hyperlinked-source`, `--quickjump`, cross-package `--read-interface`).
+  - **Real-world dogfooding stress test for `rules_hs`**: Compiling `pandoc` + `hakyll` + `skylighting` + `aeson` exercises cross-library Template Haskell (`-dynamic-too` shared libraries + `file-embed`), `alex`/`happy` grammar bootstrapping, massive multi-module packages, C/C++ FFI libraries, internal sublibraries, and `Configure` packages — while still producing a `//docs:docs_gen` ELF executable whose `DT_NEEDED` is strictly base `glibc` (`//docs:site_test`).
   - **Zero Python, Node.js, or Rust runtimes**: Preserves `rules_hs`'s strict zero-Python / zero-Node repository invariant (`//tests/rules:bzlmod_hygiene_test` bans `rules_python` and `rules_nodejs` in `MODULE.bazel`), implementing even `bazel run //docs:serve` in pure Haskell (`network`).
-  - **Sphinx-grade AST extensibility in pure Haskell**: Transforming `Text.Pandoc.Definition.Pandoc` directly with `Text.Pandoc.Walk` enables fenced-div & GitHub-alert admonitions (`Docs.Directive`), typed cross-reference roles (such as `bzl:rule:hs_library`, `bzl:ext:hackage`, `bzl:provider:HsPackageInfo`, `cli:lock`, and `doc:internals/overview` in `Docs.CrossRef`), live `.bzl` Starlark `autodoc` & public-symbol coverage verification (`Docs.Starlark`), Skylighting Starlark/Haskell/C highlighting + heading permalinks + right-sidebar TOC (`Docs.Toc`), client-side search index extraction (`Docs.Search`), and build-time strict HTML link + `#anchor` verification (`Docs.LinkCheck`).
 - **Catalysts to reconsider or replace**:
-  - If cold uncached build latency of `pandoc` + `skylighting` (~150+ Hackage packages) becomes problematic on ephemeral environments lacking Bazel repository/action caches — catalyst to offer a fast-path `commonmark-hs` compiler mode or publish a cached release tool artifact while keeping full `//docs:site` CI verification.
-  - If `rules_hs` adopts complex Starlark macro metaprogramming that static `.bzl` AST parsing in `Docs.Starlark` cannot introspect — catalyst to feed Bazel `stardoc` JSON/proto output (`dev_dependency = True`) into the Hakyll + Pandoc renderer.
+  - If cold uncached build latency of `pandoc` + `skylighting` (~180 Hackage packages) becomes problematic on ephemeral environments lacking Bazel repository/action caches — catalyst to offer a fast-path `commonmark-hs` compiler mode or publish a cached release tool artifact while keeping full `//docs:site` CI verification.
+  - If `rules_hs`'s public Starlark API grows large enough that hand-curated `reference/*.md` tables risk drifting from `.bzl` `doc = ...` strings — catalyst to generate standard Markdown reference snippets via Bazel `stardoc` (`dev_dependency = True`) and feed those plain `.md` files directly into the unchanged vanilla Hakyll `docs/site.hs` pipeline.
 
 ### Not Adopted
+
+#### Bespoke Sphinx-Like Pandoc AST DSLs (Custom Role Code Spans, Custom Directives & Custom `.bzl` Parsers)
+
+- **What & Role**: Layering multi-module custom Pandoc AST preprocessors onto Hakyll to emulate Sphinx inline roles, custom admonition fenced divs, and bespoke `.bzl` autodoc directives inside Markdown prose.
+- **Why Not Adopted**:
+  - **Breaks standard Markdown portability**: Proprietary inline code-span conventions and custom Pandoc fenced-div blocks render as raw, unlinked syntax in GitHub's web viewer, editor previews, and standard Markdown tools.
+  - **Unnecessary maintenance & conceptual surface**: Maintaining hundreds of lines of custom AST rewrite passes and recursive-descent `.bzl` parsers obscures what should be a straightforward, ~150–200-line canonical `docs/site.hs` Hakyll program — while standard relative `.md#anchor` links (verified at build time on rendered HTML) and native GHC [`hs_haddock`](../reference/rules.md#hs_haddock) cover prose cross-references and Haskell API docs idiomatically.
+- **Catalysts to adopt**:
+  - **Never** for proprietary inline Markdown roles or custom Haskell API doc rendering (which belongs in GHC Haddock).
+  - If automated Starlark `.bzl` reference extraction is ever needed at scale, use standard Bazel `stardoc` (`dev_dependency = True`) emitting plain GitHub Markdown rather than custom Pandoc AST directives.
 
 #### Emanote / Ema
 
 - **What & Role**: Modern Haskell static site and personal knowledge-base engine built on `ema`, `commonmark-hs`, Tailwind CSS, and Nix flakes.
 - **Why Not Adopted**:
-  - Not packaged in standard Stackage LTS (`lts-24.67`), tightly coupled to Nix flake provisioning, external Tailwind CLI asset pipelines, and live WebSocket hot-reload servers (`ema`), and designed around Zettelkasten wiki-links rather than versioned software API reference manuals with Pandoc `Div`/`Code` AST transforms.
+  - Not packaged in standard Stackage LTS (`lts-24.67`), tightly coupled to Nix flake provisioning, external Tailwind CLI asset pipelines, and live WebSocket hot-reload servers (`ema`), and designed around Zettelkasten wiki-links rather than versioned software reference manuals.
 - **Catalysts to adopt**:
   - Inclusion of `ema` / `emanote` in Stackage LTS with a batch-only build flag profile (zero live server or external Tailwind CLI runtime dependencies) alongside a requirement for wiki-style backlink graph exploration.
 
@@ -466,20 +472,19 @@ All package counts and versions below are verified directly against `examples/si
 - **Catalysts to adopt**:
   - If `hakyll` ever lagged behind a newly released GHC/`pandoc` major version in Stackage while `pandoc` itself compiled cleanly — catalyst to replace the `Hakyll` outer driver with a ~200-line direct `Text.Pandoc` batch compiler orchestrated directly by Bazel (`Development.Shake` would still be omitted).
 
-#### Haddock (As Standalone Site Generator)
+#### Haddock Alone (Without Hakyll for Prose & Starlark Docs)
 
-- **What & Role**: GHC's bundled documentation tool for `.hs` Haskell modules.
-- **Why Not Adopted**:
-  - `rules_hs`'s public user interface is **Starlark** (`hs/defs.bzl`, `hs/extensions.bzl`, `hs/providers.bzl`, `hs/toolchain.bzl`) plus multi-page conceptual architecture guides, C/Bazel/JSON configurations, Mermaid diagrams, and full-text search — none of which Haddock can parse or render.
+- **What & Role**: Using GHC's bundled `haddock` binary as the sole documentation generator for the entire repository, without Hakyll + Pandoc.
+- **Why Not Adopted (as Sole Site Generator)**:
+  - While `rules_hs` **does** adopt bundled GHC Haddock via [`hs_haddock`](../reference/rules.md#hs_haddock) for Haskell library and tool API docs (`//tools/lock:lock_haddock`, `examples/size//:size_haddock`), `rules_hs`'s primary user interface is **Starlark** (`hs/defs.bzl`, `hs/extensions.bzl`, `hs/providers.bzl`, `hs/toolchain.bzl`) plus multi-page conceptual guides, architecture comparisons, and Mermaid diagrams — none of which Haddock alone can render into a multi-section documentation site.
 - **Catalysts to adopt**:
-  - Shipping a public **Haskell** user library inside `rules_hs` (for example, an `@rules_hs//hs/runfiles` Haskell library) — catalyst to add an `hs_haddock` rule and mount its generated Haddock HTML as an API sub-tree *inside* the Hakyll documentation site.
+  - Only for pure-Haskell downstream libraries whose entire public surface consists of `.hs` modules (which can use [`hs_haddock`](../reference/rules.md#hs_haddock) directly without needing a Hakyll prose site).
 
 #### Non-Haskell SSGs (Sphinx, MkDocs Material, `mdBook`, Docusaurus)
 
 - **What & Role**: Industry-standard documentation generators in Python (`sphinx`, `mkdocs-material` via `rules_python`), Rust (`mdBook`), and Node.js (`docusaurus` via `rules_nodejs` / `aspect_rules_js`).
 - **Why Not Adopted**:
   - **Violates repository hygiene**: Sphinx/MkDocs and Docusaurus require `rules_python` (+ PyPI wheel lockfiles) or `rules_nodejs` / `aspect_rules_js` (+ `npm` lockfiles), directly violating `rules_hs`'s zero-Python / zero-Node architecture (`//tests/rules:bzlmod_hygiene_test`).
-  - **Lacks native dogfooding**: Building the `rules_hs` documentation site in Python, JS, or Rust misses the opportunity to continuously test `rules_hs` itself on a flagship Haskell application (`hakyll` + `pandoc`).
-  - **Extensibility tradeoffs**: `mdBook` lacks programmable typed AST transforms for custom Starlark cross-reference roles and `.bzl` autodoc without spawning external preprocessors.
+  - **Lacks native dogfooding**: Building the `rules_hs` documentation site in Python, JS, or Rust misses the opportunity to continuously test `rules_hs` itself on a flagship Haskell application (`hakyll` + `pandoc` + `skylighting`) mounted alongside native [`hs_haddock`](../reference/rules.md#hs_haddock) output.
 - **Catalysts to adopt**:
-  - Only if `rules_hs` docs must be ingested into a multi-repo organization-wide documentation portal standardized on MkDocs or Docusaurus — in which case `docs/content/**/*.md` (clean YAML frontmatter + standard Markdown/Pandoc syntax) can be exported via a lightweight Pandoc Markdown target.
+  - Only if `rules_hs` docs must be ingested into a multi-repo organization-wide documentation portal standardized on MkDocs or Docusaurus — which is straightforward if ever needed because `docs/content/**/*.md` is already authored in 100% standard Markdown with YAML frontmatter.
