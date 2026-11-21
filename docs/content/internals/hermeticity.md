@@ -10,7 +10,7 @@ Achieving true end-to-end hermeticity for GHC on Linux without Nix requires clos
 
 1. **Fetch-time build scripts**: Running `./configure && make install` inside a repository rule invokes host `make`, `perl`, `/bin/sh` probes, and host C compilers/libraries (`libgmp-dev`, `libtinfo5`).
 2. **Baked-in tool paths in `lib/settings`**: Official GHC bindists ship a `lib/settings` file containing hardcoded paths to the upstream release builder's `/usr/bin/gcc`, `/usr/bin/ld.gold`, `/usr/bin/ar`, and `-fuse-ld=gold`.
-3. **Compiler dynamic library dependencies**: GHC's dynamic Linux binaries (`ghc`, `ghc-pkg`, `hsc2hs`, `ghc-iserv-dyn`) import `libgmp.so.10` and `libtinfo.so.6` at startup. Satisfying these via `LD_LIBRARY_PATH` leaks library search paths into child `/bin/sh`, `./configure`, and `cc_toolchain` processes.
+3. **Compiler dynamic library dependencies**: GHC's dynamic Linux binaries (`ghc`, `ghc-pkg`, `hsc2hs`, `haddock`, `ghc-iserv-dyn`) import `libgmp.so.10` and `libtinfo.so.6` at startup. Satisfying these via `LD_LIBRARY_PATH` leaks library search paths into child `/bin/sh`, `./configure`, and `cc_toolchain` processes.
 4. **User binary dynamic GMP leakage**: Linking user executables against a shared `libgmp.so.10` produces unportable ELF binaries that fail in minimal containers lacking `libgmp10`.
 5. **Bazel `RUNFILES_*` environment variables**: When Bazel invokes tools under `--enable_runfiles`, inherited `RUNFILES_DIR` and `RUNFILES_MANIFEST_FILE` environment variables can confuse nested compiler wrappers and subprocesses.
 6. **C compiler driver mismatches**: Modern hermetic C/C++ toolchains (such as `hermetic_cc_toolchain`'s `zig cc`, `toolchains_llvm`, or custom sysroot Clang) diverge from GCC on flags GHC emits (`-Wl,-h`, `-fuse-ld=gold`, `-fno-PIC`, `.dyn_o`/`.p_o` suffixes, `--print-file-name`, and C++ standard library include ordering).
@@ -21,7 +21,7 @@ Achieving true end-to-end hermeticity for GHC on Linux without Nix requires clos
 
 ## Pure-Starlark GHC Bindist Extraction {#ghc-bindist-repo}
 
-Official Haskell.org `deb10` Linux tarballs (`ghc-9.10.3-{x86_64,aarch64}-deb10-linux.tar.xz` and `ghc-9.12.4-...`) already contain compiled ELF binaries under `bin/` (`ghc-<ver>`, `ghc-pkg-<ver>`, `hsc2hs-ghc-<ver>`, `unlit-ghc-<ver>`, `ghc-iserv-dyn-ghc-<ver>`) alongside a pre-populated, relocatable `lib/package.conf.d/package.cache` whose paths are expressed relative to `${pkgroot}/../lib/...`.
+Official Haskell.org `deb10` Linux tarballs (`ghc-9.10.3-{x86_64,aarch64}-deb10-linux.tar.xz` and `ghc-9.12.4-...`) already contain compiled ELF binaries under `bin/` (`ghc-<ver>`, `ghc-pkg-<ver>`, `hsc2hs-ghc-<ver>`, `haddock-ghc-<ver>`, `unlit-ghc-<ver>`, `ghc-iserv-dyn-ghc-<ver>`) alongside a pre-populated, relocatable `lib/package.conf.d/package.cache` whose paths are expressed relative to `${pkgroot}/../lib/...`.
 
 Because the upstream bindist is already relocatable, `./configure && make install` is completely unnecessary. Instead, `ghc_bindist_repo` (`hs/private/ghc_bindist.bzl`) executes three deterministic, pure-Starlark steps during repository fetch:
 
@@ -57,11 +57,9 @@ Rather than spawning `ghc-pkg dump` during `bazel fetch` (which cannot run befor
 - Joins indented continuation lines (`" "` or `"\t"`) onto the active key.
 - Extracts each boot package's exact `name`, `version`, `id` (`unit_id`), `depends`, and `exposed_modules` (stripping `from <pkg>:<OrigMod>` qualifiers on re-exported boot modules so only exposed module names remain).
 - Reads the exact `rts` package version (e.g., `1.0.2`) to construct `rts_include_rel = "lib/<arch_libdir>/rts-<rts_version>/include"`, exposing `Rts.h`, `HsFFI.h`, and `ghcversion.h` as tracked Bazel files (`:rts_headers`).
-- Encodes the parsed map into `boot_packages_json` on `hs_toolchain` (`:toolchain_impl`), while excluding `lib/html/**` and `lib/latex/**` documentation weight from `:lib_files`.
+- Encodes the parsed map into `boot_packages_json` on [`hs_toolchain`](../reference/rules.md#hs_toolchain) (`:toolchain_impl`), retaining `lib/html/**` (Haddock themes, QuickJump JS, and hyperlinked-source assets) and `doc/html/libraries/**/*.haddock` (bundled boot `.haddock` interfaces exposed on `HsToolchainInfo.boot_haddocks`) while excluding `lib/latex/**` documentation weight from `:lib_files`.
 
-::: {.important title="The ${pkgroot}/../lib Directory Name Invariant"}
-GHC's pre-built `lib/package.conf.d/package.cache` resolves boot `.hi` interfaces, archives, and RTS headers via `${pkgroot}/../lib/...`, where `${pkgroot}` is `lib/package.conf.d`'s parent (`lib`). Consequently, the staged library `TreeArtifact` declared by `staged_ghc` **must literally be named `lib`** (`<prefix>/lib`) alongside `<prefix>/bin`. Renaming `<prefix>/lib` to any other directory name would invalidate `package.cache`!
-:::
+> **Important — The `${pkgroot}/../lib` Directory Name Invariant:** GHC's pre-built `lib/package.conf.d/package.cache` resolves boot `.hi` interfaces, archives, and RTS headers via `${pkgroot}/../lib/...`, where `${pkgroot}` is `lib/package.conf.d`'s parent (`lib`). Consequently, the staged library `TreeArtifact` declared by `staged_ghc` **must literally be named `lib`** (`<prefix>/lib`) alongside `<prefix>/bin`. Renaming `<prefix>/lib` to any other directory name would invalidate `package.cache`!
 
 ---
 
@@ -70,7 +68,7 @@ GHC's pre-built `lib/package.conf.d/package.cache` resolves boot `.hi` interface
 Auditing every executable and shared library inside the official GHC `9.10.3` `deb10` bindists (`x86_64` and `aarch64`) via `readelf -d` and `nm -D` establishes three facts:
 
 1. **Bundled `libffi`, zero `libnuma`**: `libffi.so.8` and static `libCffi*.a` are already shipped inside `lib/<arch>-linux-ghc-<ver>/`, and `libHSrts` is compiled without `libnuma`.
-2. **Baked-in `$ORIGIN` `RUNPATH`**: Every compiler executable in `bin/` (`ghc-9.10.3`, `ghc-pkg-9.10.3`, `hsc2hs-ghc-9.10.3`, `ghc-iserv-dyn-ghc-9.10.3`, `unlit-ghc-9.10.3`) carries a baked-in ELF `RUNPATH`:
+2. **Baked-in `$ORIGIN` `RUNPATH`**: Every compiler executable in `bin/` (`ghc-9.10.3`, `ghc-pkg-9.10.3`, `hsc2hs-ghc-9.10.3`, `haddock-ghc-9.10.3`, `ghc-iserv-dyn-ghc-9.10.3`, `unlit-ghc-9.10.3`) carries a baked-in ELF `RUNPATH`:
    ```text
    $ORIGIN/../lib/<arch>-linux-ghc-<ver>:$ORIGIN/../../../lib/<arch>-linux-ghc-<ver>
    ```
@@ -120,11 +118,13 @@ staged_ghc/
 │   ├── ghc-9.10.3              # RUNPATH -> $ORIGIN/../lib/x86_64-linux-ghc-9.10.3
 │   ├── ghc-pkg-9.10.3
 │   ├── hsc2hs-ghc-9.10.3
+│   ├── haddock-ghc-9.10.3      # Bundled GHC Haddock (for hs_haddock)
 │   ├── ghc-iserv-dyn-ghc-9.10.3
 │   └── unlit                   # Copied from bin/unlit-ghc-9.10.3 (GHC expects 'unlit')
 ├── lib/                        # Declared TreeArtifact (cp -R -P preserving internal symlinks)
 │   ├── settings                # Sanitized (/nonexistent/* tools, no -fuse-ld=gold)
 │   ├── template-hsc.h
+│   ├── html/                   # Bundled Haddock themes, CSS, and QuickJump JS assets
 │   ├── package.conf.d/         # Relocatable ${pkgroot}/../lib/... boot package DB
 │   └── x86_64-linux-ghc-9.10.3/
 │       ├── libffi.so.8         # Bundled in official bindist
@@ -147,7 +147,7 @@ When Linux's `ld-linux` kernel interpreter launches `staged_ghc/bin/ghc-9.10.3`,
 
 ## Static-GMP User Executables {#static-gmp-executables}
 
-A subtle linker hazard arises if GHC links a user executable (`bzl:rule:hs_binary` or `bzl:rule:hs_test`) while `libgmp.so` is visible on the library search path: GHC's `ghc-bignum` package declares `extra-libraries: gmp`, causing GHC to pass `-lgmp` to the C linker. Whenever GNU `ld` or `lld` sees both `libgmp.so` and `libgmp.a` in a `-L` directory (without global `-static`), it prefers `libgmp.so` — saddling the output executable with a runtime `DT_NEEDED: libgmp.so.10` dependency!
+A subtle linker hazard arises if GHC links a user executable ([`hs_binary`](../reference/rules.md#hs_binary) or [`hs_test`](../reference/rules.md#hs_test)) while `libgmp.so` is visible on the library search path: GHC's `ghc-bignum` package declares `extra-libraries: gmp`, causing GHC to pass `-lgmp` to the C linker. Whenever GNU `ld` or `lld` sees both `libgmp.so` and `libgmp.a` in a `-L` directory (without global `-static`), it prefers `libgmp.so` — saddling the output executable with a runtime `DT_NEEDED: libgmp.so.10` dependency!
 
 `rules_hs` solves this cleanly via directory isolation:
 
@@ -187,13 +187,11 @@ The resulting ELF executable dynamically links **only** base `glibc` (`libc.so.6
 | **8. Silence unused-arg warnings** | `main` (skipped on `--version`, `-dumpversion`, `-dumpmachine`) | `hermetic_cc_toolchain`'s `zig-wrapper` injects `-fno-sanitize=undefined`, which triggers Clang warnings during `-E` preprocessing, `-x assembler`, and autoconf `./configure` probes unless `-Wno-unused-command-line-argument` is prepended. |
 | **9. Restore C header order (`-nostdinc++`)** | `detect_cxx_invocation` + `-nostdinc++` | See the deep dive box below. |
 
-::: {.warning title="Why -nostdinc++ Is Essential for C / hsc2hs Under hermetic_cc_toolchain"}
-`hermetic_cc_toolchain` routes `ACTION_NAMES.c_compile` through a `zig c++` wrapper that places LLVM's `libcxx/include` **ahead** of standard C libc headers on the default include search path.
-
-When `hsc2hs` compiles `network`'s `.hsc` files, GHC's `template-hsc.h` includes `<stddef.h>` at the very top of the translation unit — *before* the `.hsc` file's own `#include "HsNet.h"` (`#define _GNU_SOURCE 1`). Under `libcxx/include/stddef.h`, `<__config>` transitively pulls glibc's `<features.h>` **without `_GNU_SOURCE`**, permanently locking out GNU socket extensions (`struct ucred`, `struct in6_pktinfo`) when `HsNet.h` subsequently includes `<sys/socket.h>` and `<netinet/in.h>`!
-
-`detect_cxx_invocation` inspects `argv` for explicit C++ markers (`-xc++*`, `-x c++*`, `-std=c++*`, `-std=gnu++*`, `-stdlib=*`, or `.cc`/`.cpp`/`.cxx`/`.C`/`.hh`/`.hpp`/`.hxx` inputs) and injects `-nostdinc++` on all C, assembler, preprocessor, and linker invocations — restoring canonical C header ordering without disturbing C++ FFI sources.
-:::
+> **Warning — Why `-nostdinc++` Is Essential for C / `hsc2hs` Under `hermetic_cc_toolchain`:** `hermetic_cc_toolchain` routes `ACTION_NAMES.c_compile` through a `zig c++` wrapper that places LLVM's `libcxx/include` **ahead** of standard C libc headers on the default include search path.
+>
+> When `hsc2hs` compiles `network`'s `.hsc` files, GHC's `template-hsc.h` includes `<stddef.h>` at the very top of the translation unit — *before* the `.hsc` file's own `#include "HsNet.h"` (`#define _GNU_SOURCE 1`). Under `libcxx/include/stddef.h`, `<__config>` transitively pulls glibc's `<features.h>` **without `_GNU_SOURCE`**, permanently locking out GNU socket extensions (`struct ucred`, `struct in6_pktinfo`) when `HsNet.h` subsequently includes `<sys/socket.h>` and `<netinet/in.h>`!
+>
+> `detect_cxx_invocation` inspects `argv` for explicit C++ markers (`-xc++*`, `-x c++*`, `-std=c++*`, `-std=gnu++*`, `-stdlib=*`, or `.cc`/`.cpp`/`.cxx`/`.C`/`.hh`/`.hpp`/`.hxx` inputs) and injects `-nostdinc++` on all C, assembler, preprocessor, and linker invocations — restoring canonical C header ordering without disturbing C++ FFI sources.
 
 ### Explicit GHC Tool Flags (`ghc_tool_flags`)
 

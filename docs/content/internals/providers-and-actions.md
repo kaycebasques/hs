@@ -1,12 +1,12 @@
 ---
 title: "Providers, Visibility & Build Action Graph"
-description: "Internals of HsPackageInfo, HsLinkInfo, HsToolchainInfo, strict direct-dependency visibility, relocatable ${pkgroot} package databases, C archive linking, runfiles, and Template Haskell."
+description: "Internals of HsPackageInfo, HsLinkInfo, HsToolchainInfo, HsHaddockInfo, strict direct-dependency visibility, relocatable ${pkgroot} package databases, C archive linking, runfiles, Template Haskell, and hs_haddock."
 section: internals
 nav_title: "Providers & Action Graph"
 order: 30
 ---
 
-Every rule in `rules_hs` (`bzl:rule:hs_toolchain_library`, `bzl:rule:hs_library`, `bzl:rule:hs_cabal_library`, `bzl:rule:hs_binary`, and `bzl:rule:hs_test`) builds on a compact, compositional provider and action model defined across `hs/providers.bzl`, `hs/toolchain.bzl`, `hs/private/actions.bzl`, and `hs/private/rules.bzl`.
+Every rule in `rules_hs` ([`hs_toolchain_library`](../reference/rules.md#hs_toolchain_library), [`hs_library`](../reference/rules.md#hs_library), [`hs_cabal_library`](../reference/rules.md#hs_cabal_library), [`hs_binary`](../reference/rules.md#hs_binary), [`hs_test`](../reference/rules.md#hs_test), and [`hs_haddock`](../reference/rules.md#hs_haddock)) builds on a compact, compositional provider and action model defined across `hs/providers.bzl`, `hs/toolchain.bzl`, `hs/private/actions.bzl`, `hs/private/rules.bzl`, and `hs/private/haddock.bzl`.
 
 Modeled on Buck2's Haskell prelude (`facebook/buck2/prelude/haskell`), `rules_hs` enforces a strict boundary between **direct package identity** (used to gate compile-time module visibility) and **transitive link/interface closures** (propagated via `O(1)` Bazel `depset`s and `rules_cc`'s `CcInfo`).
 
@@ -35,7 +35,7 @@ flowchart LR
     HSLIB --> LINK
     HSLIB --> CC
 
-    PKG -->|"-package-id (direct only)"| COMP["HsCompileLibrary / HsLinkExecutable"]
+    PKG -->|"-package-id (direct only)"| COMP["HsCompileLibrary / HsLinkExecutable / HsHaddock"]
     LINK -->|"-package-db (all transitive)"| COMP
     CC -->|"--start-group *.a --end-group + -I"| COMP
 ```
@@ -44,15 +44,15 @@ flowchart LR
 
 ## Provider Architecture {#provider-architecture}
 
-`hs/providers.bzl` defines three public providers, complemented by standard `DefaultInfo` and `rules_cc`'s `CcInfo`:
+`hs/providers.bzl` defines four public providers, complemented by standard `DefaultInfo` (plus `OutputGroupInfo` on [`hs_haddock`](../reference/rules.md#hs_haddock)) and `rules_cc`'s `CcInfo`:
 
 ### 1. `HsPackageInfo` — Direct Package Identity
 
-`bzl:provider:HsPackageInfo` carries non-transitive metadata describing a **single** Haskell (or C-only Cabal) target. `collect_deps` (`hs/private/actions.bzl`) reads `HsPackageInfo` **only** from a target's immediate `deps` list and never re-exports upstream `HsPackageInfo` instances.
+[`HsPackageInfo`](../reference/extensions-and-providers.md#hspackageinfo) carries non-transitive metadata describing a **single** Haskell (or C-only Cabal) target. `collect_deps` (`hs/private/actions.bzl`) reads `HsPackageInfo` **only** from a target's immediate `deps` list and never re-exports upstream `HsPackageInfo` instances.
 
-How the 8 fields of `bzl:provider:HsPackageInfo` are populated across the three library archetypes:
+How the 8 fields of [`HsPackageInfo`](../reference/extensions-and-providers.md#hspackageinfo) are populated across the three library archetypes:
 
-| Field | Boot Package (`bzl:rule:hs_toolchain_library`) | Compiled Library (`bzl:rule:hs_library` / `bzl:rule:hs_cabal_library`) | C-Only Cabal Package (e.g., `zlib-clib`) |
+| Field | Boot Package ([`hs_toolchain_library`](../reference/rules.md#hs_toolchain_library)) | Compiled Library ([`hs_library`](../reference/rules.md#hs_library) / [`hs_cabal_library`](../reference/rules.md#hs_cabal_library)) | C-Only Cabal Package (e.g., `zlib-clib`) |
 |---|---|---|---|
 | `name` | Boot Cabal name (`"base"`, `"text"`) | Target name with `_` -> `-` (`hs_library`) or Cabal `package_name` | Cabal `package_name` (`"zlib-clib"`) |
 | `version` | Parsed from bindist `.conf` (`"4.20.2.0"`) | `"0.0.0"` (`hs_library`) or Cabal `version` | Cabal `version` (`"1.3.2"`) |
@@ -65,12 +65,12 @@ How the 8 fields of `bzl:provider:HsPackageInfo` are populated across the three 
 
 #### Deterministic Unit ID Construction
 
-- **User `bzl:rule:hs_library` (`_sanitize_unit_id` in `hs/private/rules.bzl`)**: Joins `[label.repo_name, label.package, label.name]` with `_`, replaces any non-alphanumeric character with `_`, and appends `"-0.0.0"`. Including `repo_name` and `package` guarantees zero unit-ID collisions across Bzlmod repositories and subdirectories even when two packages both define `hs_library(name = "types", ...)`.
-- **Cabal `bzl:rule:hs_cabal_library` (`_cabal_unit_id` in `hs/private/cabal_library.bzl`)**: Emits `<package_name>-<version>` for main libraries (e.g., `http-client-0.7.19`) and `<package_name>-<version>-<component_name>` for internal sublibraries (e.g., `attoparsec-0.14.4-attoparsec-internal`).
+- **User [`hs_library`](../reference/rules.md#hs_library) (`_sanitize_unit_id` in `hs/private/rules.bzl`)**: Joins `[label.repo_name, label.package, label.name]` with `_`, replaces any non-alphanumeric character with `_`, and appends `"-0.0.0"`. Including `repo_name` and `package` guarantees zero unit-ID collisions across Bzlmod repositories and subdirectories even when two packages both define `hs_library(name = "types", ...)`.
+- **Cabal [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) (`_cabal_unit_id` in `hs/private/cabal_library.bzl`)**: Emits `<package_name>-<version>` for main libraries (e.g., `http-client-0.7.19`) and `<package_name>-<version>-<component_name>` for internal sublibraries (e.g., `attoparsec-0.14.4-attoparsec-internal`).
 
 ### 2. `HsLinkInfo` — Transitive Compilation & Link Closure
 
-`bzl:provider:HsLinkInfo` aggregates transitive inputs across the entire dependency DAG using Bazel `depset`s so analysis-phase memory and time remain `O(1)` per target edge:
+[`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo) aggregates transitive inputs across the entire dependency DAG using Bazel `depset`s so analysis-phase memory and time remain `O(1)` per target edge:
 
 - `pkg_dbs` (`depset[File]`): Every transitive `<name>.pkgdb` `TreeArtifact` directory needed for GHC to resolve `.hi`/`.dyn_hi` interface files, transitive package keys, and (when `HsToolchainInfo.is_dynamic_ghc == True`) isolated `<name>.pkgdb/dyn/libHS<unit_id>-ghc<ver>.so` shared libraries for compile-time Template Haskell evaluation.
 - `hs_libs` (`depset[File]`): Every transitive static Haskell archive (`libHS<unit_id>.a`) so Bazel stages them into the sandbox input tree of downstream compile/link actions.
@@ -80,18 +80,25 @@ How the 8 fields of `bzl:provider:HsPackageInfo` are populated across the three 
 
 ### 3. `HsToolchainInfo` — Two-Layer Toolchain Assembly
 
-`bzl:provider:HsToolchainInfo` (`hs/providers.bzl` and `hs/toolchain.bzl`) is assembled in two steps:
+[`HsToolchainInfo`](../reference/extensions-and-providers.md#hstoolchaininfo) (`hs/providers.bzl` and `hs/toolchain.bzl`, 21 fields) is assembled in two steps:
 
-1. `staged_ghc` (`hs/private/staged_ghc.bzl`, evaluated in `cfg = "exec"`) builds `libgmp.so.10`, stages `bin/*` + `lib/` + `gmp_static/libgmp.a`, locates `Rts.h` inside `rts_headers`, and returns a partial `HsToolchainInfo`.
-2. `hs_toolchain` (`hs/toolchain.bzl`) attaches the exec-compiled `ghc_cc_wrapper` binary, decodes `boot_packages_json` into the `boot_packages` dictionary, records `target_os`, `target_cpu`, `arch_libdir`, `bignum`, and `is_dynamic_ghc`, and wraps the result in `platform_common.ToolchainInfo(hs = toolchain_info)` for `@rules_hs//hs:toolchain_type`.
+1. `staged_ghc` (`hs/private/staged_ghc.bzl`, evaluated in `cfg = "exec"`) builds `libgmp.so.10`, stages `bin/*` (`ghc`, `ghc-pkg`, `hsc2hs`, `haddock`, `ghc-iserv-dyn`, `unlit`) + `lib/` (including `lib/html/` Haddock theme assets) + `gmp_static/libgmp.a`, indexes bundled boot `.haddock` interface files (`boot_haddocks`), locates `Rts.h` inside `rts_headers`, and returns a partial `HsToolchainInfo`.
+2. [`hs_toolchain`](../reference/rules.md#hs_toolchain) (`hs/toolchain.bzl`) attaches the exec-compiled `ghc_cc_wrapper` binary, decodes `boot_packages_json` into the `boot_packages` dictionary, preserves `haddock` and `boot_haddocks`, records `target_os`, `target_cpu`, `arch_libdir`, `bignum`, and `is_dynamic_ghc`, and wraps the result in `platform_common.ToolchainInfo(hs = toolchain_info)` for `@rules_hs//hs:toolchain_type`.
 
-::: {.tip title="Platform-Independent @hs_boot Repository"}
-Because `bzl:rule:hs_toolchain_library` (`hs/private/rules.bzl`) looks up `ctx.toolchains[TOOLCHAIN_TYPE].hs.boot_packages[pkg_name]` at **analysis time** rather than hardcoding unit IDs during repository generation, `@hs_boot` (`hs_boot_repo` in `hs/private/ghc_bindist.bzl`) emits simple `hs_toolchain_library(name = "<pkg>", package_name = "<pkg>")` targets that work seamlessly across `linux_x86_64`, `linux_arm64`, and future OS/CPU targets!
-:::
+> **Tip — Platform-Independent `@hs_boot` Repository:** Because [`hs_toolchain_library`](../reference/rules.md#hs_toolchain_library) (`hs/private/rules.bzl`) looks up `ctx.toolchains[TOOLCHAIN_TYPE].hs.boot_packages[pkg_name]` at **analysis time** rather than hardcoding unit IDs during repository generation, `@hs_boot` (`hs_boot_repo` in `hs/private/ghc_bindist.bzl`) emits simple `hs_toolchain_library(name = "<pkg>", package_name = "<pkg>")` targets that work seamlessly across `linux_x86_64`, `linux_arm64`, and future OS/CPU targets!
 
-### 4. Native `CcInfo` Interoperability
+### 4. `HsHaddockInfo` — Haddock HTML & Interface Closure
 
-Both `bzl:rule:hs_library` and `bzl:rule:hs_cabal_library` return `merged_cc_info` (`CcInfo`) directly alongside `HsPackageInfo` and `HsLinkInfo`, and both accept pure `CcInfo` targets in `deps` as well as `cc_deps` / `extra_cc_deps`.
+[`HsHaddockInfo`](../reference/extensions-and-providers.md#hshaddockinfo) (`hs/providers.bzl`) is returned by [`hs_haddock`](../reference/rules.md#hs_haddock) (`hs/private/haddock.bzl`) to expose generated API documentation and enable cross-target `--read-interface` linking via `haddock_deps`:
+
+- `html_dir` (`File`): `TreeArtifact` directory (`<name>/`) containing `index.html`, `<Module>.html`, `linuwial.css`, QuickJump `doc-index.json`, and hyperlinked source `src/<Module>.html`.
+- `interface` (`File`): Dumped `<name>.haddock` interface file (`--dump-interface`, also exposed via `OutputGroupInfo.haddock_interface`).
+- `unit_ids` (`depset[str]`): GHC unit IDs documented by this `hs_haddock` target.
+- `transitive_haddocks` (`depset[struct]`): Transitive `struct(html_dir, interface)` entries propagated through `haddock_deps`.
+
+### 5. Native `CcInfo` Interoperability
+
+Both [`hs_library`](../reference/rules.md#hs_library) and [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) return `merged_cc_info` (`CcInfo`) directly alongside `HsPackageInfo` and `HsLinkInfo`, and both accept pure `CcInfo` targets in `deps` as well as `cc_deps` / `extra_cc_deps`.
 
 In `collect_deps(deps, cc_deps)` (`hs/private/actions.bzl`), `rules_hs` merges all upstream `CcInfo` providers via `cc_common.merge_cc_infos` and explicitly folds `merged_cc.compilation_context.includes`, `quote_includes`, `system_includes`, and `headers` into `dep_info.include_dirs` and `dep_info.headers`. That ensures a pure `cc_library` (such as BCR `@zlib//:zlib` or `//tests/rules/ffi:vec_cc`) makes its `.h` headers immediately visible to GHC `CApiFFI`, `CPP`, `hsc2hs`, and Cabal `./configure` without manual `include_dirs` wiring.
 
@@ -151,19 +158,17 @@ Followed by:
 "$GHC_PKG" --global-package-db="$GHC_LIB/package.conf.d" --package-db="$PKG_DB" recache
 ```
 
-::: {.note title="How ghc-pkg Expands ${pkgroot} (and Isolates Static vs. Dynamic Libs)"}
-In GHC's `ghc-pkg` specification, `${pkgroot}` for `<parent>/<name>.pkgdb/package.cache` expands to `<parent>` — i.e., `dirname($PKG_DB)`, *not* `$PKG_DB` itself!
-
-Because `libHS<unit_id>.a` and `<name>.pkgdb` share the exact same `<parent>` directory in `bazel-out/<cfg>/bin/<pkg>/`:
-- `library-dirs: ${pkgroot}` and `library-dirs-static: ${pkgroot}` resolve directly to `<parent>/libHS<unit_id>.a` (with **zero** Bazel `TreeArtifact` overlap between the static archive file and the `.pkgdb` directory — avoiding `rules_haskell` issues #2496 and #2499!).
-- `import-dirs: ${pkgroot}/<pkgdb_base>/hi` resolves directly to `<parent>/<name>.pkgdb/hi`.
-- `dynamic-library-dirs: ${pkgroot}/<pkgdb_base>/dyn` places `libHS<unit_id>-ghc<ver>.so` **inside** `<name>.pkgdb/dyn/` — propagating `.so` files transitively via `HsLinkInfo.pkg_dbs` with zero extra provider fields while keeping `${pkgroot}` strictly free of `.so` files during static executable linking!
-:::
+> **Note — How `ghc-pkg` Expands `${pkgroot}` (and Isolates Static vs. Dynamic Libs):** In GHC's `ghc-pkg` specification, `${pkgroot}` for `<parent>/<name>.pkgdb/package.cache` expands to `<parent>` — i.e., `dirname($PKG_DB)`, *not* `$PKG_DB` itself!
+>
+> Because `libHS<unit_id>.a` and `<name>.pkgdb` share the exact same `<parent>` directory in `bazel-out/<cfg>/bin/<pkg>/`:
+> - `library-dirs: ${pkgroot}` and `library-dirs-static: ${pkgroot}` resolve directly to `<parent>/libHS<unit_id>.a` (with **zero** Bazel `TreeArtifact` overlap between the static archive file and the `.pkgdb` directory — avoiding `rules_haskell` issues #2496 and #2499!).
+> - `import-dirs: ${pkgroot}/<pkgdb_base>/hi` resolves directly to `<parent>/<name>.pkgdb/hi`.
+> - `dynamic-library-dirs: ${pkgroot}/<pkgdb_base>/dyn` places `libHS<unit_id>-ghc<ver>.so` **inside** `<name>.pkgdb/dyn/` — propagating `.so` files transitively via `HsLinkInfo.pkg_dbs` with zero extra provider fields while keeping `${pkgroot}` strictly free of `.so` files during static executable linking!
 
 ### Automatic `exposed-modules` Discovery vs. Explicit Cabal Lists & Re-exports
 
-- On `bzl:rule:hs_cabal_library`, `_resolve_reexported_for_conf` (`hs/private/actions.bzl`) resolves Cabal `reexported_modules` (`[orig-pkg:]Orig.Mod [as New.Mod]`) against `direct_pkgs` (and local `exposed_modules` / `other_modules`) into `ghc-pkg`'s canonical `exposed-modules:` syntax (`New.Mod from <origin_unit_id>:Orig.Mod`), appending them directly to `exposed-modules:` alongside `other_modules` in `hidden-modules:` (and appending the re-exported module names to `HsPackageInfo.exposed_modules` so downstream re-exports resolve transitively).
-- On `bzl:rule:hs_library`, users do not have to maintain tedious module lists by hand: when `EXPLICIT_EXPOSED` is empty, `HsCompileLibrary` walks `$HI_DIR/*.hi` in sorted order, converts relative paths to dotted module names (`Math/Core.hi` -> `Math.Core`), filters out any module listed in `hidden_modules`, and populates `exposed-modules:` and `hidden-modules:` automatically.
+- On [`hs_cabal_library`](../reference/rules.md#hs_cabal_library), `_resolve_reexported_for_conf` (`hs/private/actions.bzl`) resolves Cabal `reexported_modules` (`[orig-pkg:]Orig.Mod [as New.Mod]`) against `direct_pkgs` (and local `exposed_modules` / `other_modules`) into `ghc-pkg`'s canonical `exposed-modules:` syntax (`New.Mod from <origin_unit_id>:Orig.Mod`), appending them directly to `exposed-modules:` alongside `other_modules` in `hidden-modules:` (and appending the re-exported module names to `HsPackageInfo.exposed_modules` so downstream re-exports resolve transitively).
+- On [`hs_library`](../reference/rules.md#hs_library), users do not have to maintain tedious module lists by hand: when `EXPLICIT_EXPOSED` is empty, `HsCompileLibrary` walks `$HI_DIR/*.hi` in sorted order, converts relative paths to dotted module names (`Math/Core.hi` -> `Math.Core`), filters out any module listed in `hidden_modules`, and populates `exposed-modules:` and `hidden-modules:` automatically.
 
 ---
 
@@ -181,8 +186,8 @@ A classic design question in Haskell build systems is whether to spawn one GHC p
 
 `compile_hs_library_action` adapts how targets are passed to `ghc --make -c`:
 
-- **When `exposed_modules` or `other_modules` are non-empty (`bzl:rule:hs_cabal_library`)**: Passes **dotted module names** (`Network.Socket`, etc.) after clearing GHC's default current-directory search path with bare `-i` and adding explicit `-i<dir>` flags (`hs_source_dirs` + generated `Paths_*` and `hsc2hs` output roots). Passing module names instructs GHC to resolve only active modules and ignore unreferenced helper/platform files sitting in source directories.
-- **When module lists are omitted (`bzl:rule:hs_library`)**: Passes **source file paths** directly (filtering out `.hs-boot` and `.lhs-boot` from positional arguments because GHC discovers boot files automatically along `-i<dir>`).
+- **When `exposed_modules` or `other_modules` are non-empty ([`hs_cabal_library`](../reference/rules.md#hs_cabal_library))**: Passes **dotted module names** (`Network.Socket`, etc.) after clearing GHC's default current-directory search path with bare `-i` and adding explicit `-i<dir>` flags (`hs_source_dirs` + generated `Paths_*` and `hsc2hs` output roots). Passing module names instructs GHC to resolve only active modules and ignore unreferenced helper/platform files sitting in source directories.
+- **When module lists are omitted ([`hs_library`](../reference/rules.md#hs_library))**: Passes **source file paths** directly (filtering out `.hs-boot` and `.lhs-boot` from positional arguments because GHC discovers boot files automatically along `-i<dir>`).
 
 ### Deterministic `@objects.rsp` Static Archiving
 
@@ -205,14 +210,14 @@ Sorting guarantees deterministic archive member ordering across filesystems, `@$
 GHC `9.10+` defaults bare `ghc` invocations (without `-XHaskell98` / `-XHaskell2010`) to **`GHC2021`**. Meanwhile, the Cabal specification mandates **`Haskell98`** whenever a legacy `.cabal` stanza omits `default-language:` — and several Hackage packages fail to typecheck if `GHC2021` extensions (`PolyKinds`, `GADTSyntax`, `StarIsType` changes) are enabled unexpectedly.
 
 `rules_hs` therefore passes `-X<default_language>` explicitly on every compile action:
-- Modern user rules (`bzl:rule:hs_library`, `bzl:rule:hs_binary`, `bzl:rule:hs_test`) default `default_language` to `"GHC2021"` (overridable to `"Haskell2010"`, `"Haskell98"`, or `"GHC2024"` — verified by `//tests/rules/lang:lang_test`).
-- `bzl:rule:hs_cabal_library` defaults `default_language` to `"Haskell98"` (matching Cabal's specification, verified by `//tests/starlark:hs_cabal_library_h98_test` and `//tests/starlark:hs_cabal_library_h2010_test`).
+- Modern user rules ([`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), [`hs_test`](../reference/rules.md#hs_test)) default `default_language` to `"GHC2021"` (overridable to `"Haskell2010"`, `"Haskell98"`, or `"GHC2024"` — verified by `//tests/rules/lang:lang_test`).
+- [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) defaults `default_language` to `"Haskell98"` (matching Cabal's specification, verified by `//tests/starlark:hs_cabal_library_h98_test` and `//tests/starlark:hs_cabal_library_h2010_test`).
 
 ---
 
 ## Executable Linking & Native C Archive Ordering {#executable-linking}
 
-`_hs_executable_impl` (`hs/private/rules.bzl`) backs both `bzl:rule:hs_binary` (`executable = True`) and `bzl:rule:hs_test` (`test = True`) via a single `HsLinkExecutable` action:
+`_hs_executable_impl` (`hs/private/rules.bzl`) backs both [`hs_binary`](../reference/rules.md#hs_binary) (`executable = True`) and [`hs_test`](../reference/rules.md#hs_test) (`test = True`) via a single `HsLinkExecutable` action:
 
 1. Compiles any C sources attached directly to the binary (`c_sources`) via `compile_c_sources` and merges them with `dep_info.cc_info`.
 2. Calls `extract_cc_static_libs_and_flags(merged_cc_info)` (`hs/private/actions.bzl`) to extract deduplicated static archives (`lib.pic_static_library or lib.static_library`, appending `//hs/private:rt_shims` when non-empty to satisfy `x86_64` `__cpu_model` relocations on `zig cc` while yielding to strong symbols on GCC/LLVM) and `user_link_flags`.
@@ -254,7 +259,7 @@ Modules using `{-# LANGUAGE TemplateHaskellQuotes #-}` (`'fn`, `''Type`, `[| exp
 
 ### 2. Boot-Package & Same-Library Splices
 
-When a module enables `{-# LANGUAGE TemplateHaskell #-}` and evaluates `$( ... )` splices defined either in GHC boot packages or in another module of the **same** `bzl:rule:hs_library` / `bzl:rule:hs_cabal_library` target (`//tests/rules/th:th_test`):
+When a module enables `{-# LANGUAGE TemplateHaskell #-}` and evaluates `$( ... )` splices defined either in GHC boot packages or in another module of the **same** [`hs_library`](../reference/rules.md#hs_library) / [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) target (`//tests/rules/th:th_test`):
 
 - Official GHC `9.10.3` `deb10` bindists are built with **`GHC Dynamic = YES`** (and `staged_ghc` stages `ghc-iserv-dyn-ghc-9.10.3` alongside `lib/<arch_libdir>/libHS*.so`, `libgmp.so.10`, `libtinfo.so.6`, and `libffi.so.8`).
 - During `ghc --make -c`, GHC automatically compiles helper modules needed by intra-library splices for dynamic execution (`.dyn_o`, aliased to `.o` by `ghc_cc_wrapper` when linked) and loads boot `.so` libraries via `$ORIGIN`.
@@ -267,5 +272,16 @@ Cross-library Template Haskell works **out of the box** in `rules_hs` whenever `
 
 1. **Dual static + dynamic compilation (`-dynamic-too`)**: `HsCompileLibrary` (`hs/private/actions.bzl`) passes `-dynamic-too` to `ghc --make -c`, emitting both static `.o`/`.hi` and dynamic `.dyn_o`/`.dyn_hi` artifacts in a single compiler pass.
 2. **Self-contained TH shared library (`<name>.pkgdb/dyn/`)**: `HsCompileLibrary` archives static `.o` objects into `${pkgroot}/libHS<unit_id>.a` (`library-dirs` / `library-dirs-static`) and links `.dyn_o` objects into `<name>.pkgdb/dyn/libHS<unit_id>-ghc<ver>.so` with `-Wl,-Bsymbolic` plus any attached `c_sources` / `cc_deps` archives (wrapped in `--whole-archive` along with `//hs/private:rt_shims` for hidden weak `x86_64` `__cpu_model` resolution) — ensuring multi-hop TH splices calling C FFI, `CApiFFI`, SIMD intrinsics, or `runIO` resolve native C symbols cleanly at compile time, registered via `dynamic-library-dirs: ${pkgroot}/<pkgdb_base>/dyn` in `<unit_id>.conf`.
-3. **Compile-time `data` sandboxing for `file-embed`**: `data` files declared on `bzl:rule:hs_library`, `bzl:rule:hs_cabal_library`, `bzl:rule:hs_binary`, and `bzl:rule:hs_test` are staged into the compile action sandbox (including package-root `pkg_cwd` staging on `bzl:rule:hs_cabal_library`), so compile-time `embedFile` / `embedDir` splices succeed hermetically under `linux-sandbox`.
-4. **Strict static isolation for final executables**: Because `<name>.pkgdb/dyn/` is physically isolated from `${pkgroot}`, `HsLinkExecutable` (`bzl:rule:hs_binary` / `bzl:rule:hs_test`) links exclusively against static `libHS<unit_id>.a` and `gmp_static/libgmp.a`. Compiled user executables (including `//docs:docs_gen` and `//tests/rules/th:cross_lib_th_elf_test`) retain **zero** `libHS*.so` or `libgmp.so.10` entries in `DT_NEEDED`.
+3. **Compile-time `data` sandboxing for `file-embed`**: `data` files declared on [`hs_library`](../reference/rules.md#hs_library), [`hs_cabal_library`](../reference/rules.md#hs_cabal_library), [`hs_binary`](../reference/rules.md#hs_binary), and [`hs_test`](../reference/rules.md#hs_test) are staged into the compile action sandbox (including package-root `pkg_cwd` staging on `hs_cabal_library`), so compile-time `embedFile` / `embedDir` splices succeed hermetically under `linux-sandbox`.
+4. **Strict static isolation for final executables**: Because `<name>.pkgdb/dyn/` is physically isolated from `${pkgroot}`, `HsLinkExecutable` ([`hs_binary`](../reference/rules.md#hs_binary) / [`hs_test`](../reference/rules.md#hs_test)) links exclusively against static `libHS<unit_id>.a` and `gmp_static/libgmp.a`. Compiled user executables (including `//docs:docs_gen` and `//tests/rules/th:cross_lib_th_elf_test`) retain **zero** `libHS*.so` or `libgmp.so.10` entries in `DT_NEEDED`.
+
+---
+
+## Hermetic Haddock API Generation (`hs_haddock`) {#haddock-actions}
+
+[`hs_haddock`](../reference/rules.md#hs_haddock) (`hs/private/haddock.bzl`, action mnemonic `HsHaddock`) generates standard Haskell API documentation hermetically inside Bazel's sandbox using GHC's bundled `bin/haddock-ghc-<ver>` (`HsToolchainInfo.haddock`):
+
+1. **Toolchain & sandbox wiring**: Invokes `$ORIGIN`-staged `HsToolchainInfo.haddock` with `-B <libdir> -l <libdir>` (so Haddock loads both GHC's global package database and its bundled `lib/html/` CSS/JS/QuickJump theme assets directly from the staged `libdir` `TreeArtifact`), forwards `ghc_cc_wrapper` via `--optghc=` flags, scrubs `RUNFILES_*` environment variables, and binds `TMPDIR` to an ephemeral directory cleaned up on exit.
+2. **Visibility & module hiding**: Reconstructs the documented targets' compile flags (`-hide-all-packages`, transitive `-package-db`, direct `-package-id`, language/extension flags, CPP/C include paths) via `--optghc=`, and passes `--hide=<Module>` for any `hidden_modules` so internal modules stay encapsulated while still typechecking cleanly.
+3. **Cross-package interface linking (`--read-interface`)**: Links documented types against GHC boot `.haddock` interfaces (`HsToolchainInfo.boot_haddocks`, pointed at official Hackage documentation URLs) as well as any upstream [`hs_haddock`](../reference/rules.md#hs_haddock) targets supplied in `haddock_deps` (`HsHaddockInfo`, linked via relative HTML paths).
+4. **Outputs**: Produces a single `<name>` HTML `TreeArtifact` directory (`DefaultInfo.files` and `HsHaddockInfo.html_dir`, containing `index.html`, `<Module>.html`, `linuwial.css`, QuickJump `doc-index.json` when `quickjump = True`, and hyperlinked source `src/<Module>.html` when `hyperlinked_source = True`) plus a `<name>.haddock` interface file (`--dump-interface`, exposed on `HsHaddockInfo.interface` and `OutputGroupInfo.haddock_interface`) — verified by `//tests/rules/haddock:haddock_test`, `//tools/lock:lock_haddock` (mounted into `//docs:site` at `/haddock/lock/`), and `examples/size//:size_haddock`.

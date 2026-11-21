@@ -8,7 +8,7 @@ order: 40
 
 Supporting the real-world Haskell package ecosystem inside Bazel is notoriously tricky: `.cabal` files use indentation-sensitive conditional stanzas (`if os(...)`, `if arch(...)`, `if impl(ghc >= ...)`, `if flag(...)`), internal sublibraries, `hsc2hs` FFI preprocessors, autoconf `./configure` header generators, C-only helper packages (`zlib-clib`), textual `#include`d `.c` files (`crypton`), `Paths_<pkg>` autogen modules, and doctest-only `Custom` setups (`xml-conduit`).
 
-Rather than re-implementing a partial `.cabal` parser in Starlark or shelling out to an opaque `runghc Setup.hs` wrapper at build time, `rules_hs` splits Hackage support into **two clean phases** backed by a **5-stage Bazel build rule** (`bzl:rule:hs_cabal_library`):
+Rather than re-implementing a partial `.cabal` parser in Starlark or shelling out to an opaque `runghc Setup.hs` wrapper at build time, `rules_hs` splits Hackage support into **two clean phases** backed by a **5-stage Bazel build rule** ([`hs_cabal_library`](../reference/rules.md#hs_cabal_library)):
 
 ```mermaid
 flowchart TD
@@ -40,7 +40,7 @@ flowchart TD
 
 ## Phase 1: Dogfooded `Cabal-syntax` Lock Generator (`//tools/lock`) {#phase-1-lock-generator}
 
-`cli:lock` (`tools/lock/BUILD.bazel`, `Main.hs`, `CabalExtract.hs`, `LockJson.hs`) is a ~1,400-line Haskell tool built **exclusively from GHC's boot libraries** (`base`, `Cabal-syntax`, `bytestring`, `containers`, `directory`, `filepath`, `process`, `text`) — zero third-party Hackage dependencies, zero YAML/JSON external packages, and zero host `cabal` or `stack` binaries. Because it uses GHC's own official `Cabal-syntax` parser and evaluator, `.cabal` specification fidelity is 100%.
+[`//tools/lock:lock`](../reference/lock-cli.md) (`tools/lock/BUILD.bazel`, `Main.hs`, `CabalExtract.hs`, `LockJson.hs` — exposed as library `//tools/lock:lock_lib` with Haddock API docs at `//tools/lock:lock_haddock`) is a ~1,400-line Haskell tool built **exclusively from GHC's boot libraries** (`base`, `Cabal-syntax`, `bytestring`, `containers`, `directory`, `filepath`, `process`, `text`) — zero third-party Hackage dependencies, zero YAML/JSON external packages, and zero host `cabal` or `stack` binaries. Because it uses GHC's own official `Cabal-syntax` parser and evaluator, `.cabal` specification fidelity is 100%.
 
 ### 1. Stackage Snapshot & Boot Plane Resolution (`Main.hs`, `CabalExtract.hs`)
 
@@ -102,7 +102,7 @@ Rather than duplicating full metadata 4 times per package in `hackage.lock.json`
 
 ## Phase 2: Pure-Starlark `@hackage` Synthesis (`hs/private/hackage.bzl`) {#phase-2-starlark-extension}
 
-During Bzlmod evaluation, `_hackage_impl` (`hs/private/hackage.bzl`) reads `hackage.lock.json` via `json.decode(module_ctx.read(lock_label))`, merges any `bzl:ext:hackage.override` tags (`_merge_override`), and returns `module_ctx.extension_metadata(reproducible = True)`. Zero network requests or subprocesses run during extension evaluation.
+During Bzlmod evaluation, `_hackage_impl` (`hs/private/hackage.bzl`) reads `hackage.lock.json` via `json.decode(module_ctx.read(lock_label))`, merges any [`hackage.override`](../reference/extensions-and-providers.md#hackage-override) tags (`_merge_override`), and returns `module_ctx.extension_metadata(reproducible = True)`. Zero network requests or subprocesses run during extension evaluation.
 
 ### 1. Unified `@hackage` Hub Repository (`_hackage_hub_repo`)
 
@@ -120,7 +120,7 @@ Bazel only fetches `@hackage__<sanitized_pkg>` when a build target actually depe
 2. **Module-exact source resolution (`_find_module_files`)**: Rather than globbing `**/*.hs` (which accidentally pulls in `Setup.hs`, `test/`, `bench/`, or Windows-only `System/Posix/Windows.hsc` files sitting in the same directory!), `_find_module_files` maps each active module name `A.B.C` in `exposed_modules + other_modules` to `<hs_source_dir>/A/B/C.{hsc,hs,lhs}` plus any companion `.hs-boot` / `.lhs-boot` file. Per-platform `select` modules are resolved identically into `srcs` / `hsc_srcs` `select({...})` branches.
 3. **Textual-include-preserving `hdrs` globs**: Some C-backed Hackage packages `#include` `.c` files or extensionless macro snippets directly from other `.c`/`.hs` files (e.g., `crypton` `#include`s `cbits/*_impl.c`, and `vector` `#include`s `internal/unbox-tuple-instances`). `_emit_component_rule` globs `_HDR_GLOB_PATTERNS` (`**/*.h`, `**/*.hpp`, `**/*.inc`, `cbits/**/*.c`, `cbits-extra/**/*.c`, `cbits-unix/**/*.c`, `cbits-apple/**/*.c`, `include/**/*.c`, `src/cbits/**/*.c`, plus `<include_dir>/**` for every declared `include_dirs`) while **excluding `all_c_sources`** so compiled `.c` translation units are compiled once in `c_sources` and textual `#include` helpers stay tracked in `hdrs`!
 4. **Lazy Boot-Only `alex` & `happy` Grammar Bootstrapping (`hs/private/cabal_codegen.bzl`)**: Whenever a locked Hackage package contains `.x` (Alex lexer) or `.y`/`.ly` (Happy parser) grammar sources (e.g., inside the `pandoc` / `skylighting` closure), `hackage.bzl` and `hs/private/cabal_codegen.bzl` lazily bootstrap `alex-3.5.4.2` and `happy-2.1.7` purely from `@hs_boot` and preprocess `.x`/`.y`/`.ly` files into `.hs` ahead of Stage 5 — requiring zero host `alex`/`happy` installations and incurring zero downloads when unused!
-5. **Sublibrary-first rule emission**: Emits `_PLATFORM_CONFIGS` `config_setting` targets (only when `_component_uses_select` is true), emits internal sublibrary `bzl:rule:hs_cabal_library` targets first (`build_type = "Simple"`), and finally emits the main library `bzl:rule:hs_cabal_library` target referencing `:sublib` labels.
+5. **Sublibrary-first rule emission**: Emits `_PLATFORM_CONFIGS` `config_setting` targets (only when `_component_uses_select` is true), emits internal sublibrary [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) targets first (`build_type = "Simple"`), and finally emits the main library [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) target referencing `:sublib` labels.
 
 ---
 
@@ -176,9 +176,7 @@ When `hsc_srcs` is non-empty, `run_hsc2hs_actions` spawns **one independent `HsH
 
 Runs in parallel with Stage 4's C object compilation! `compile_hs_library_action` invokes `ghc --make -c` with `-optP-include <cabal_macros.h>` and `-optc-include <cabal_macros.h>` (for `CApiFFI` stubs), archives `libHS<unit_id>.a` via `@objects.rsp`, writes `${pkgroot}` `<unit_id>.conf`, and runs `ghc-pkg recache`.
 
-::: {.tip title="Stage 4 and Stage 5 Run in Parallel"}
-Notice in the pipeline graph above that Stage 5 (`HsCompileLibrary`) depends on Stage 1 (`configure_outputs` headers), Stage 2 (`cabal_macros.h` + `Paths_*`), and Stage 3 (`hsc2hs` `.hs` outputs), **not** on Stage 4's compiled `.o`/`.a` C outputs! For C-heavy packages like `crypton` (39+ `.c` files and 100+ `.hs` modules), Bazel compiles all 39 C files via `cc_common.compile` concurrently while GHC compiles the Haskell modules.
-:::
+> **Tip — Stage 4 and Stage 5 Run in Parallel:** Notice in the pipeline graph above that Stage 5 (`HsCompileLibrary`) depends on Stage 1 (`configure_outputs` headers), Stage 2 (`cabal_macros.h` + `Paths_*`), and Stage 3 (`hsc2hs` `.hs` outputs), **not** on Stage 4's compiled `.o`/`.a` C outputs! For C-heavy packages like `crypton` (39+ `.c` files and 100+ `.hs` modules), Bazel compiles all 39 C files via `cc_common.compile` concurrently while GHC compiles the Haskell modules.
 
 ---
 
@@ -189,7 +187,7 @@ Every stage and edge-case handler above exists to support concrete packages in `
 ### 1. `zlib` (`0.7.1.1`), `zlib-clib` (`1.3.2`), & `streaming-commons` (`0.2.3.1`)
 
 - Locked with `--flag zlib:bundled-c-zlib=true --flag zlib:pkg-config=false`.
-- `zlib-clib` has **zero Haskell modules**, 11 ANSI C files (`cbits/adler32.c`, `deflate.c`, `inflate.c`, ...), and 11 `install-includes` headers (`zlib.h`, `zconf.h`, ...). `bzl:rule:hs_cabal_library` short-circuits after Stage 4, producing a pure `CcInfo` static library + public header context.
+- `zlib-clib` has **zero Haskell modules**, 11 ANSI C files (`cbits/adler32.c`, `deflate.c`, `inflate.c`, ...), and 11 `install-includes` headers (`zlib.h`, `zconf.h`, ...). [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) short-circuits after Stage 4, producing a pure `CcInfo` static library + public header context.
 - `zlib` depends on `@hackage//:zlib-clib`, compiles `cbits-extra/hs-zlib.c` (`-DNON_BLOCKING_FFI`) and its `.hsc`/`.hs` modules, and re-propagates `zlib-clib`'s `CcInfo` transitively.
 - Two hops downstream, `streaming-commons` declares `deps = [..., "@hackage//:zlib"]` (*without* depending directly on `zlib-clib`), and its `cbits/zlib-helper.c` executes `#include <zlib.h>` — resolved seamlessly through transitive `CcInfo` propagation!
 - Alternatively, polyglot repos that already pin BCR `zlib` can lock with `--flag zlib:bundled-c-zlib=false --flag zlib:pkg-config=false` and declare `hackage.override(package = "zlib", extra_cc_deps = ["@zlib//:zlib"])` in `MODULE.bazel`.
@@ -220,4 +218,4 @@ Every stage and edge-case handler above exists to support concrete packages in `
   - `--flag hakyll:checkexternal=false --flag hakyll:watchserver=false --flag hakyll:previewserver=false` (keeping Hakyll's full `Rules` / `Compiler` / `Pandoc` / `Context` / `RelativizeUrls` engine while pruning `warp`/`wai`/`http-conduit`/`fsnotify`).
   - `--flag pandoc:embed_data_files=true --flag citeproc:embed_data_files=true` (compiling Pandoc and Citeproc data files directly into the binary via cross-library `file-embed` Template Haskell splices so `//docs:docs_gen` needs zero runtime `Paths_pandoc` data lookups in Bazel sandboxes).
   - `--flag zlib:bundled-c-zlib=true --flag zlib:pkg-config=false` (compiling `zlib-clib` from C source).
-- For full details on the documentation compiler itself, see `doc:internals/docs-engine`.
+- For full details on the vanilla Hakyll documentation site and mounted Haddock API docs, see [Hakyll & Haddock Docs](docs-engine.md).
