@@ -1,0 +1,9 @@
+load("//hs:defs.bzl", "hs_library")
+
+package(default_visibility = ["//visibility:public"])
+
+hs_library(
+    name = "dup",
+    srcs = ["SubDupA.hs"],
+    deps = ["@hs_boot//:base"],
+)

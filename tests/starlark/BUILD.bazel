@@ -56,6 +56,7 @@ hs_library(
 hs_binary(
     name = "bin_threaded",
     srcs = ["SampleMain.hs"],
+    cc_options = ["-DBIN_C_OPT=1"],
     threaded = True,
     deps = [
         ":lib_c",
@@ -77,8 +78,10 @@ hs_cabal_library(
     name = "cabal_h2010",
     package_name = "sample-cabal",
     srcs = ["SampleCabal.hs"],
+    cc_options = ["-DCABAL_C_OPT=1"],
     default_language = "Haskell2010",
     exposed_modules = ["SampleCabal"],
+    extra_libraries = ["m"],
     generate_paths_module = True,
     version = "1.2.3",
     deps = [

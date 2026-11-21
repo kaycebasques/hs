@@ -1,3 +1,4 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_haddock", "hs_library", "hs_test")
 
 package(default_visibility = ["//visibility:public"])
@@ -54,4 +55,12 @@ hs_test(
         "@hs_boot//:containers",
         "@hs_boot//:text",
     ],
+)
+
+sh_test(
+    name = "lock_cli_test",
+    size = "small",
+    srcs = ["lock_cli_test.sh"],
+    args = ["$(rootpath :lock)"],
+    data = [":lock"],
 )

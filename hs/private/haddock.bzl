@@ -94,6 +94,8 @@ def _hs_haddock_impl(ctx):
     seen_exts = {}
     cpp_options = []
     seen_cpp = {}
+    cc_options = []
+    seen_cc_opts = {}
     lib_ghc_opts = []
     seen_ghc_opts = {}
     direct_unit_ids = []
@@ -114,6 +116,7 @@ def _hs_haddock_impl(ctx):
         _append_unique(hidden_modules, seen_hidden, di.hidden_modules)
         _append_unique(default_extensions, seen_exts, di.default_extensions)
         _append_unique(cpp_options, seen_cpp, di.cpp_options)
+        _append_unique(cc_options, seen_cc_opts, di.cc_options)
         _append_unique(lib_ghc_opts, seen_ghc_opts, di.ghc_opts)
         for uid in di.direct_unit_ids:
             if uid and uid not in documented_unit_ids and uid not in seen_uids:
@@ -240,6 +243,9 @@ def _hs_haddock_impl(ctx):
         ])
     for opt in cpp_options:
         ghc_tokens.append("-optP" + opt)
+    for opt in cc_options:
+        if not (opt.startswith("-std=c++") or opt.startswith("-std=gnu++") or opt.startswith("-stdlib=")):
+            ghc_tokens.append("-optc" + opt)
     ghc_tokens.extend(ghc_tool_flags(hs_tc, cc_tools))
     ghc_tokens.extend(lib_ghc_opts)
     ghc_tokens.extend(ctx.attr.ghc_opts)

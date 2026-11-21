@@ -106,11 +106,11 @@ Rather than pulling a heavyweight `ncurses` + `gawk` + terminfo-database build i
 | `tparm` | `char *tparm(const char *str, ...)` | `NULL` | Parameterized string formatting disabled |
 | `tputs` | `int tputs(const char *str, int affcnt, int (*putc_fn)(int))` | `0` (`OK`) | Output padding no-op |
 
-`hs/private/tinfo_stub.lds` binds those 8 globals to `NCURSES6_TINFO_5.0.19991023` and hides all other symbols (`local: *;`), linked with `-Wl,-soname,libtinfo.so.6 -Wl,--version-script=...`.
+`hs/private/tinfo_stub.lds` binds those 8 globals to `NCURSES6_TINFO_5.0.19991023` and hides all other symbols (`local: *;`), linked with `-Wl,-soname,libtinfo.so.6 -Wl,--version-script=...`. Alongside `libtinfo.so.6` (for the compiler's own `$ORIGIN` runtime), `//hs/private:tinfo_stub_static` compiles the same stub into a static `libtinfo.a` staged inside `gmp_static/` so user executables linking `@hs_boot//:terminfo`, `@hs_boot//:haskeline`, or `@hs_boot//:ghc` (`extra-libraries: tinfo`) resolve `-ltinfo` 100% statically with zero `libtinfo.so.6` in `DT_NEEDED`.
 
 ### 3. Staged `$ORIGIN` Directory Layout (`HsStageGhc`)
 
-`HsStageGhc` (`hs/private/staged_ghc.bzl`) materializes a self-contained directory hierarchy under `<prefix>` (`staged_ghc`):
+`HsStageGhc` (`hs/private/staged_ghc.bzl`) materializes a self-contained directory hierarchy under `<prefix>` (`staged_ghc`) and refreshes `lib/package.conf.d/package.cache` via `ghc-pkg recache` (removing any read-only sandbox input symlinks first):
 
 ```text
 staged_ghc/
@@ -121,7 +121,7 @@ staged_ghc/
 │   ├── haddock-ghc-9.10.3      # Bundled GHC Haddock (for hs_haddock)
 │   ├── ghc-iserv-dyn-ghc-9.10.3
 │   └── unlit                   # Copied from bin/unlit-ghc-9.10.3 (GHC expects 'unlit')
-├── lib/                        # Declared TreeArtifact (cp -R -P preserving internal symlinks)
+├── lib/                        # Declared TreeArtifact (cp -R -P + ghc-pkg recache)
 │   ├── settings                # Sanitized (/nonexistent/* tools, no -fuse-ld=gold)
 │   ├── template-hsc.h
 │   ├── html/                   # Bundled Haddock themes, CSS, and QuickJump JS assets
@@ -134,7 +134,8 @@ staged_ghc/
 │       ├── libHS*.a / libHS*.so
 │       └── rts-1.0.2/include/  # Rts.h, HsFFI.h, ghcversion.h
 └── gmp_static/
-    └── libgmp.a                # Strictly static archive ONLY (zero .so files!)
+    ├── libgmp.a                # Strictly static archives ONLY (zero .so files!)
+    └── libtinfo.a              # Static terminfo stub for terminfo/haskeline/ghc
 ```
 
 When Linux's `ld-linux` kernel interpreter launches `staged_ghc/bin/ghc-9.10.3`, it expands `$ORIGIN` to `.../staged_ghc/bin` and immediately resolves `libgmp.so.10`, `libtinfo.so.6`, `libffi.so.8`, and `libHS*.so` inside `staged_ghc/lib/x86_64-linux-ghc-9.10.3/`:
@@ -151,9 +152,9 @@ A subtle linker hazard arises if GHC links a user executable ([`hs_binary`](../r
 
 `rules_hs` solves this cleanly via directory isolation:
 
-1. `staged_ghc` places `libgmp.so.10` inside `staged_ghc/lib/<arch_libdir>/` (which GHC's compiler binary uses via `$ORIGIN`, *not* as a static link `-L` path for `rts`/`ghc-bignum`), and creates a separate directory `staged_ghc/gmp_static/` containing **exclusively** a symlink to `libgmp.a` (with zero `.so` files).
+1. `staged_ghc` places `libgmp.so.10` and `libtinfo.so.6` inside `staged_ghc/lib/<arch_libdir>/` (which GHC's compiler binary uses via `$ORIGIN`, *not* as a static link `-L` path for `rts`/`ghc-bignum`/`terminfo`), and creates a separate directory `staged_ghc/gmp_static/` containing **exclusively** static archive symlinks (`libgmp.a` and `libtinfo.a`, with zero `.so` files).
 2. `HsLinkExecutable` (`hs/private/rules.bzl`) passes:
-   - `-optl-L<gmp_static_dir>` — the linker finds `gmp_static/libgmp.a` and links only the required GMP object members statically into the executable.
+   - `-optl-L<gmp_static_dir>` — the linker finds `gmp_static/libgmp.a` (and `libtinfo.a` when `terminfo`/`haskeline`/`ghc` is linked) and links only the required object members statically into the executable.
    - `-optl-no-pie` — allows `lld`, Clang, and `zig cc` to link GHC's non-PIC static boot `.a` archives (`libHSbase-*.a`, `libHSrts-*.a`, `libCffi.a`) without R_X86_64_32S / R_AARCH64_ADR_PREL_PG_HI21 relocation errors.
 
 The resulting ELF executable dynamically links **only** base `glibc` (`libc.so.6`, `libm.so.6`, `libdl.so.2`, `libpthread.so.0`), verified automatically by `//tests/basic:elf_hermeticity_test`, `//tests/rules:bzlmod_hygiene_test`, `examples/size`'s `//:elf_hermeticity_test`, and `//docs:site_test`.

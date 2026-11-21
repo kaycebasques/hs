@@ -112,6 +112,28 @@ hs_cabal_library(
     deps = ["@hs_boot//:base"],
 )
 
+#    4e. Pure reexport-only hs_cabal_library (package-qualified boot + hs_library module reexports)
+hs_cabal_library(
+    name = "cabal_reexport",
+    package_name = "cabal-reexport",
+    reexported_modules = [
+        "base:Data.List as Reexported.List",
+        "Math.Core as Reexported.MathCore",
+    ],
+    version = "0.2.0",
+    deps = [
+        ":math_lib",
+        "@hs_boot//:base",
+    ],
+)
+
+#    4f. Unit-ID collision resistance: //tests/basic:sub_dup vs //tests/basic/sub:dup
+hs_library(
+    name = "sub_dup",
+    srcs = ["SubDupB.hs"],
+    deps = ["@hs_boot//:base"],
+)
+
 # 5. Smoke executable & comprehensive test
 hs_binary(
     name = "smoke_bin",
@@ -123,6 +145,7 @@ hs_binary(
         ":cabal_top",
         ":greet_lib",
         "@hs_boot//:base",
+        "@hs_boot//:terminfo",
         "@hs_boot//:text",
     ],
 )
@@ -136,9 +159,13 @@ hs_test(
         ":boot_cycle_lib",
         ":cabal_configure",
         ":cabal_mid",
+        ":cabal_reexport",
         ":cabal_top",
         ":greet_lib",
+        ":sub_dup",
+        "//tests/basic/sub:dup",
         "@hs_boot//:base",
+        "@hs_boot//:terminfo",
         "@hs_boot//:text",
     ],
 )
@@ -150,4 +177,13 @@ sh_test(
     srcs = ["elf_hermeticity_test.sh"],
     args = ["$(rootpath :smoke_bin)"],
     data = [":smoke_bin"],
+)
+
+# 7. Native ghc_cc_wrapper unit test (@rsp C++ detection & mkdtemp cleanup)
+sh_test(
+    name = "cc_wrapper_test",
+    size = "small",
+    srcs = ["cc_wrapper_test.sh"],
+    args = ["$(rootpath //hs/private:ghc_cc_wrapper)"],
+    data = ["//hs/private:ghc_cc_wrapper"],
 )

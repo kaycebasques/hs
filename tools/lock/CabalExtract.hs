@@ -49,6 +49,7 @@ import Distribution.System (Arch (..), OS (..), Platform (..))
 import Distribution.Types.ComponentRequestedSpec (defaultComponentRequestedSpec)
 import Distribution.Types.Dependency (Dependency (..))
 import Distribution.Types.Flag (FlagAssignment, mkFlagAssignment, mkFlagName)
+import Distribution.Types.LibraryVisibility (LibraryVisibility (..))
 import Distribution.Types.ModuleReexport (ModuleReexport (..))
 import Distribution.Types.PackageId (pkgName, pkgVersion)
 import Distribution.Types.PackageName (unPackageName)
@@ -348,14 +349,24 @@ extractComponentSpecs ghcVerText availVersions bootPkgs flagOverrides tarballFil
           then Nothing
           else Just (mergeRawComps mainPerPlat)
 
-      -- Collect internal sublibraries actually referenced by the main library (transitively)
+      -- Collect public sublibraries and internal sublibraries referenced by the main library (transitively)
+      publicSublibs =
+        Set.fromList
+          [ T.pack (unUnqualComponentName uq)
+          | (_, pd) <- perPlat
+          , lib <- subLibraries pd
+          , LSubLibName uq <- [libName lib]
+          , libVisibility lib == LibraryVisibilityPublic
+          , buildable (libBuildInfo lib)
+          ]
       referencedSublibs =
         let directRefs = case mainSpec of
-              Nothing -> Set.empty
+              Nothing -> publicSublibs
               Just ms ->
-                Set.fromList (csSublibDeps ms)
+                publicSublibs
+                  `Set.union` Set.fromList (csSublibDeps ms)
                   `Set.union` Set.unions [Set.fromList (pdSublibDeps d) | d <- Map.elems (csSelect ms)]
-         in expandSublibs directRefs perPlat pName pathsModName sublibNameSet
+         in expandSublibs (Set.intersection directRefs sublibNameSet) perPlat pName pathsModName sublibNameSet
 
       sublibSpecs =
         Map.fromList
@@ -491,7 +502,7 @@ extractRawComp selfPkg pathsModName selfSublibs extraInst lib =
       incDirs = nub $ map normalizePath (includeDirs bi)
       instIncs = sort . nub $ map normalizePath (installIncludes bi) ++ extraInst
       cppOpts = map T.pack (cppOptions bi)
-      ccOpts = nub $ map T.pack (ccOptions bi ++ cxxOptions bi)
+      ccOpts = map T.pack (ccOptions bi ++ cxxOptions bi)
       extLibs = map T.pack (extraLibs bi)
       (deps, subDeps) = extractDeps selfPkg selfSublibs (targetBuildDepends bi)
    in RawComp
@@ -533,13 +544,25 @@ extractDeps selfPkg selfSublibs = foldl' step ([], [])
           lns = NES.toList libNames
        in if p == selfPkg
             then
-              let subs = [T.pack (unUnqualComponentName uq) | LSubLibName uq <- lns]
+              let subs =
+                    [ case ln of
+                        LSubLibName uq -> T.pack (unUnqualComponentName uq)
+                        LMainLibName -> selfPkg
+                    | ln <- lns
+                    ]
                in (ds, ss ++ subs)
             else
               -- Handle Cabal 2.0 unqualified internal sublib syntax where a dep name matches a local sublib
-              if p `Set.member` selfSublibs
+              if p `Set.member` selfSublibs && lns == [LMainLibName]
                 then (ds, ss ++ [p])
-                else (ds ++ [p], ss)
+                else
+                  let extTargets =
+                        [ case ln of
+                            LSubLibName uq -> p <> "__" <> T.pack (unUnqualComponentName uq)
+                            LMainLibName -> p
+                        | ln <- lns
+                        ]
+                   in (ds ++ extTargets, ss)
 
 expandSublibs
   :: Set Text
@@ -562,6 +585,7 @@ expandSublibs initial perPlat selfPkg pathsMod selfSublibs = go initial initial
                   , T.pack (unUnqualComponentName uq) `Set.member` frontier
                   , let rc = extractRawComp selfPkg pathsMod selfSublibs [] lib
                   , subDep <- rcSublibDeps rc
+                  , subDep `Set.member` selfSublibs
                   , not (subDep `Set.member` seen)
                   ]
            in go (seen `Set.union` next) next
@@ -574,12 +598,12 @@ mergeRawComps perPlat =
       (reexBase, reexDelta) = splitField rcReexportedModules
       (dirBase, dirDelta) = splitField rcHsSourceDirs
       (extBase, extDelta) = splitField rcDefaultExtensions
-      (ghcBase, ghcDelta) = splitField rcGhcOpts
+      (ghcBase, ghcDelta) = splitOrderedFlags rcGhcOpts
       (csrcBase, csrcDelta) = splitField rcCSources
       (incBase, incDelta) = splitField rcIncludeDirs
       (instBase, instDelta) = splitField rcInstallIncludes
-      (cppBase, cppDelta) = splitField rcCppOptions
-      (ccBase, ccDelta) = splitField rcCcOptions
+      (cppBase, cppDelta) = splitOrderedFlags rcCppOptions
+      (ccBase, ccDelta) = splitOrderedFlags rcCcOptions
       (elibBase, elibDelta) = splitField rcExtraLibraries
       (depBase, depDelta) = splitField rcDeps
       (subBase, subDelta) = splitField rcSublibDeps
@@ -655,12 +679,75 @@ mergeRawComps perPlat =
               ]
        in (base, deltas)
 
+    -- Preserve exact token order and multi-token flag pairs (e.g. -include foo.h)
+    -- across base + select({...}) for compiler option lists.
+    splitOrderedFlags :: (RawComp -> [Text]) -> ([Text], Map PlatformKey [Text])
+    splitOrderedFlags getter =
+      let lists = [(pk, getter rc) | (pk, rc) <- perPlat]
+          allLists = map snd lists
+          rawPrefix =
+            case allLists of
+              [] -> []
+              (xs0 : rest) -> foldl' commonPrefix xs0 rest
+          maxLen = maximum (0 : map length allLists)
+          base =
+            if length rawPrefix < maxLen && not (null rawPrefix) && isTwoTokenFlag (last rawPrefix)
+              then init rawPrefix
+              else rawPrefix
+          baseLen = length base
+          deltas = Map.fromList [(pk, drop baseLen xs) | (pk, xs) <- lists]
+       in (base, deltas)
+
+    commonPrefix :: Eq a => [a] -> [a] -> [a]
+    commonPrefix (x : xs) (y : ys)
+      | x == y = x : commonPrefix xs ys
+    commonPrefix _ _ = []
+
+    isTwoTokenFlag :: Text -> Bool
+    isTwoTokenFlag tok =
+      tok
+        `elem` [ "-include"
+               , "-imacros"
+               , "-isystem"
+               , "-iquote"
+               , "-idirafter"
+               , "-iprefix"
+               , "-iwithprefix"
+               , "-I"
+               , "-D"
+               , "-U"
+               , "-L"
+               , "-l"
+               , "-x"
+               , "-o"
+               , "-MF"
+               , "-MT"
+               , "-MQ"
+               , "-framework"
+               , "-arch"
+               , "-isysroot"
+               , "-Xlinker"
+               , "-Xpreprocessor"
+               , "-Xclang"
+               , "-optc"
+               , "-optP"
+               , "-optl"
+               , "-opta"
+               , "-package"
+               , "-package-id"
+               , "-main-is"
+               , "-pgmP"
+               , "-pgmc"
+               , "-pgml"
+               ]
+
 collectComponentDeps :: Set Text -> Text -> ComponentSpec -> [Set Text]
 collectComponentDeps bootPkgs selfPkg cs =
-  [ Set.fromList (filter isExt (csDeps cs))
-  , Set.unions [Set.fromList (filter isExt (pdDeps d)) | d <- Map.elems (csSelect cs)]
+  [ Set.fromList (filter isExt (map basePkgName (csDeps cs)))
+  , Set.unions [Set.fromList (filter isExt (map basePkgName (pdDeps d))) | d <- Map.elems (csSelect cs)]
   ]
   where
+    basePkgName d = fst (T.breakOn "__" d)
     isExt p = p /= selfPkg && not (p `Set.member` bootPkgs) && p /= "Win32"
 
 -- | Enrich an t'ExtractedPackage' with tarball URL and verified SHA-256 into a t'LockedPackage'.

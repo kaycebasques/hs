@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 typedef struct {
@@ -184,6 +185,44 @@ static bool write_rsp(const char *path, const StrVec *tokens) {
 }
 
 static int g_obj_counter = 0;
+static char g_session_dir[PATH_MAX] = "";
+static StrVec g_cleanup_files = {0};
+
+static void vec_free_contents(StrVec *v) {
+    for (size_t i = 0; i < v->len; i++) {
+        free(v->items[i]);
+    }
+    free(v->items);
+    v->items = NULL;
+    v->len = 0;
+    v->cap = 0;
+}
+
+static const char *get_session_tmpdir(void) {
+    if (g_session_dir[0] != '\0') {
+        return g_session_dir;
+    }
+    const char *tmpdir = getenv("TMPDIR");
+    if (!tmpdir || !*tmpdir) {
+        tmpdir = "/tmp";
+    }
+    int n = snprintf(g_session_dir, sizeof(g_session_dir), "%s/hs_ccw.XXXXXX", tmpdir);
+    if (n < 0 || (size_t)n >= sizeof(g_session_dir) || !mkdtemp(g_session_dir)) {
+        g_session_dir[0] = '\0';
+        return tmpdir;
+    }
+    return g_session_dir;
+}
+
+static void cleanup_session_tmpdir(void) {
+    for (size_t i = 0; i < g_cleanup_files.len; i++) {
+        unlink(g_cleanup_files.items[i]);
+    }
+    if (g_session_dir[0] != '\0') {
+        rmdir(g_session_dir);
+        g_session_dir[0] = '\0';
+    }
+}
 
 static char *ensure_dot_o_alias(const char *path) {
     if (access(path, F_OK) != 0) {
@@ -194,23 +233,23 @@ static char *ensure_dot_o_alias(const char *path) {
     if (!target) {
         target = path;
     }
-    const char *tmpdir = getenv("TMPDIR");
-    if (!tmpdir || !*tmpdir) {
-        tmpdir = "/tmp";
-    }
+    const char *sdir = get_session_tmpdir();
     char link_path[PATH_MAX];
-    snprintf(
+    int written = snprintf(
         link_path,
         sizeof(link_path),
-        "%s/hs_obj_%ld_%d.o",
-        tmpdir,
-        (long)getpid(),
+        "%s/hs_obj_%d.o",
+        sdir,
         g_obj_counter++
     );
+    if (written < 0 || (size_t)written >= sizeof(link_path)) {
+        return xstrdup(path);
+    }
     unlink(link_path);
     if (symlink(target, link_path) != 0) {
         return xstrdup(path);
     }
+    vec_push(&g_cleanup_files, xstrdup(link_path));
     return xstrdup(link_path);
 }
 
@@ -239,24 +278,22 @@ static void rewrite_tokens(
                     &rewritten,
                     &rsp_changed
                 );
+                vec_free_contents(&parsed);
                 if (rsp_changed) {
                     if (write_rsp(rsp_path, &rewritten)) {
                         vec_push(out, xstrdup(a));
                     } else {
-                        const char *tmpdir = getenv("TMPDIR");
-                        if (!tmpdir || !*tmpdir) {
-                            tmpdir = "/tmp";
-                        }
+                        const char *sdir = get_session_tmpdir();
                         char tmp_rsp[PATH_MAX];
-                        snprintf(
+                        int written = snprintf(
                             tmp_rsp,
                             sizeof(tmp_rsp),
-                            "%s/hs_rsp_%ld_%d.rsp",
-                            tmpdir,
-                            (long)getpid(),
+                            "%s/hs_rsp_%d.rsp",
+                            sdir,
                             g_obj_counter++
                         );
-                        if (write_rsp(tmp_rsp, &rewritten)) {
+                        if (written > 0 && (size_t)written < sizeof(tmp_rsp) && write_rsp(tmp_rsp, &rewritten)) {
+                            vec_push(&g_cleanup_files, xstrdup(tmp_rsp));
                             char *at_arg = (char *)malloc(strlen(tmp_rsp) + 2);
                             if (!at_arg) {
                                 perror("ghc_cc_wrapper: malloc");
@@ -272,6 +309,7 @@ static void rewrite_tokens(
                 } else {
                     vec_push(out, xstrdup(a));
                 }
+                vec_free_contents(&rewritten);
                 continue;
             }
             vec_push(out, xstrdup(a));
@@ -350,9 +388,26 @@ static bool handle_print_file_name(int argc, char **argv) {
     return true;
 }
 
-static bool detect_cxx_invocation(char **tokens, size_t n) {
+static bool detect_cxx_invocation_depth(char **tokens, size_t n, int depth) {
+    if (depth > 16) {
+        return false;
+    }
     for (size_t i = 0; i < n; i++) {
         const char *a = tokens[i];
+        if (a[0] == '@' && a[1] != '\0') {
+            char *content = read_entire_file(a + 1);
+            if (content) {
+                StrVec parsed = {0};
+                parse_rsp(content, &parsed);
+                free(content);
+                bool found = detect_cxx_invocation_depth(parsed.items, parsed.len, depth + 1);
+                vec_free_contents(&parsed);
+                if (found) {
+                    return true;
+                }
+            }
+            continue;
+        }
         if (strcmp(a, "-xc++") == 0 ||
             strcmp(a, "-xc++-header") == 0 ||
             strcmp(a, "-xc++-cpp-output") == 0 ||
@@ -381,6 +436,10 @@ static bool detect_cxx_invocation(char **tokens, size_t n) {
         }
     }
     return false;
+}
+
+static bool detect_cxx_invocation(char **tokens, size_t n) {
+    return detect_cxx_invocation_depth(tokens, n, 0);
 }
 
 int main(int argc, char **argv) {
@@ -457,7 +516,37 @@ int main(int argc, char **argv) {
     rewrite_tokens(argv + 1, (size_t)(argc - 1), force_pic, &final_args, NULL);
     vec_push(&final_args, NULL);
 
-    execv(real_cc, final_args.items);
-    fprintf(stderr, "ghc_cc_wrapper: failed to exec '%s': %s\n", real_cc, strerror(errno));
-    return 127;
+    if (g_session_dir[0] == '\0' && g_cleanup_files.len == 0) {
+        execv(real_cc, final_args.items);
+        fprintf(stderr, "ghc_cc_wrapper: failed to exec '%s': %s\n", real_cc, strerror(errno));
+        return 127;
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("ghc_cc_wrapper: fork");
+        cleanup_session_tmpdir();
+        return 1;
+    }
+    if (pid == 0) {
+        execv(real_cc, final_args.items);
+        fprintf(stderr, "ghc_cc_wrapper: failed to exec '%s': %s\n", real_cc, strerror(errno));
+        _exit(127);
+    }
+
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) {
+            cleanup_session_tmpdir();
+            return 1;
+        }
+    }
+    cleanup_session_tmpdir();
+    if (WIFEXITED(status)) {
+        return WEXITSTATUS(status);
+    }
+    if (WIFSIGNALED(status)) {
+        return 128 + WTERMSIG(status);
+    }
+    return 1;
 }

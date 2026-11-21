@@ -19,21 +19,31 @@ load(
 )
 
 def _sanitize_unit_id(label):
-    """Generates a deterministic, GHC-valid unit ID for a Bazel target label."""
-    parts = []
-    if label.repo_name:
-        parts.append(label.repo_name)
-    if label.package:
-        parts.append(label.package)
-    parts.append(label.name)
-    raw = "_".join(parts)
-    out = []
+    """Generates a deterministic, injective, GHC-valid unit ID for a Bazel target label."""
+    raw = "{}//{}:{}".format(label.repo_name, label.package, label.name)
+    out = ["u_"]
     for i in range(len(raw)):
         ch = raw[i]
-        if ch.isalnum() or ch == "_":
+        if ch.isalnum():
             out.append(ch)
+        elif ch == "_":
+            out.append("__")
+        elif ch == "/":
+            out.append("_S")
+        elif ch == ":":
+            out.append("_C")
+        elif ch == "-":
+            out.append("_D")
+        elif ch == ".":
+            out.append("_P")
+        elif ch == "+":
+            out.append("_A")
+        elif ch == "~":
+            out.append("_T")
+        elif ch == "@":
+            out.append("_M")
         else:
-            out.append("_")
+            out.append("_X")
     uid = "".join(out)
     return uid + "-0.0.0"
 
@@ -133,6 +143,7 @@ def _hs_library_impl(ctx):
         default_extensions = ctx.attr.default_extensions,
         ghc_opts = ctx.attr.ghc_opts,
         cpp_options = ctx.attr.cpp_options,
+        cc_options = ctx.attr.cc_options,
         cabal_macros_h = None,
         include_dirs = [resolve_package_dir(ctx, d) for d in ctx.attr.include_dirs],
         headers = depset(ctx.files.hdrs),
@@ -293,6 +304,10 @@ def _hs_executable_impl(ctx):
 
     for opt in ctx.attr.cpp_options:
         ghc_args.add("-optP" + opt)
+
+    for opt in ctx.attr.cc_options:
+        if not (opt.startswith("-std=c++") or opt.startswith("-std=gnu++") or opt.startswith("-stdlib=")):
+            ghc_args.add("-optc" + opt)
 
     for flag in ghc_tool_flags(hs_tc, cc_tools):
         ghc_args.add(flag)

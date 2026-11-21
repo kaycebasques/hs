@@ -52,7 +52,7 @@ flowchart TD
 
 Starting from the user's root `--package` flags, `resolveQueue` performs a breadth-first search over non-boot dependencies (`collectComponentDeps` automatically excludes boot packages, self-references, and Windows-only `Win32`):
 
-- Downloads `<pkg>.cabal` and `<pkg>-<ver>.tar.gz` from `https://hackage.haskell.org/package/...` into `--cache-dir` (default `/tmp/rules_hs_lock_cache`).
+- Downloads `<pkg>.cabal` and `<pkg>-<ver>.tar.gz` from `https://hackage.haskell.org/package/...` into `--cache-dir` (default `/tmp/rules_hs_lock_cache`). When a `.cabal` SHA-256 digest is pinned in the Stackage snapshot (`spCabalSha256`), `fetchVerifiedCabal` verifies the downloaded `.cabal` file against that exact SHA-256 (caching immutably under `<pkg>-<ver>-<sha256>.cabal`) and, if Hackage's mutable `<pkg>.cabal` endpoint has advanced to a newer `x-revision`, walks backwards through `revision/<r>.cabal` until the pinned digest matches.
 - Computes the exact tarball SHA-256 via `computeSha256` (`sha256sum` with `shasum -a 256` fallback on macOS).
 - Parses the raw `.cabal` bytes with `Distribution.PackageDescription.Parsec.parseGenericPackageDescription` (`parseCabalBytes`) and extracts `x-revision` (`extractRevision`).
 
@@ -91,9 +91,9 @@ Rather than duplicating full metadata 4 times per package in `hackage.lock.json`
    - Collects `configure_srcs` (`configure`, `config.guess`, `config.sub`, `install-sh`, `aclocal.m4`, `configure.ac`, `*.h.in`, `*.buildinfo`, `include/*.h`, `cbits/*.h`, and `cbits/conv.c` referenced by `AC_CONFIG_SRCDIR` in `unix-time`).
    - Reads `<pkg>.buildinfo` and `configure.ac` out of the tarball via `tar -xOzf` (`discoverConfigureInstallIncludes`) to capture generated headers dynamically appended to `install-includes:` by `./configure` — such as `HsNetworkConfig.h` in `network` and `HsTimeConfig.h` in `old-time`!
 
-### 6. Internal Sublibraries, C++/Legacy Extensions, `Paths_*` & Canonical JSON (`LockJson.hs`)
+### 6. Sublibraries (Internal & Cabal 3.0 Public), C++/Legacy Extensions, `Paths_*` & Canonical JSON (`LockJson.hs`)
 
-- **Internal sublibraries (`extractDeps` + `expandSublibs`)**: Handles both Cabal 3 qualified `pkg:sublib` syntax (`LSubLibName`) and Cabal 2.0 unqualified internal sublibrary names (`attoparsec-internal`), transitively expanding only sublibraries reachable from the main library.
+- **Internal & Cabal 3.0 public sublibraries (`extractDeps` + `expandSublibs`)**: Handles Cabal 3.0 qualified `pkg:sublib` syntax (`LSubLibName`) for both internal sublibraries and external/public sublibraries (emitting `pkg__sublib` hub dependencies), as well as Cabal 2.0 unqualified internal sublibrary names (`attoparsec-internal`), transitively expanding sublibraries reachable from the main library or public sublibraries.
 - **C++, assembly & legacy Cabal 1.x extensions**: `CabalExtract.hs` extracts Cabal `cxx-sources` and `asm-sources` alongside `c-sources` (`cSources bi ++ cxxSources bi ++ asmSources bi`), `cxx-options` alongside `cc-options`, and legacy Cabal 1.x `extensions:` (`oldExtensions`) in addition to `default-extensions:`.
 - **`Paths_<pkg>` detection**: Detects `Paths_<pkg_ident>` in `other-modules` or `autogen-modules`, sets `generate_paths_module = True`, and removes `Paths_<pkg_ident>` from static `other_modules` so Stage 2 generates it cleanly.
 - **Deterministic JSON (`LockJson.encodePretty`)**: Serializes `LockFile` (`schema_version = 1`) with 2-space indentation, sorted `Map.toAscList` keys, compact `[]`/`{}` empty containers, and trailing newline — tested offline by `//tools/lock:lock_test` (`tools/lock/LockTest.hs`).

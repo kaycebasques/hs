@@ -251,6 +251,10 @@ hs_happy_gen(
 
     hs_select = {}
     hsc_select = {}
+    seen_alex = {base_alex[i][0]: ":" + "{}_alex_{}".format(_sanitize_repo_suffix(target_name), i) for i in range(len(base_alex))}
+    seen_happy = {base_happy[i][0]: ":" + "{}_happy_{}".format(_sanitize_repo_suffix(target_name), i) for i in range(len(base_happy))}
+    next_alex_idx = len(base_alex)
+    next_happy_idx = len(base_happy)
     if select_raw:
         base_hs_set = {f: True for f in base_hs}
         base_hsc_set = {f: True for f in base_hsc}
@@ -258,12 +262,54 @@ hs_happy_gen(
             delta = select_raw.get(plat_key, {})
             plat_mods = delta.get("exposed_modules", []) + delta.get("other_modules", [])
             plat_dirs = delta.get("hs_source_dirs", [])
-            if plat_mods:
-                p_hs, p_hsc, _, _ = _find_module_files(
+            if plat_mods or plat_dirs:
+                p_hs, p_hsc, p_alex, p_happy = _find_module_files(
                     repository_ctx,
                     base_src_dirs + plat_dirs,
-                    plat_mods,
+                    base_exposed + base_other + plat_mods,
                 )
+                for x_src, hs_out in p_alex:
+                    if x_src not in seen_alex:
+                        gen_name = "{}_alex_{}".format(_sanitize_repo_suffix(target_name), next_alex_idx)
+                        next_alex_idx += 1
+                        seen_alex[x_src] = ":" + gen_name
+                        codegen_blocks.append(
+                            """\
+hs_alex_gen(
+    name = {name},
+    src = {src},
+    out = {out},
+    alex = "@{hub}__bootstrap_alex//:alex",
+    alex_data = ["@{hub}__bootstrap_alex//:data_files"],
+)""".format(
+                                name = repr(gen_name),
+                                src = repr(x_src),
+                                out = repr(hs_out),
+                                hub = hub_name,
+                            ),
+                        )
+                    p_hs.append(seen_alex[x_src])
+                for y_src, hs_out in p_happy:
+                    if y_src not in seen_happy:
+                        gen_name = "{}_happy_{}".format(_sanitize_repo_suffix(target_name), next_happy_idx)
+                        next_happy_idx += 1
+                        seen_happy[y_src] = ":" + gen_name
+                        codegen_blocks.append(
+                            """\
+hs_happy_gen(
+    name = {name},
+    src = {src},
+    out = {out},
+    happy = "@{hub}__bootstrap_happy//:happy",
+    happy_data = ["@{hub}__bootstrap_happy//:data_files"],
+)""".format(
+                                name = repr(gen_name),
+                                src = repr(y_src),
+                                out = repr(hs_out),
+                                hub = hub_name,
+                            ),
+                        )
+                    p_hs.append(seen_happy[y_src])
                 extra_hs = [f for f in p_hs if f not in base_hs_set]
                 extra_hsc = [f for f in p_hsc if f not in base_hsc_set]
                 if extra_hs:
@@ -331,12 +377,12 @@ hs_happy_gen(
             if p_deps:
                 deps_select[plat_key] = p_deps
 
-    # Apply package-level overrides to main library (and compiler flags to sublibs too).
+    # Apply package-level overrides to main library and sublibraries.
     is_main = (component_name == "")
     extra_ghc_opts = overrides.get("extra_ghc_opts", [])
     extra_cpp_options = overrides.get("extra_cpp_options", [])
     extra_cc_options = overrides.get("extra_cc_options", [])
-    extra_cc_deps = overrides.get("extra_cc_deps", []) if is_main else []
+    extra_cc_deps = overrides.get("extra_cc_deps", [])
     configure_args = overrides.get("configure_args", []) if is_main else []
 
     ghc_opts_base = comp.get("ghc_opts", []) + extra_ghc_opts
@@ -407,6 +453,11 @@ hs_happy_gen(
     if cc_opts_base or cc_sel:
         lines.append("    cc_options = {},".format(_format_selectable_list(cc_opts_base, cc_sel)))
 
+    elib_base = comp.get("extra_libraries", [])
+    elib_sel = _collect_field_select(select_raw, "extra_libraries")
+    if (elib_base or elib_sel) and not extra_cc_deps:
+        lines.append("    extra_libraries = {},".format(_format_selectable_list(elib_base, elib_sel)))
+
     eff_build_type = build_type if is_main else "Simple"
     if eff_build_type != "Simple":
         lines.append("    build_type = {},".format(repr(eff_build_type)))
@@ -448,8 +499,8 @@ hs_happy_gen(
         )
 
     lines.append(")")
-    has_alex = bool(base_alex)
-    has_happy = bool(base_happy)
+    has_alex = next_alex_idx > 0
+    has_happy = next_happy_idx > 0
     full_block = "\n\n".join(codegen_blocks + ["\n".join(lines)])
     return full_block, has_alex, has_happy
 

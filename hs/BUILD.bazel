@@ -26,8 +26,6 @@ bzl_library(
     name = "defs",
     srcs = ["defs.bzl"],
     deps = [
-        ":providers",
-        ":toolchain",
         "//hs/private:rules_bzl",
     ],
 )

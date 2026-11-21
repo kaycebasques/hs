@@ -316,6 +316,102 @@ testCxxSourcesAndOldExtensions = do
   assertEq "cxx-sources extracted into c_sources" ["external/crc32c/src/crc32c.cc"] (csCSources lib)
   assertEq "cxx-options extracted into cc_options" ["-std=c++11"] (csCcOptions lib)
 
+testMultiTokenFlagsPreserved :: TestResult
+testMultiTokenFlagsPreserved = do
+  let cabal =
+        BS8.unlines
+          [ "cabal-version: 2.2"
+          , "name: flag-order-pkg"
+          , "version: 0.1.0"
+          , "build-type: Simple"
+          , "library"
+          , "  default-language: Haskell2010"
+          , "  exposed-modules: FlagOrder"
+          , "  build-depends: base"
+          , "  cc-options: -include a.h -include b.h"
+          , "  if os(linux)"
+          , "    cc-options: -include linux.h -DFOO=1"
+          , "  if os(osx)"
+          , "    cc-options: -DFOO=1 -include macos.h"
+          ]
+  gpd <- parseCabalBytes cabal
+  ep <- extractComponentSpecs "9.10.3" availBase bootBase Map.empty [] [] gpd
+  lib <- maybe (Left "missing library") Right (epLibrary ep)
+  -- Repeated "-include" in common prefix must NOT be collapsed by nub, and
+  -- per-OS "-include <hdr>" pairs must stay intact in their exact order.
+  assertEq "common multi-token cc_options" ["-include", "a.h", "-include", "b.h"] (csCcOptions lib)
+  lx64 <- maybe (Left "missing linux_x86_64") Right (Map.lookup "linux_x86_64" (csSelect lib))
+  marm <- maybe (Left "missing macos_arm64") Right (Map.lookup "macos_arm64" (csSelect lib))
+  assertEq "linux_x86_64 cc_options delta" ["-include", "linux.h", "-DFOO=1"] (pdCcOptions lx64)
+  assertEq "macos_arm64 cc_options delta" ["-DFOO=1", "-include", "macos.h"] (pdCcOptions marm)
+
+  -- Also verify trailing two-token flag guard when platforms share "-include" with distinct headers:
+  let cabal2 =
+        BS8.unlines
+          [ "cabal-version: 2.2"
+          , "name: flag-guard-pkg"
+          , "version: 0.1.0"
+          , "build-type: Simple"
+          , "library"
+          , "  default-language: Haskell2010"
+          , "  exposed-modules: FlagGuard"
+          , "  build-depends: base"
+          , "  if os(linux)"
+          , "    cc-options: -include linux.h"
+          , "  if os(osx)"
+          , "    cc-options: -include macos.h"
+          ]
+  gpd2 <- parseCabalBytes cabal2
+  ep2 <- extractComponentSpecs "9.10.3" availBase bootBase Map.empty [] [] gpd2
+  lib2 <- maybe (Left "missing library") Right (epLibrary ep2)
+  assertEq "two-token flag not split into base" [] (csCcOptions lib2)
+  lx64_2 <- maybe (Left "missing linux_x86_64") Right (Map.lookup "linux_x86_64" (csSelect lib2))
+  assertEq "linux_x86_64 keeps intact -include pair" ["-include", "linux.h"] (pdCcOptions lx64_2)
+
+testPublicAndExternalSublibraries :: TestResult
+testPublicAndExternalSublibraries = do
+  let availExt = Map.insert "tar" (mkVersion [0, 6, 3, 0]) (Map.insert "my-suite" (mkVersion [1, 0, 0]) availBase)
+      -- 1. Package declaring a public sublibrary (unreferenced by main library) that depends on main library
+      cabalProducer =
+        BS8.unlines
+          [ "cabal-version: 3.0"
+          , "name: my-suite"
+          , "version: 1.0.0"
+          , "build-type: Simple"
+          , "library"
+          , "  default-language: Haskell2010"
+          , "  exposed-modules: MySuite"
+          , "  build-depends: base"
+          , "library my-suite-pub"
+          , "  visibility: public"
+          , "  default-language: Haskell2010"
+          , "  hs-source-dirs: pub"
+          , "  exposed-modules: MySuite.Pub"
+          , "  build-depends: base, my-suite"
+          ]
+  gpdProd <- parseCabalBytes cabalProducer
+  epProd <- extractComponentSpecs "9.10.3" availExt bootBase Map.empty [] [] gpdProd
+  pubSub <- maybe (Left "missing public sublibrary my-suite-pub") Right (Map.lookup "my-suite-pub" (epSublibraries epProd))
+  assertEq "sublib depending on main lib records selfPkg in sublib_deps" ["my-suite"] (csSublibDeps pubSub)
+
+  -- 2. Consumer declaring build-depends: tar:tar-internal
+  let cabalConsumer =
+        BS8.unlines
+          [ "cabal-version: 3.0"
+          , "name: conduit-tar-user"
+          , "version: 0.1.0"
+          , "build-type: Simple"
+          , "library"
+          , "  default-language: Haskell2010"
+          , "  exposed-modules: Conduit.TarUser"
+          , "  build-depends: base, tar:tar-internal"
+          ]
+  gpdCons <- parseCabalBytes cabalConsumer
+  epCons <- extractComponentSpecs "9.10.3" availExt bootBase Map.empty [] [] gpdCons
+  consLib <- maybe (Left "missing consumer library") Right (epLibrary epCons)
+  assertEq "external sublibrary mapped to pkg__sub" ["base", "tar__tar-internal"] (csDeps consLib)
+  assertEq "epAllNonBootDeps resolves base package name 'tar'" (Set.singleton "tar") (epAllNonBootDeps epCons)
+
 allTests :: [(String, TestResult)]
 allTests =
   [ ("simple_and_defaults", testSimpleAndDefaults)
@@ -326,6 +422,8 @@ allTests =
   , ("configure_package", testConfigurePackage)
   , ("reexported_modules", testReexportedModules)
   , ("cxx_sources_and_old_extensions", testCxxSourcesAndOldExtensions)
+  , ("multi_token_flags_preserved", testMultiTokenFlagsPreserved)
+  , ("public_and_external_sublibraries", testPublicAndExternalSublibraries)
   , ("stackage_yaml_parser", testStackageYamlParser)
   , ("json_encoding", testJsonEncoding)
   ]

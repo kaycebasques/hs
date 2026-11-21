@@ -3,10 +3,16 @@ module Main where
 
 import BootA (Tree(..), treeSum)
 import CfgLib (cfgMagicCapi, cfgMagicHsc)
+import Control.Exception (try)
 import Control.Monad (unless)
 import qualified Data.Text as T
 import Greet (greetWithNative, sIfregConst)
 import MidLib (clibScaled, midGhcInt, midSummary, midUcredSize, midVersionStr)
+import qualified Reexported.List as RL
+import qualified Reexported.MathCore as RMC
+import SubDupA (subDupAVal)
+import SubDupB (subDupBVal)
+import System.Console.Terminfo (SetupTermError, Terminal, setupTerm)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import TopLib (topSummary, topValue)
@@ -53,5 +59,16 @@ main = do
     fixturePath <- resolveFixture "tests/basic/fixture.txt"
     content <- readFile fixturePath
     assertEq "fixture.txt" "rules_hs-hermetic-fixture" (filter (`notElem` ("\r\n" :: String)) content)
+
+    -- 9. Pure reexported-modules (boot package-qualified + hs_library shell-discovered)
+    assertEq "Reexported.List.sort" [1, 2, 3 :: Int] (RL.sort [3, 1, 2])
+    assertEq "Reexported.MathCore.computeValue" 25 (RMC.computeValue 5)
+
+    -- 10. Injective unit IDs (//tests/basic/sub:dup vs //tests/basic:sub_dup)
+    assertEq "subDupAVal + subDupBVal" 303 (subDupAVal + subDupBVal)
+
+    -- 11. Hermetic static libtinfo.a stub via @hs_boot//:terminfo
+    tRes <- (try (setupTerm "dumb") :: IO (Either SetupTermError Terminal))
+    assertEq "terminfo static stub returns Left SetupTermError" True (either (const True) (const False) tRes)
 
     putStrLn "ALL BASIC TESTS PASSED!"
