@@ -1,5 +1,10 @@
 # `rules_hs` Documentation (`//docs`)
 
+[![Pages](https://github.com/kaycebasques/hs/actions/workflows/pages.yml/badge.svg)](https://github.com/kaycebasques/hs/actions/workflows/pages.yml)
+[![Documentation](https://img.shields.io/badge/docs-kaycebasques.github.io%2Fhs-blue)](https://kaycebasques.github.io/hs/)
+
+**Live site**: [**https://kaycebasques.github.io/hs/**](https://kaycebasques.github.io/hs/) · **Mounted Haddock API**: [**https://kaycebasques.github.io/hs/haddock/lock/index.html**](https://kaycebasques.github.io/hs/haddock/lock/index.html)
+
 `//docs` builds the `rules_hs` documentation site using the canonical, vanilla Haskell documentation stack — **100% hermetically on Bazel 9 via `rules_hs` itself** (zero Python, zero Node.js, zero Nix, and strictly `dev_dependency = True` in `MODULE.bazel`):
 
 1. **Vanilla Hakyll + Pandoc + Skylighting** (`docs/site.hs` -> `//docs:docs_gen`): compiles pure GitHub-flavored Markdown prose, guides, Starlark references, and architecture internals into static HTML with Skylighting syntax highlighting and Pandoc's native table of contents.
@@ -37,6 +42,10 @@ bazel test //docs/...
 
 - **`//docs:link_check_test`** (`hs_test`, `docs/test/LinkCheckTest.hs`): parses every generated `.html` file across both the Hakyll pages and mounted `haddock/lock/` pages using `tagsoup` and verifies that every internal `<a href="...">` target file and `#id` fragment resolves cleanly.
 - **`//docs:site_test`** (`sh_test`, `docs/test/site_test.sh`): verifies all expected Hakyll + Haddock outputs (including QuickJump `doc-index.json` and hyperlinked `src/*.html`), asserts via `readelf -d` that `//docs:docs_gen` and `//docs:serve` dynamically link **only** base glibc (`libc.so.6`, `libm.so.6`, `libdl.so.2`, `libpthread.so.0`), executes `--help` under `env -i PATH=/nonexistent`, and smoke-tests `//docs:serve` over loopback TCP for both `/internals/docs-engine.html` and `/haddock/lock/index.html`.
+
+### Continuous Deployment (GitHub Pages)
+
+[`.github/workflows/pages.yml`](../.github/workflows/pages.yml) builds `//docs:site` and `//tools/lock:lock_haddock`, runs `//docs:link_check_test` and `//docs:site_test`, stages `bazel-bin/docs/site` into a dereferenced artifact, and deploys to [**https://kaycebasques.github.io/hs/**](https://kaycebasques.github.io/hs/) on every push to `main` (and on manual `workflow_dispatch`).
 
 ---
 

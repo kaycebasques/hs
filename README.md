@@ -1,6 +1,12 @@
 # `rules_hs`
 
+[![CI](https://github.com/kaycebasques/hs/actions/workflows/ci.yml/badge.svg)](https://github.com/kaycebasques/hs/actions/workflows/ci.yml)
+[![Pages](https://github.com/kaycebasques/hs/actions/workflows/pages.yml/badge.svg)](https://github.com/kaycebasques/hs/actions/workflows/pages.yml)
+[![Documentation](https://img.shields.io/badge/docs-kaycebasques.github.io%2Fhs-blue)](https://kaycebasques.github.io/hs/)
+
 Modern, **Bzlmod-only** Bazel 9 ruleset for Haskell (`bazel_compatibility = [">=9.0.0"]`).
+
+**Documentation**: [**https://kaycebasques.github.io/hs/**](https://kaycebasques.github.io/hs/) · [Haddock API (`//tools/lock`)](https://kaycebasques.github.io/hs/haddock/lock/index.html)
 
 `rules_hs` builds Haskell libraries, executables, tests, and third-party Hackage packages **100% hermetically on Linux without Nix, without `WORKSPACE`, without a Python runtime wrapper, and without host GHC, Cabal, Stack, GCC, Clang, or C `-dev` libraries**.
 
@@ -282,6 +288,8 @@ You can pair `rules_hs` with:
 ---
 
 ## Documentation
+
+**Live site**: [**https://kaycebasques.github.io/hs/**](https://kaycebasques.github.io/hs/) (automatically built and deployed on push to `main` via [`.github/workflows/pages.yml`](.github/workflows/pages.yml), including mounted Haddock API docs at [`/haddock/lock/`](https://kaycebasques.github.io/hs/haddock/lock/index.html)).
 
 `rules_hs` ships a canonical Haskell documentation setup built hermetically by `rules_hs` itself (zero Python, zero Node.js — see [`docs/README.md`](docs/README.md)):
 

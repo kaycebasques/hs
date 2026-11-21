@@ -1,0 +1,98 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  BAZELISK_VERSION: v1.30.0
+  BAZELISK_SHA256: a248ae2b2b62b5baebb748f6fba7203bff1a27e5d01b55399a8406744cb539e8
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build & verify //docs:site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
+
+      - name: Enable unprivileged user namespaces for Bazel linux-sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Install Bazelisk
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}/bazelisk-linux-amd64" \
+            -o /tmp/bazelisk
+          echo "${BAZELISK_SHA256}  /tmp/bazelisk" | sha256sum -c -
+          chmod +x /tmp/bazelisk
+          sudo mv /tmp/bazelisk /usr/local/bin/bazel
+          bazel version
+
+      - name: Cache Bazel repository and Bazelisk caches
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/bazel-repo
+            ~/.cache/bazelisk
+          key: bazel-pages-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'hs/private/ghc_versions.bzl', 'docs/hackage.lock.json') }}
+          restore-keys: |
+            bazel-pages-${{ runner.os }}-
+            bazel-native-${{ runner.os }}-
+
+      - name: Build documentation site and Haddock API docs
+        run: |
+          bazel build //docs:site //tools/lock:lock_haddock \
+            --repository_cache="$HOME/.cache/bazel-repo"
+
+      - name: Verify documentation links, assets, and ELF hermeticity
+        run: |
+          bazel test //docs:link_check_test //docs:site_test \
+            --repository_cache="$HOME/.cache/bazel-repo" \
+            --test_output=errors
+
+      - name: Stage static site for GitHub Pages
+        run: |
+          set -euo pipefail
+          rm -rf _pages_dist
+          mkdir -p _pages_dist
+          cp -RL bazel-bin/docs/site/. _pages_dist/
+          chmod -R u+w,a+rX _pages_dist
+          touch _pages_dist/.nojekyll
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: _pages_dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
