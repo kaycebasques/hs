@@ -1,0 +1,25 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//hs:defs.bzl", "hs_binary")
+
+hs_binary(
+    name = "hermetic_bin",
+    srcs = ["HermeticMain.hs"],
+    deps = [
+        "@hs_boot//:base",
+        "@hs_boot//:text",
+    ],
+)
+
+sh_test(
+    name = "bzlmod_hygiene_test",
+    size = "small",
+    srcs = ["bzlmod_hygiene_test.sh"],
+    args = [
+        "$(rootpath //:MODULE.bazel)",
+        "$(rootpath :hermetic_bin)",
+    ],
+    data = [
+        ":hermetic_bin",
+        "//:MODULE.bazel",
+    ],
+)

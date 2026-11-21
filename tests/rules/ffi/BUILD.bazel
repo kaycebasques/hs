@@ -1,0 +1,37 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("//hs:defs.bzl", "hs_library", "hs_test")
+
+cc_library(
+    name = "vec_cc",
+    srcs = ["vec.c"],
+    hdrs = ["vec.h"],
+    includes = ["."],
+)
+
+hs_library(
+    name = "cc_deps_lib",
+    srcs = ["CcDepsFfi.hs"],
+    cc_deps = [":vec_cc"],
+    deps = ["@hs_boot//:base"],
+)
+
+hs_library(
+    name = "inline_c_lib",
+    srcs = ["InlineCFfi.hs"],
+    c_sources = ["csrc/inline_helper.c"],
+    cc_options = ["-DINLINE_SCALE=3"],
+    hdrs = ["csrc/inline_helper.h"],
+    include_dirs = ["csrc"],
+    deps = ["@hs_boot//:base"],
+)
+
+hs_test(
+    name = "ffi_test",
+    size = "small",
+    srcs = ["FfiTest.hs"],
+    deps = [
+        ":cc_deps_lib",
+        ":inline_c_lib",
+        "@hs_boot//:base",
+    ],
+)
