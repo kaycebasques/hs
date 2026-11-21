@@ -130,7 +130,7 @@ flowchart TB
 - **What it actually is**: A tiny, zero-code repository of canonical Bazel `constraint_value` targets (`@platforms//os:linux`, `@platforms//os:macos`, `@platforms//os:windows`, `@platforms//cpu:x86_64`, `@platforms//cpu:arm64`). Think of `platforms` as Bazel's shared dictionary for hardware and operating systems: instead of one ruleset spelling 64-bit ARM as `"aarch64"` and another spelling it `"arm64"`, every ruleset points at `@platforms//cpu:arm64` so Bazel's toolchain resolver and `select()` expressions agree on the active host and target machines.
 - **Exactly where `rules_hs` uses it**:
   - `hs/private/ghc_versions.bzl` attaches `exec_constraints` and `target_constraints` (`@platforms//os:*` and `@platforms//cpu:*`) to every GHC bindist entry, which `hs/extensions.bzl` emits into `@hs_toolchains//:BUILD.bazel` (`toolchain(exec_compatible_with = ..., target_compatible_with = ...)`).
-  - `hs/private/hackage.bzl` (`_PLATFORM_CONFIG_SETTINGS`) generates `config_setting` targets inside each `@hackage__<pkg>/BUILD.bazel` using `@platforms//os:*` and `@platforms//cpu:*` to drive per-platform `select({...})` attributes (for instance, `crypton` compiling x86 AES-NI/PCLMUL SIMD C files on `linux_x86_64` vs. portable C reference code on `linux_arm64`).
+  - `hs/private/hackage.bzl` (`_PLATFORM_CONFIGS`) generates `config_setting` targets inside each `@hackage__<pkg>/BUILD.bazel` using `@platforms//os:*` and `@platforms//cpu:*` to drive per-platform `select({...})` attributes (for instance, `crypton` compiling x86 AES-NI/PCLMUL SIMD C files on `linux_x86_64` vs. portable C reference code on `linux_arm64`).
 - **What breaks if you remove it**: Bazel fails immediately during Loading and Toolchain Resolution because `@hs_toolchains` and `@hackage__<pkg>` cannot resolve `@platforms//os:*` or `@platforms//cpu:*` labels.
 
 #### 2. `bazel_skylib@1.9.2` — Starlark Standard Library & Analysis Testing
@@ -154,7 +154,7 @@ flowchart TB
 
 - **What it actually is**: The GNU Multiple Precision Arithmetic Library (`libgmp`), written in C and assembly and packaged on the Bazel Central Registry as a native `cc_library` (`@gmp//:gmp`). In Haskell, the standard `Integer` type in `base` represents **unbounded arbitrary-precision integers** (computing `2 ^ 10000` never overflows, just like Python's `int` or Go's `math/big.Int`). Under the hood, GHC's `ghc-bignum` boot library implements `Integer` arithmetic by calling `libgmp`'s C routines (`__gmpn_*`). Because `ghc` itself is a Haskell program compiled against `ghc-bignum`, **both** the GHC compiler binary and every compiled user executable depend on `libgmp`! (See [Haskell & GHC Primer](haskell-and-ghc-primer.md#gmp-and-tinfo).)
 - **Exactly where `rules_hs` uses it**:
-  - `hs/private/ghc_bindist.bzl` wires `gmp = "@gmp//:gmp"` into `staged_ghc` inside each `@hs_ghc_<ver>_<platform>` repository.
+  - `hs/private/ghc_bindist.bzl` wires `gmp = "@gmp//:gmp"` into `staged_ghc` inside each `@ghc_<ver>_<platform>` repository.
   - `hs/private/staged_ghc.bzl` extracts both `libgmp.pic.a` and `libgmp.a` from `@gmp//:gmp[CcInfo]`:
     1. It links `libgmp.pic.a` into a shared library `libgmp.so.10` (`HsLinkGmpShared`) staged inside `<libdir>/<arch>-linux-ghc-<ver>/`, where `ghc`, `ghc-pkg`, `hsc2hs`, `haddock`, and `ghc-iserv-dyn` load it automatically via ELF `$ORIGIN` `RUNPATH` with zero host `libgmp10`.
     2. It symlinks `libgmp.a` into an isolated static-only directory `gmp_static/libgmp.a` (containing no `.so` file).
@@ -404,7 +404,7 @@ If you have only used Bazel rulesets rather than authoring one, two ruleset-engi
 
 #### Native C11 `ghc_cc_wrapper` (`hs/private/cc_wrapper.c`)
 
-- **What & Role**: Self-contained 460-line POSIX C11 binary compiled once by Bazel's active `cc_toolchain`, invoked by GHC (`-pgmc`, `-pgmcxx`, `-pgml`, `-pgma`, `-pgmP`, `-pgmCmmP`), `hsc2hs` (`--cc`, `--ld`), and Cabal `./configure` (`CC`, `CXX`).
+- **What & Role**: Self-contained 552-line POSIX C11 binary compiled once by Bazel's active `cc_toolchain`, invoked by GHC (`-pgmc`, `-pgmcxx`, `-pgml`, `-pgma`, `-pgmP`, `-pgmCmmP`), `hsc2hs` (`--cc`, `--ld`), and Cabal `./configure` (`CC`, `CXX`).
 - **Why**:
   - Zero Python interpreter or `rules_python` dependency anywhere in the build graph; sub-millisecond startup overhead across hundreds of compile/link/configure actions.
   - Centralizes Bazel `RUNFILES_*` environment scrubbing, generic `cc_toolchain` `--sysroot`/`--target` passthrough (`RULES_HS_CC_EXTRA_ARGS`), and all six `zig cc`/Clang <-> GHC compatibility rewrites (`--print-file-name`, `-Wl,-h` -> `-Wl,-soname` including `@response_file`s, `-fuse-ld=gold`, `-fno-PIC` -> `-fPIC`, `.dyn_o`/`.p_o` temp symlinks, `-Wno-unused-command-line-argument`, and `-nostdinc++` on non-C++ invocations).
@@ -421,7 +421,7 @@ If you have only used Bazel rulesets rather than authoring one, two ruleset-engi
 - **Why Not Adopted**:
   - Leaks `rules_python` (and a Python runtime toolchain or host `python3` assumption) into every downstream consumer's non-dev `MODULE.bazel` graph and every Haskell build action's inputs.
   - Adds noticeable interpreter startup latency across hundreds of actions and historically accumulated platform-specific wrapper bugs (`rules_haskell` #2492/#2493, #2317).
-  - Completely redundant when Bazel already requires a `cc_toolchain` capable of compiling a 460-line C11 wrapper natively, and our 5-stage [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) pipeline eliminates `cabal_wrapper.py` altogether.
+  - Completely redundant when Bazel already requires a `cc_toolchain` capable of compiling a 552-line C11 wrapper natively, and our 5-stage [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) pipeline eliminates `cabal_wrapper.py` altogether.
 - **Catalysts to adopt**:
   - **Never** on the build action hot path (`cc_wrapper` or `hs_cabal_library`).
   - Only conceivable for an isolated optional dev-only helper tool if third-party Python libraries were uniquely required — and even then, dogfooding Haskell ([`//tools/lock:lock`](../reference/lock-cli.md) and `//docs:docs_gen`) avoids adding an extra language runtime.
@@ -650,7 +650,7 @@ For readers with zero prior Haskell experience, `docs/BUILD.bazel` builds three 
 - **`skylighting` (`0.14.7`) + `skylighting-core` (`0.14.7`) — Pure-Haskell Syntax Highlighter**: Syntax-highlights fenced code blocks across 140+ languages (`haskell`, `python`/`starlark`, `c`, `bash`, `json`, `yaml`, `ini`) and generates `static/syntax.css` (`kate` light + `breezeDark` dark themes). Analogous to Rust's `syntect` or Python's `Pygments`, it compiles KDE Kate XML syntax grammars into native Haskell state machines using cross-library Template Haskell.
 - **`tagsoup` (`0.14.8`) — Fast Streaming HTML/XML Token Parser**: Lightweight, permissive HTML tokenizer (`parseTags`, analogous to Python's `html.parser` / `BeautifulSoup` or Go's `x/net/html` tokenizer) used by `docs/test/LinkCheckTest.hs` (`//docs:link_check_test`) to scan every `<a href="...">` and `id="..."` attribute across all Hakyll and Haddock HTML files in milliseconds.
 - **`network` (`3.2.14.0`) — POSIX/BSD TCP Sockets**: Low-level OS socket library (`Network.Socket`, analogous to Go's `net` package) used by `docs/app/ServeMain.hs` (`//docs:serve`) to serve `bazel-bin/docs/site/` over HTTP/1.1 on `127.0.0.1:8000` in ~270 lines of pure Haskell — avoiding heavy web-server frameworks in `//docs:serve`.
-- **Bundled GHC `haddock` (`hs_haddock` — 0 Hackage Packages)**: Haskell's official API documentation generator (analogous to Rust's `rustdoc` or Go's `pkgsite`), already included inside the official GHC `9.10.3` bindist (`bin/haddock-ghc-9.10.3` + `lib/html/` assets). `hs_haddock` runs it directly out of `@hs_ghc_9_10_3_*` without adding a single third-party Hackage package!
+- **Bundled GHC `haddock` (`hs_haddock` — 0 Hackage Packages)**: Haskell's official API documentation generator (analogous to Rust's `rustdoc` or Go's `pkgsite`), already included inside the official GHC `9.10.3` bindist (`bin/haddock-ghc-9.10.3` + `lib/html/` assets). `hs_haddock` runs it directly out of `@ghc_9_10_3_*` without adding a single third-party Hackage package!
 
 ### Adopted
 
@@ -658,7 +658,7 @@ For readers with zero prior Haskell experience, `docs/BUILD.bazel` builds three 
 
 - **What & Role**: A canonical two-part Haskell documentation stack using each ecosystem standard for its intended role:
   1. **Vanilla Hakyll + Pandoc + Skylighting (`docs/site.hs`)**: Pinned in `docs/hackage.lock.json` via [`//tools/lock:lock`](../reference/lock-cli.md) on Stackage `lts-24.67` and compiled hermetically by `rules_hs` into `//docs:docs_gen` ([`hs_binary`](../reference/rules.md#hs_binary)), `//docs:site`, and the pure-Haskell preview server `//docs:serve` — rendering 100% standard GitHub/Pandoc Markdown (`docs/content/**/*.md`) for conceptual guides, architecture chapters, and Starlark `.bzl` references. Locked with:
-     - `--flag hakyll:checkexternal=false --flag hakyll:watchserver=false --flag hakyll:previewserver=false` (retaining Hakyll's standard `Rules`, `Compiler`, `Pandoc`, `Context`, `loadAndApplyTemplate`, and `relativizeUrls` engine while pruning `warp`, `wai`, `http-conduit`, and `fsnotify`).
+     - `--flag hakyll:checkexternal=false --flag hakyll:watchserver=false --flag hakyll:previewserver=false` (retaining Hakyll's standard `Rules`, `Compiler`, `Pandoc`, `Context`, `loadAndApplyTemplate`, and `relativizeUrls` engine while pruning `http-conduit` and `fsnotify`).
      - `--flag pandoc:embed_data_files=true --flag citeproc:embed_data_files=true` (embedding Pandoc/Citeproc data templates at compile time via `file-embed` cross-library Template Haskell rather than runtime `Paths_*` filesystem lookups).
      - `--flag zlib:bundled-c-zlib=true --flag zlib:pkg-config=false` (building `zlib` hermetically from C sources via `zlib-clib`).
   2. **Bundled GHC Haddock ([`hs_haddock`](../reference/rules.md#hs_haddock) in `hs/private/haddock.bzl`)**: Uses GHC's official `bin/haddock-ghc-<ver>` binary and `lib/html/` theme assets already `$ORIGIN`-staged by `staged_ghc` to generate standard Haskell API documentation, hyperlinked sources, and QuickJump `doc-index.json` indices for Haskell libraries (`//tools/lock:lock_haddock` mounted into `//docs:site` at `/haddock/lock/`, plus `examples/size//:size_haddock`).
