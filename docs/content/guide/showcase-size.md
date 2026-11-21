@@ -21,6 +21,8 @@ flowchart TD
     SM --> XML["@hackage//:xml-conduit (XML 1.0 namespaces + Cursor)"]
     SM --> ZLIB["@hackage//:zlib -> zlib-clib (bundled C zlib via cc_common.compile)"]
     SM --> ASYNC["@hackage//:async (4-way QSem + mapConcurrently)"]
+    DOC["//:size_haddock (hs_haddock HTML + QuickJump)"] --> FETCH
+    DOC --> SM
     TEST1["test/SitemapTest.hs (//:sitemap_test)"] --> SM
     TEST2["test/HttpE2eTest.hs (//:http_e2e_test, loopback TCP server)"] --> FETCH
     TEST3["test/elf_hermeticity_test.sh (readelf DT_NEEDED + env -i)"] --> CLI
@@ -32,10 +34,10 @@ Building `examples/size` exercises nearly every edge case encountered in product
 
 | Ecosystem Feature | Packages Exercising It in `examples/size` | How `rules_hs` Builds It |
 |---|---|---|
-| **C-only Cabal package + transitive `install-includes`** | `zlib-clib` -> `zlib` -> `streaming-commons` | Stage 4 `cc_common.compile` compiles 11 `.c` files and exports `<zlib.h>` via `CcInfo` + `bzl:provider:HsLinkInfo` without invoking GHC |
+| **C-only Cabal package + transitive `install-includes`** | `zlib-clib` -> `zlib` -> `streaming-commons` | Stage 4 `cc_common.compile` compiles 11 `.c` files and exports `<zlib.h>` via `CcInfo` + [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo) without invoking GHC |
 | **Autoconf `build-type: Configure` + `hsc2hs`** | `network`, `unix-time`, `old-time` | Stage 1 runs sandboxed `./configure` via `ghc_cc_wrapper`, feeding `HsNetworkConfig.h` into parallel Stage 3 `hsc2hs` actions |
-| **`build-type: Custom` (`cabal-doctest`)** | `xml-conduit` | Normalized automatically to `"Simple"` by `cli:lock` |
-| **Platform `select()` + textual `.c` `#include`s** | `crypton` (AESNI/SSE2 on `x86_64` vs. ref C on `arm64`) | `cli:lock` emits per-platform `select` deltas; `hackage.bzl` retains `#include`-d `cbits/*_impl.c` files in `hdrs` |
+| **`build-type: Custom` (`cabal-doctest`)** | `xml-conduit` | Normalized automatically to `"Simple"` by [`//tools/lock:lock`](../reference/lock-cli.md) |
+| **Platform `select()` + textual `.c` `#include`s** | `crypton` (AESNI/SSE2 on `x86_64` vs. ref C on `arm64`) | [`//tools/lock:lock`](../reference/lock-cli.md) emits per-platform `select` deltas; `hackage.bzl` retains `#include`-d `cbits/*_impl.c` files in `hdrs` |
 | **Mutual recursion via `.hs-boot` cycles** | `cborg`, `tls` | Stage 5 `ghc --make -c` resolves `.hs-boot` loops within each library |
 | **Internal Cabal sublibraries** | `attoparsec` (`attoparsec-internal`) | Emitted as `:attoparsec-internal` in `@hackage__attoparsec` and aliased on `@hackage` |
 | **Pure-Haskell TLS 1.3** | `http-client-tls`, `tls`, `crypton-x509*` | Eliminates runtime OpenSSL (`libssl.so` / `libcrypto.so`) dependencies |
@@ -109,10 +111,10 @@ bazel run @rules_hs//tools/lock:lock -- \
 
 ## Build Graph (`examples/size/BUILD.bazel`)
 
-The application is factored cleanly into a pure domain library (`:sitemap`), an HTTP/TLS adapter library (`:fetch`), a thin CLI entry point (`:size`), and three test suites:
+The application is factored cleanly into a pure domain library (`:sitemap`), an HTTP/TLS adapter library (`:fetch`), a thin CLI entry point (`:size`), a combined [`hs_haddock`](../reference/rules.md#hs_haddock) API documentation target (`:size_haddock`), and three test suites:
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_library", "hs_test")
+load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_haddock", "hs_library", "hs_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 hs_library(
@@ -160,6 +162,14 @@ hs_binary(
         "@hackage//:text",
     ],
 )
+
+hs_haddock(
+    name = "size_haddock",
+    deps = [
+        ":fetch",
+        ":sitemap",
+    ],
+)
 ```
 
 ### Injectable Transport & Deadlock-Free Concurrency (`src/Sitemap.hs`)
@@ -196,16 +206,19 @@ walk visitedVar sem url = do
 
 ## Running the Test Suite and Live CLI
 
-From `examples/size`, run all three hermetic test targets:
+From `examples/size`, run all three hermetic test targets and build the Haddock API documentation:
 
 ```bash
 cd examples/size
 bazel test //...
+bazel build //:size_haddock
 ```
 
+`//:size_haddock` invokes [`hs_haddock`](../reference/rules.md#hs_haddock) across `:sitemap` and `:fetch`, emitting `bazel-bin/size_haddock/index.html`, `Sitemap.html`, `Fetch.html`, QuickJump `doc-index.json`, and hyperlinked source under `src/`.
+
 What `bazel test //...` verifies:
-1. **`//:sitemap_test`** (`bzl:rule:hs_test` with `data = ["//testdata:sitemaps"]`): Tests canonical `<urlset>`, `<sitemapindex>`, `.xml.gz`, invalid HTML root rejection, UTF-8 BOM stripping, cyclic `<sitemapindex>` graphs (asserting each URL is fetched once), case-insensitive tags, and corrupt gzip error handling.
-2. **`//:http_e2e_test`** (`bzl:rule:hs_test`): Binds an ephemeral `127.0.0.1:0` TCP socket via `@hackage//:network`, serves XML and `.xml.gz` fixtures, HTTP `302 Found` redirects, and `404 Not Found` errors, and tests `Fetch.httpFetcher` end-to-end inside the Bazel test sandbox with zero external network access.
+1. **`//:sitemap_test`** ([`hs_test`](../reference/rules.md#hs_test) with `data = ["//testdata:sitemaps"]`): Tests canonical `<urlset>`, `<sitemapindex>`, `.xml.gz`, invalid HTML root rejection, UTF-8 BOM stripping, cyclic `<sitemapindex>` graphs (asserting each URL is fetched once), case-insensitive tags, and corrupt gzip error handling.
+2. **`//:http_e2e_test`** ([`hs_test`](../reference/rules.md#hs_test)): Binds an ephemeral `127.0.0.1:0` TCP socket via `@hackage//:network`, serves XML and `.xml.gz` fixtures, HTTP `302 Found` redirects, and `404 Not Found` errors, and tests `Fetch.httpFetcher` end-to-end inside the Bazel test sandbox with zero external network access.
 3. **`//:elf_hermeticity_test`** (`sh_test`): Runs `readelf -d` on `//:size` to assert that `DT_NEEDED` contains **only** base glibc shared libraries — zero `libgmp`, `libtinfo`, `libffi`, `libz`, `libssl`, `libcrypto`, or `libHS*.so` — and executes `//:size` under `env -i PATH=/nonexistent`.
 
 To run `//:size` live over HTTPS against a real documentation site:

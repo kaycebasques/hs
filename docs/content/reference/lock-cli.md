@@ -6,9 +6,11 @@ nav_title: "Lock Generator CLI"
 order: 30
 ---
 
-`@rules_hs//tools/lock:lock` (`cli:lock`, implemented in `tools/lock/Main.hs`, `tools/lock/CabalExtract.hs`, and `tools/lock/LockJson.hs`) is `rules_hs`'s dogfooded Hackage lockfile generator.
+`@rules_hs//tools/lock:lock` (implemented in `tools/lock/Main.hs` over the `//tools/lock:lock_lib` library modules `tools/lock/CabalExtract.hs` and `tools/lock/LockJson.hs`) is `rules_hs`'s dogfooded Hackage lockfile generator.
 
-Built exclusively with GHC's boot libraries (`base`, `Cabal-syntax`, `bytestring`, `containers`, `directory`, `filepath`, `process`, `text`), `cli:lock` resolves a transitive package closure from a Stackage snapshot, evaluates every `.cabal` file across supported target platforms via `Cabal-syntax`, verifies Hackage tarball SHA-256 checksums, and writes a deterministic `hackage.lock.json` consumed by `bzl:ext:hackage.from_lock`.
+Built exclusively with GHC's boot libraries (`base`, `Cabal-syntax`, `bytestring`, `containers`, `directory`, `filepath`, `process`, `text`), `//tools/lock:lock` resolves a transitive package closure from a Stackage snapshot, evaluates every `.cabal` file across supported target platforms via `Cabal-syntax`, verifies Hackage tarball SHA-256 checksums, and writes a deterministic `hackage.lock.json` consumed by [`hackage.from_lock`](extensions-and-providers.md#hackage-from_lock).
+
+> **Tip — Haddock API Documentation (`//tools/lock`):** Module-level Haskell API documentation for `tools/lock` (`CabalExtract` and `LockJson`), generated hermetically via [`hs_haddock`](rules.md#hs_haddock) (`//tools/lock:lock_haddock`), is mounted at **[Haddock API (`//tools/lock`)](../haddock/lock/index.html)** (with hyperlinked source and QuickJump `doc-index.json`).
 
 ---
 
@@ -35,9 +37,7 @@ Or from inside the `rules_hs` repository itself:
 bazel run //tools/lock:lock -- --help
 ```
 
-::: {.important title="Working Directory Under bazel run"}
-Because `bazel run` launches executables inside Bazel's runfiles directory rather than your shell's current directory, always pass an absolute path to `--output` (for example, `--output "$PWD/hackage.lock.json"`), and pass absolute paths to `--snapshot-yaml` or `--cabal-config` if using local files.
-:::
+> **Important — Working Directory Under `bazel run`:** Because `bazel run` launches executables inside Bazel's runfiles directory rather than your shell's current directory, always pass an absolute path to `--output` (for example, `--output "$PWD/hackage.lock.json"`), and pass absolute paths to `--snapshot-yaml` or `--cabal-config` if using local files.
 
 ---
 
@@ -50,7 +50,7 @@ Because `bazel run` launches executables inside Bazel's runfiles directory rathe
 | `--cabal-config <path>` | No | `None` (fetched) | No | Read a local Stackage `cabal.config` file from `<path>` to determine `<pkg> installed` boot package constraints instead of downloading it. |
 | `--cache-dir <dir>` | No | `"/tmp/rules_hs_lock_cache"` | No | Local cache directory storing downloaded `<snapshot>.yaml`, `<snapshot>.cabal.config`, `cabals/<pkg>-<ver>.cabal`, and `tarballs/<pkg>-<ver>.tar.gz` across invocations. |
 | `--ghc-version <ver>` | No | Snapshot compiler (fallback `"9.10.3"`) | No | Override the GHC version used for `Cabal-syntax` `finalizePD` conditionals (`impl(ghc >= ...)`), built-in boot package table selection (`9.10.*` or `9.12.*`), and the output `ghc_version` field. |
-| `--package <name>` | **Yes** | — | **Yes** (at least 1) | Root Hackage package name to include. `cli:lock` resolves the full transitive non-boot dependency closure reachable from all `--package` roots. |
+| `--package <name>` | **Yes** | — | **Yes** (at least 1) | Root Hackage package name to include. `//tools/lock:lock` resolves the full transitive non-boot dependency closure reachable from all `--package` roots. |
 | `--flag <pkg>:<flag>=<bool>` | **Yes** | Stackage snapshot `flags:` | No | Override a Cabal package flag during `finalizePD` evaluation. `<bool>` is case-insensitively `true` or `false` (flag names are normalized to lowercase). Takes precedence over Stackage's snapshot flag defaults. |
 | `--boot-pkg <pkg>=<ver>` | **Yes** | Built-in GHC `9.10` / `9.12` boot table | No | Add or override a GHC boot package version in the boot package set and output `boot_packages` map (e.g., `--boot-pkg filepath=1.5.4.0`). |
 | `--output <path>` | No | `"hackage.lock.json"` | No | Destination file path for the generated JSON lockfile. |
@@ -58,26 +58,26 @@ Because `bazel run` launches executables inside Bazel's runfiles directory rathe
 
 ### Flag Sanitization & Build-Type Normalization
 
-When extracting `.cabal` stanzas, `cli:lock` automatically performs three hermetic normalizations (`tools/lock/CabalExtract.hs`):
+When extracting `.cabal` stanzas, `//tools/lock:lock` automatically performs three hermetic normalizations (`tools/lock/CabalExtract.hs`):
 
 1. **GHC warning & link flag sanitization (`sanitizeGhcOpts`)**: Strips `-Werror`, `-Werror=*`, `-W*`, `-fwarn-*`, `-fno-warn-*`, `-w`, `-threaded`, `-rtsopts`, `-with-rtsopts=*`, `-fllvm`, and `-ferror-spans` from third-party `ghc-options` while preserving semantic and optimization flags (`-O2`, `-funbox-strict-fields`, `-fno-cse`, `-optc-O3`, etc.).
 2. **`cabal-doctest` `Custom` normalization**: Packages declaring `build-type: Custom` whose `custom-setup` depends exclusively on `base`, `Cabal`, `Cabal-syntax`, `cabal-doctest`, `filepath`, and `directory` (such as `xml-conduit`) are normalized to `"build_type": "Simple"`.
-3. **Autoconf `Configure` inspection**: For `build-type: Configure` packages (`network`, `unix-time`, `old-time`), `cli:lock` inspects the tarball contents, `<pkg>.buildinfo`, and `configure.ac` to populate `configure_script`, `configure_srcs`, `configure_outputs`, and generated `install_includes` headers (`HsNetworkConfig.h`, `HsTimeConfig.h`).
+3. **Autoconf `Configure` inspection**: For `build-type: Configure` packages (`network`, `unix-time`, `old-time`), `//tools/lock:lock` inspects the tarball contents, `<pkg>.buildinfo`, and `configure.ac` to populate `configure_script`, `configure_srcs`, `configure_outputs`, and generated `install_includes` headers (`HsNetworkConfig.h`, `HsTimeConfig.h`).
 
 ---
 
 ## `hackage.lock.json` Schema {#lockfile-schema}
 
-`cli:lock` encodes `hackage.lock.json` with deterministic lexicographic map keys, 2-space indentation, and a trailing newline (`tools/lock/LockJson.hs`). Empty optional arrays and empty platform deltas are omitted to keep lockfiles compact and diff-friendly.
+`//tools/lock:lock` encodes `hackage.lock.json` with deterministic lexicographic map keys, 2-space indentation, and a trailing newline (`tools/lock/LockJson.hs`). Empty optional arrays and empty platform deltas are omitted to keep lockfiles compact and diff-friendly.
 
 ### Top-Level Object (`LockFile`)
 
 | Field | JSON Type | Required | Description |
 |---|---|---|---|
-| `schema_version` | `number` (`int`) | **Yes** | Lockfile schema version. Must be `1` (verified by `bzl:ext:hackage.from_lock`). |
+| `schema_version` | `number` (`int`) | **Yes** | Lockfile schema version. Must be `1` (verified by [`hackage.from_lock`](extensions-and-providers.md#hackage-from_lock)). |
 | `snapshot` | `string` | **Yes** | Stackage snapshot name passed to `--snapshot` (e.g., `"lts-24.67"`). |
 | `ghc_version` | `string` | **Yes** | Target GHC version evaluated during lock generation (e.g., `"9.10.3"`). |
-| `boot_packages` | `object` (`{string: string}`) | **Yes** | Sorted map of GHC boot package name to version string (`"base": "4.20.2.0"`, `"text": "2.1.3"`, etc.). Used by `@hackage` to emit `bzl:rule:hs_toolchain_library` targets for non-overridden boot packages. |
+| `boot_packages` | `object` (`{string: string}`) | **Yes** | Sorted map of GHC boot package name to version string (`"base": "4.20.2.0"`, `"text": "2.1.3"`, etc.). Used by `@hackage` to emit [`hs_toolchain_library`](rules.md#hs_toolchain_library) targets for non-overridden boot packages. |
 | `packages` | `object` (`{string: LockedPackage}`) | **Yes** | Sorted map of pinned Hackage package name to its `LockedPackage` specification. |
 
 ### Package Object (`packages.<pkg>` — `LockedPackage`)
@@ -98,7 +98,7 @@ When extracting `.cabal` stanzas, `cli:lock` automatically performs three hermet
 
 ### Component Object (`library` & `sublibraries.<sublib>` — `ComponentSpec`)
 
-`cli:lock` evaluates every component across four platforms (`linux_x86_64`, `linux_arm64`, `macos_arm64`, `macos_x86_64`). Items present on **all** evaluated platforms are placed in the component's common top-level fields; items specific to a subset of platforms are placed under `select.<platform>`.
+`//tools/lock:lock` evaluates every component across four platforms (`linux_x86_64`, `linux_arm64`, `macos_arm64`, `macos_x86_64`). Items present on **all** evaluated platforms are placed in the component's common top-level fields; items specific to a subset of platforms are placed under `select.<platform>`.
 
 | Field | JSON Type | Emitted When | Description |
 |---|---|---|---|
@@ -114,11 +114,11 @@ When extracting `.cabal` stanzas, `cli:lock` automatically performs three hermet
 | `install_includes` | `array[string]` | Non-empty | Common public C headers exported to downstream dependents. |
 | `cpp_options` | `array[string]` | Non-empty | Common C preprocessor options (`-D...`). |
 | `cc_options` | `array[string]` | Non-empty | Common C compiler options. |
-| `extra_libraries` | `array[string]` | Non-empty | Informational system C library names declared in Cabal `extra-libraries:` (link external C libs hermetically via `bzl:ext:hackage.override` `extra_cc_deps`). |
+| `extra_libraries` | `array[string]` | Non-empty | Informational system C library names declared in Cabal `extra-libraries:` (link external C libs hermetically via [`hackage.override`](extensions-and-providers.md#hackage-override) `extra_cc_deps`). |
 | `generate_paths_module` | `boolean` | Always | `true` if `Paths_<pkg>` appears in `other-modules` or `autogen-modules` on any platform. |
 | `deps` | `array[string]` | Always | Common package dependencies (referencing `@<hub>//:<dep>`). |
 | `sublib_deps` | `array[string]` | Non-empty | Common dependencies on internal sublibraries within the same package (referencing `:<sublib>`). |
-| `select` | `object` (`{PlatformKey: PlatformDelta}`) | At least one platform has a non-empty delta | Per-platform delta map keyed by `"linux_arm64"`, `"linux_x86_64"`, `"macos_arm64"`, and `"macos_x86_64"`. Translated into Bazel `select({...})` expressions by `bzl:ext:hackage.from_lock`. |
+| `select` | `object` (`{PlatformKey: PlatformDelta}`) | At least one platform has a non-empty delta | Per-platform delta map keyed by `"linux_arm64"`, `"linux_x86_64"`, `"macos_arm64"`, and `"macos_x86_64"`. Translated into Bazel `select({...})` expressions by [`hackage.from_lock`](extensions-and-providers.md#hackage-from_lock). |
 
 ### Platform Delta Object (`select.<platform>` — `PlatformDelta`)
 

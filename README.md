@@ -199,6 +199,7 @@ hs_binary(
 | `hs_library` | Compiles a Haskell library into `libHS<unit_id>.a` and a relocatable `${pkgroot}` `ghc-pkg` DB with strict direct-dependency visibility (`-hide-all-packages` + direct `-package-id`s). | `srcs`, `deps`, `cc_deps`, `c_sources`, `hdrs`, `include_dirs`, `hs_source_dirs`, `hidden_modules`, `default_language` (`"GHC2021"`), `default_extensions`, `ghc_opts`, `cpp_options`, `cc_options`, `data` |
 | `hs_binary` | Compiles and links a hermetic Haskell executable (statically linked against `libgmp.a` and transitive `CcInfo` archives). | Same as `hs_library` (minus `hidden_modules`), plus `main_module` (`"Main"`) and `threaded` (`True`) |
 | `hs_test` | Test executable variant of `hs_binary`, supporting `data` runfiles via `TEST_SRCDIR` / `RUNFILES_DIR`. | Same as `hs_binary` |
+| `hs_haddock` | Generates hermetic HTML API documentation, hyperlinked source (`src/`), QuickJump search index (`doc-index.json`), and `.haddock` interfaces using GHC's `$ORIGIN`-staged `haddock`. | `deps`, `haddock_deps`, `title`, `prologue`, `hyperlinked_source` (`True`), `quickjump` (`True`), `hoogle` (`False`), `haddock_opts`, `ghc_opts` |
 | `hs_toolchain_library` | Exposes a GHC boot package from the active `HsToolchainInfo`. Automatically generated for every boot library in `@hs_boot` and `@hackage`. | `package_name` |
 | `hs_cabal_library` | Fine-grained 5-stage Cabal package builder (used by generated `@hackage__<pkg>` repos): sandboxed `./configure`, `cabal_macros.h` + `Paths_*`, parallel `hsc2hs`, native `cc_common.compile` (including C-only packages like `zlib-clib`), and `ghc --make -c`. | `package_name`, `component_name`, `version`, `srcs`, `hsc_srcs`, `c_sources`, `hdrs`, `install_includes`, `include_dirs`, `exposed_modules`, `other_modules`, `reexported_modules`, `build_type`, `configure_*`, `generate_paths_module`, `deps`, `extra_cc_deps` |
 
@@ -214,7 +215,8 @@ hs_binary(
 
 - `HsPackageInfo`: Direct package metadata (`name`, `version`, `unit_id`, `pkg_db`, `exposed_modules`, `is_boot`, `hs_lib`, `hi_dir`).
 - `HsLinkInfo`: Transitive `depset`s (`pkg_dbs`, `hs_libs`, `include_dirs`, `headers`) and merged `CcInfo`.
-- `HsToolchainInfo`: Staged GHC binaries (`ghc`, `ghc_pkg`, `hsc2hs`, `ghc_iserv`), `libdir` TreeArtifact, RTS headers, `cc_wrapper`, static `gmp_static_lib`, and parsed `boot_packages`.
+- `HsHaddockInfo`: Generated Haddock HTML `TreeArtifact` (`html_dir`), `.haddock` `interface`, documented `unit_ids`, and `transitive_haddocks`.
+- `HsToolchainInfo`: Staged GHC binaries (`ghc`, `ghc_pkg`, `hsc2hs`, `haddock`, `ghc_iserv`), `libdir` TreeArtifact, RTS headers, `cc_wrapper`, static `gmp_static_lib`, parsed `boot_packages`, and bundled `boot_haddocks`.
 
 ---
 
@@ -229,11 +231,12 @@ It compiles **69 pinned Hackage packages** (plus 41 GHC 9.10.3 boot packages) fr
 - **`async` + `QSem`** (bounded 4-way concurrent crawling)
 - Autoconf `build-type: Configure` (`network`, `unix-time`, `old-time`), `hsc2hs`, `.hs-boot` cycles (`cborg`, `tls`), internal sublibraries (`attoparsec:attoparsec-internal`), `CApiFFI`, and `TemplateHaskellQuotes`.
 
-Run the offline unit, loopback HTTP E2E, and ELF hermeticity tests:
+Run the offline unit, loopback HTTP E2E, and ELF hermeticity tests (and generate Haddock API documentation):
 
 ```bash
 cd examples/size
 bazel test //...
+bazel build //:size_haddock
 ```
 
 Run live against a real documentation sitemap over HTTPS:
@@ -280,29 +283,35 @@ You can pair `rules_hs` with:
 
 ## Documentation
 
-`rules_hs` ships a comprehensive documentation suite under [`docs/content/`](docs/content/index.md), compiled hermetically into a static HTML site using **Hakyll + Pandoc + Skylighting** built by `rules_hs` itself (zero Python, zero Node.js — see [`docs/README.md`](docs/README.md)):
+`rules_hs` ships a canonical Haskell documentation setup built hermetically by `rules_hs` itself (zero Python, zero Node.js — see [`docs/README.md`](docs/README.md)):
+
+- **Vanilla Hakyll + Pandoc + Skylighting** (`docs/site.hs`) rendering standard Markdown guides, Starlark reference, and architecture docs under [`docs/content/`](docs/content/index.md).
+- **GHC Haddock (`hs_haddock`)** generating Haskell library API reference, hyperlinked source, and QuickJump search (`//tools/lock:lock_haddock`, mounted into the site at `/haddock/lock/`).
 
 ```bash
-# Build the static HTML documentation site
+# Build the static HTML documentation site (including mounted /haddock/lock/ API docs)
 bazel build //docs:site
+
+# Build standalone Haddock API docs for //tools/lock
+bazel build //tools/lock:lock_haddock
 
 # Serve the documentation site locally (http://127.0.0.1:8000 by default)
 bazel run //docs:serve
 
-# Run the documentation engine & site verification test suite
+# Run the documentation site & link-check verification suite
 bazel test //docs:...
 ```
 
 ### Documentation Sections
 
-- **Documentation Authoring & Engine Guide**: [`docs/README.md`](docs/README.md)
+- **Documentation Authoring & Site Guide**: [`docs/README.md`](docs/README.md)
 - **Overview**: [`docs/content/index.md`](docs/content/index.md)
 - **User Guide** ([`docs/content/guide/`](docs/content/guide/quickstart.md)):
   - [Quickstart](docs/content/guide/quickstart.md) · [Hackage & Lockfiles](docs/content/guide/hackage.md) · [C FFI & Toolchains](docs/content/guide/c-interop-and-toolchains.md) · [Language, RTS, Runfiles & TH](docs/content/guide/language-rts-runfiles-th.md) · [Showcase: `examples/size`](docs/content/guide/showcase-size.md) · [Migration & Troubleshooting](docs/content/guide/troubleshooting-and-migration.md)
 - **API & CLI Reference** ([`docs/content/reference/`](docs/content/reference/rules.md)):
   - [Rules Reference](docs/content/reference/rules.md) · [Extensions & Providers](docs/content/reference/extensions-and-providers.md) · [Lock Generator CLI](docs/content/reference/lock-cli.md)
 - **Internals & Architecture** ([`docs/content/internals/`](docs/content/internals/overview.md)):
-  - [Architecture Overview](docs/content/internals/overview.md) · [Comparison with Other Rulesets](docs/content/internals/rulesets-comparison.md) · [Hermeticity & Toolchain](docs/content/internals/hermeticity.md) · [Providers & Action Graph](docs/content/internals/providers-and-actions.md) · [Hackage & Cabal Pipeline](docs/content/internals/ecosystem-and-hackage.md) · [Cross-OS & Platforms](docs/content/internals/cross-os-and-platforms.md) · [Haskell Docs Engine](docs/content/internals/docs-engine.md) · [Dependency Decisions](docs/content/internals/dependencies.md)
+  - [Architecture Overview](docs/content/internals/overview.md) · [Comparison with Other Rulesets](docs/content/internals/rulesets-comparison.md) · [Hermeticity & Toolchain](docs/content/internals/hermeticity.md) · [Providers & Action Graph](docs/content/internals/providers-and-actions.md) · [Hackage & Cabal Pipeline](docs/content/internals/ecosystem-and-hackage.md) · [Cross-OS & Platforms](docs/content/internals/cross-os-and-platforms.md) · [Hakyll & Haddock Docs](docs/content/internals/docs-engine.md) · [Dependency Decisions](docs/content/internals/dependencies.md)
 - **Standalone Sitemap Counter Showcase**: [`examples/size/README.md`](examples/size/README.md)
 
 ## License

@@ -52,15 +52,14 @@ build:linux --repo_env=HERMETIC_CC_TOOLCHAIN_CACHE_PREFIX=/tmp/zig-cc-cache
 build:linux --sandbox_add_mount_pair=/tmp
 ```
 
-::: {.note title="Why --enable_runfiles and --incompatible_strict_action_env?"}
-- `--incompatible_strict_action_env` prevents host `PATH`, `LD_LIBRARY_PATH`, or `GHC_PACKAGE_PATH` variables from leaking into build actions, guaranteeing reproducible builds across developer machines and CI.
-- `--enable_runfiles` ensures Bazel materializes the `<bin>.runfiles` directory tree so `bzl:rule:hs_binary` and `bzl:rule:hs_test` targets can read `data` files directly via `RUNFILES_DIR` and `TEST_SRCDIR`.
-- The `/tmp/zig-cc-cache` mount is only needed when using `hermetic_cc_toolchain` (`zig cc`) so Zig does not recompile its C runtime startup objects in every sandboxed action. See `doc:guide/c-interop-and-toolchains` for `toolchains_llvm` or system C toolchains.
-:::
+> **Note — Why `--enable_runfiles` and `--incompatible_strict_action_env`?**
+> - `--incompatible_strict_action_env` prevents host `PATH`, `LD_LIBRARY_PATH`, or `GHC_PACKAGE_PATH` variables from leaking into build actions, guaranteeing reproducible builds across developer machines and CI.
+> - `--enable_runfiles` ensures Bazel materializes the `<bin>.runfiles` directory tree so [`hs_binary`](../reference/rules.md#hs_binary) and [`hs_test`](../reference/rules.md#hs_test) targets can read `data` files directly via `RUNFILES_DIR` and `TEST_SRCDIR`.
+> - The `/tmp/zig-cc-cache` mount is only needed when using `hermetic_cc_toolchain` (`zig cc`) so Zig does not recompile its C runtime startup objects in every sandboxed action. See [C FFI & Toolchains](c-interop-and-toolchains.md) for `toolchains_llvm` or system C toolchains.
 
 ## Step 2: Configure `MODULE.bazel`
 
-Create `MODULE.bazel` to declare `rules_hs`, register a hermetic C toolchain, and provision GHC `9.10.3` via the `bzl:ext:hs` module extension:
+Create `MODULE.bazel` to declare `rules_hs`, register a hermetic C toolchain, and provision GHC `9.10.3` via the [`hs`](../reference/extensions-and-providers.md#hs) module extension:
 
 ```starlark
 module(
@@ -99,20 +98,18 @@ use_repo(hs, "hs_boot", "hs_toolchains")
 register_toolchains("@hs_toolchains//:all")
 ```
 
-::: {.important title="Register gnu.2.32 before the @zig_sdk wildcard"}
-When pairing `rules_hs` with `hermetic_cc_toolchain`, always list `@zig_sdk//toolchain:linux_amd64_gnu.2.32` and `@zig_sdk//toolchain:linux_arm64_gnu.2.32` **before** `@zig_sdk//toolchain/...`. Otherwise Bazel's wildcard registration picks `gnu.2.17` alphabetically, which lacks glibc 2.28/2.32 symbols required by GHC `deb10` bindists and BCR `gmp`. See `doc:guide/c-interop-and-toolchains` for details.
-:::
+> **Important — Register `gnu.2.32` before the `@zig_sdk` wildcard:** When pairing `rules_hs` with `hermetic_cc_toolchain`, always list `@zig_sdk//toolchain:linux_amd64_gnu.2.32` and `@zig_sdk//toolchain:linux_arm64_gnu.2.32` **before** `@zig_sdk//toolchain/...`. Otherwise Bazel's wildcard registration picks `gnu.2.17` alphabetically, which lacks glibc 2.28/2.32 symbols required by GHC `deb10` bindists and BCR `gmp`. See [C FFI & Toolchains](c-interop-and-toolchains.md) for details.
 
 ### What `hs.toolchain` Creates
 
-Calling `bzl:ext:hs.toolchain` exposes two repositories via `use_repo`:
+Calling [`hs.toolchain`](../reference/extensions-and-providers.md#hs-toolchain) exposes two repositories via `use_repo`:
 
 1. **`@hs_toolchains`**: Contains Bazel `toolchain()` declarations matching `@rules_hs//hs:toolchain_type` for each active platform (`linux_x86_64` and `linux_arm64` by default). You can select `ghc_version = "9.10.3"` (default) or `ghc_version = "9.12.4"`.
-2. **`@hs_boot`**: Exposes every package shipped in GHC's global package database (`base`, `bytestring`, `containers`, `deepseq`, `directory`, `exceptions`, `filepath`, `mtl`, `process`, `stm`, `template-haskell`, `text`, `time`, `transformers`, `unix`, `Cabal-syntax`, etc.) as ready-to-use `bzl:rule:hs_toolchain_library` targets — zero manual boilerplate required.
+2. **`@hs_boot`**: Exposes every package shipped in GHC's global package database (`base`, `bytestring`, `containers`, `deepseq`, `directory`, `exceptions`, `filepath`, `mtl`, `process`, `stm`, `template-haskell`, `text`, `time`, `transformers`, `unix`, `Cabal-syntax`, etc.) as ready-to-use [`hs_toolchain_library`](../reference/rules.md#hs_toolchain_library) targets — zero manual boilerplate required.
 
 ## Step 3: Write Haskell Sources
 
-Create `src/Greet.hs` (note that `bzl:rule:hs_library`, `bzl:rule:hs_binary`, and `bzl:rule:hs_test` all default to `default_language = "GHC2021"`):
+Create `src/Greet.hs` (note that [`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), and [`hs_test`](../reference/rules.md#hs_test) all default to `default_language = "GHC2021"`):
 
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
@@ -169,7 +166,7 @@ main = do
 
 ## Step 4: Declare Targets in `BUILD.bazel`
 
-Load `bzl:rule:hs_library`, `bzl:rule:hs_binary`, and `bzl:rule:hs_test` from `@rules_hs//hs:defs.bzl`:
+Load [`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), and [`hs_test`](../reference/rules.md#hs_test) from `@rules_hs//hs:defs.bzl`:
 
 ```starlark
 load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_library", "hs_test")
@@ -219,9 +216,7 @@ hs_test(
 )
 ```
 
-::: {.tip title="Strict Direct-Dependency Visibility"}
-`rules_hs` compiles every target with `-hide-all-packages` and exposes **only** direct `deps` via `-package-id` (modeled on Buck2 Haskell's `bzl:provider:HsPackageInfo` vs. `bzl:provider:HsLinkInfo` split). Notice how `:hello` imports `Data.Text` directly, so it declares `@hs_boot//:text` in its own `deps` even though `:greet` also depends on `@hs_boot//:text`. Conversely, `:greet_test` only calls `greetingFor` without importing `Data.Text` directly, so it only needs `:greet` and `@hs_boot//:base`.
-:::
+> **Tip — Strict Direct-Dependency Visibility:** `rules_hs` compiles every target with `-hide-all-packages` and exposes **only** direct `deps` via `-package-id` (modeled on Buck2 Haskell's [`HsPackageInfo`](../reference/extensions-and-providers.md#hspackageinfo) vs. [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo) split). Notice how `:hello` imports `Data.Text` directly, so it declares `@hs_boot//:text` in its own `deps` even though `:greet` also depends on `@hs_boot//:text`. Conversely, `:greet_test` only calls `greetingFor` without importing `Data.Text` directly, so it only needs `:greet` and `@hs_boot//:base`.
 
 ## Step 5: Build, Test, and Inspect Hermeticity
 
@@ -265,11 +260,11 @@ hs.toolchain(ghc_version = "9.12.4")
 use_repo(hs, "hs_boot", "hs_toolchains")
 ```
 
-Root module `bzl:ext:hs.toolchain` declarations automatically override `rules_hs`'s default `9.10.3` toolchain.
+Root module [`hs.toolchain`](../reference/extensions-and-providers.md#hs-toolchain) declarations automatically override `rules_hs`'s default `9.10.3` toolchain.
 
 ## Next Steps
 
-- **Add Hackage dependencies (`aeson`, `http-client`, `xml-conduit`, `zlib`, etc.)**: Continue to `doc:guide/hackage`.
-- **Call C libraries or configure `toolchains_llvm`**: Read `doc:guide/c-interop-and-toolchains`.
-- **Configure language editions, RTS concurrency, runfiles, and Template Haskell**: Read `doc:guide/language-rts-runfiles-th`.
-- **Explore a complete 69-package real-world application**: Walk through `doc:guide/showcase-size`.
+- **Add Hackage dependencies (`aeson`, `http-client`, `xml-conduit`, `zlib`, etc.)**: Continue to [Hackage & Lockfiles](hackage.md).
+- **Call C libraries or configure `toolchains_llvm`**: Read [C FFI & Toolchains](c-interop-and-toolchains.md).
+- **Configure language editions, RTS concurrency, runfiles, Template Haskell, and Haddock API docs (`hs_haddock`)**: Read [Language, RTS, Runfiles & Template Haskell](language-rts-runfiles-th.md).
+- **Explore a complete 69-package real-world application**: Walk through [Showcase: `examples/size`](showcase-size.md).
