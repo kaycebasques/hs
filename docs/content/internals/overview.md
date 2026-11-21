@@ -6,13 +6,21 @@ nav_title: "Architecture Overview"
 order: 10
 ---
 
-`rules_hs` is a clean-slate, Bzlmod-only Bazel 9 ruleset for Haskell (`bazel_compatibility = [">=9.0.0"]`). It compiles Haskell libraries, executables, tests, and third-party Hackage packages hermetically without Nix, without `WORKSPACE`, without a Python runtime wrapper, and without requiring host `ghc`, `cabal`, `stack`, `gcc`, `clang`, or system C `-dev` libraries.
+`rules_hs` is a clean-slate, Bzlmod-only Bazel 9 ruleset for Haskell (`bazel_compatibility = [">=9.0.0"]`). It compiles Haskell libraries, executables, tests, and third-party Hackage packages hermetically without Nix, without legacy `WORKSPACE` files, without a Python runtime wrapper, and without requiring host `ghc`, `cabal`, `stack`, `gcc`, `clang`, or system C `-dev` libraries on the build machine.
 
-This page introduces the architectural philosophy of `rules_hs`, examines the structural bottlenecks in prior Haskell-on-Bazel designs, defines the strict boundary between Bzlmod evaluation and Bazel build execution, and maps every module in the repository. Subsequent chapters in this section examine each subsystem in full implementation detail:
+> **Note — New to Bazel Ruleset Authoring or Haskell/GHC? Start Here:** The chapters in **Internals & Architecture** are written to be 100% accessible even if you have only ever used Bazel as an end user and have never written a line of Haskell:
+>
+> - **New to writing Bazel rulesets?** Read **[Bazel Ruleset Primer](bazel-rules-primer.md)** (`order: 5`) first for a plain-English walkthrough of dual-mode `MODULE.bazel` (`dev_dependency = True` pruning), Bazel's Loading/Analysis/Execution phases, `module_extension`s and lazy hub repos, `TreeArtifact`s, Starlark `Provider`s and `O(1)` `depset`s, `cfg = "exec"` vs. `cfg = "target"`, and `rules_cc` / `CcInfo` interoperability.
+> - **New to Haskell, GHC, or Cabal?** Read **[Haskell & GHC Primer](haskell-and-ghc-primer.md)** (`order: 8`) first to understand GHC's `.o` + `.hi` compilation model and `.pkgdb` package databases, why GHC ships 41 pre-compiled boot libraries (including `Cabal-syntax`), why GHC invokes a C compiler and links its C Runtime System (`libHSrts`), why `libgmp` and `libtinfo` appear as C dependencies, and how `hsc2hs`, `alex`/`happy`, `.hs-boot`, and Template Haskell work.
 
+This page introduces the architectural philosophy of `rules_hs`, examines the structural bottlenecks in prior Haskell-on-Bazel designs, defines the strict boundary between Bzlmod evaluation and Bazel build execution, and maps every module in the repository. Together with the two primers above, the chapters in this section cover the entire system end to end:
+
+- [Bazel Ruleset Primer](bazel-rules-primer.md) — first-principles guide to shipping a Bazel 9 ruleset from an end-user starting point.
+- [Haskell & GHC Primer](haskell-and-ghc-primer.md) — zero-prerequisite guide to Haskell's compiler pipeline, runtime system, boot packages, and Cabal/Hackage ecosystem.
+- **Architecture Overview** *(this page)* — core invariants, `tweag/rules_haskell` post-mortem, phase boundaries, repository map, and automated hygiene enforcement.
 - [Comparison with Other Rulesets](rulesets-comparison.md) — exhaustive multi-ruleset architectural comparison against `tweag/rules_haskell`, Buck2's Haskell prelude (`prelude/haskell` and `buck2-haskell`), Please Build, `haskell.nix`, and Cabal/Stack wrappers.
 - [Hermeticity & Toolchain](hermeticity.md) — pure-Starlark bindist sanitization, `$ORIGIN` staging (including bundled `haddock` and `lib/html/`), the 8-symbol `libtinfo.so.6` stub, static-GMP user binaries, and the native C11 `ghc_cc_wrapper`.
-- [Providers & Action Graph](providers-and-actions.md) — direct vs. transitive providers, strict dependency visibility, `${pkgroot}` package databases, C archive linking, runfiles, Template Haskell execution, and hermetic [`hs_haddock`](../reference/rules.md#hs_haddock) API generation.
+- [Providers & Action Graph](providers-and-actions.md) — end-to-end build trace, direct vs. transitive providers, strict dependency visibility, `${pkgroot}` package databases, C archive linking, runfiles, Template Haskell execution, and hermetic [`hs_haddock`](../reference/rules.md#hs_haddock) API generation.
 - [Hackage & Cabal Pipeline](ecosystem-and-hackage.md) — the dogfooded `Cabal-syntax` lock generator ([`//tools/lock:lock`](../reference/lock-cli.md)), `@hackage` repository synthesis, and the 5-stage [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) build pipeline.
 - [Cross-OS & Platforms](cross-os-and-platforms.md) — `hs/private/ghc_versions.bzl` metadata, `deb10` glibc vs. `alpine3_12` musl, and activation blueprints for macOS, Windows, and static musl.
 - [Hakyll & Haddock Docs](docs-engine.md) — how `rules_hs` dogfoods itself to build this documentation site hermetically with vanilla Hakyll (`docs/site.hs`), Pandoc, Skylighting, and bundled GHC Haddock ([`hs_haddock`](../reference/rules.md#hs_haddock)).
@@ -22,14 +30,14 @@ This page introduces the architectural philosophy of `rules_hs`, examines the st
 
 ## Core Design Principles {#design-principles}
 
-Six invariants govern every rule, repository extension, and C/Haskell helper in `rules_hs`:
+Six invariants govern every rule, repository extension, and C/Haskell helper in `rules_hs` — each chosen to eliminate a specific class of build fragility or downstream friction:
 
-1. **Bazel 9+ & Bzlmod-only (`>=9.0.0`)**: Zero `WORKSPACE`, `WORKSPACE.bazel`, or `WORKSPACE.bzlmod` files exist anywhere in the repository, and legacy Starlark APIs removed in Bazel 8 and 9 are never referenced.
-2. **Minimal downstream dependency footprint**: `MODULE.bazel` declares exactly **four** direct non-dev dependencies — `platforms`, `bazel_skylib`, `rules_cc`, and `gmp`. Test and documentation dependencies (`hermetic_cc_toolchain`, `rules_shell`, and the `//docs` Hackage closure) are strictly isolated behind `dev_dependency = True`.
-3. **Nix-free Linux hermeticity**: Official GHC binary distributions are unpacked in pure Starlark with zero `./configure && make install`, sanitized so host `/usr/bin/*` tools can never execute, and staged using ELF `$ORIGIN` `RUNPATH`s with zero `LD_LIBRARY_PATH` and zero `patchelf` — making every action portable across clean containers and Remote Build Execution (RBE) workers.
-4. **Portable static-GMP user binaries**: While GHC's own compiler binaries link dynamically against staged `libgmp.so.10`, user [`hs_binary`](../reference/rules.md#hs_binary) and [`hs_test`](../reference/rules.md#hs_test) executables link statically against `libgmp.a`, yielding ELF binaries whose `DT_NEEDED` entries are restricted exclusively to base `glibc` (`libc.so.6`, `libm.so.6`, `libdl.so.2`, `libpthread.so.0`).
-5. **Zero Python on the build hot path**: A self-contained 460-line C11 binary (`ghc_cc_wrapper` in `hs/private/cc_wrapper.c`) bridges GHC, `hsc2hs`, and Cabal `./configure` to whatever `@bazel_tools//tools/cpp:toolchain_type` the consumer registers.
-6. **Two-phase Hackage resolution & fine-grained Cabal actions**: Third-party Cabal resolution happens offline via GHC's own boot `Cabal-syntax` library ([`//tools/lock:lock`](../reference/lock-cli.md) -> `hackage.lock.json`), Bzlmod extension evaluation reads JSON in pure Starlark (`reproducible = True`), and [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) decomposes builds into five cacheable, parallelizable stages with zero `Setup.hs` execution.
+1. **Bazel 9+ & Bzlmod-only (`>=9.0.0`)**: Bazel 9 permanently removed the legacy `WORKSPACE` file system in favor of `MODULE.bazel` (Bzlmod). Zero `WORKSPACE`, `WORKSPACE.bazel`, or `WORKSPACE.bzlmod` files exist anywhere in `rules_hs`, and legacy Starlark APIs removed in Bazel 8 and 9 are never referenced — ensuring downstream workspaces adopt modern Bazel cleanly without compatibility shims.
+2. **Minimal downstream dependency footprint ([dual-mode `MODULE.bazel`](bazel-rules-primer.md#ruleset-vs-consumer))**: Every non-dev `bazel_dep` in a ruleset's `MODULE.bazel` becomes a mandatory transitive dependency of *every* application that consumes the ruleset. `rules_hs` declares strictly **four** direct non-dev dependencies: `platforms` (OS/CPU constraint labels), `bazel_skylib` (Starlark helpers), `rules_cc` (C/C++ toolchain and `CcInfo` integration), and `gmp` (the GNU Multiple Precision arithmetic C library backing Haskell's unbounded `Integer` type). All ruleset test and documentation dependencies (`hermetic_cc_toolchain`, `rules_shell`, and the 182-package `//docs` Hackage closure) are strictly fenced behind `dev_dependency = True` so Bazel prunes them automatically in consumer workspaces.
+3. **Nix-free Linux hermeticity ([why host leaks break RBE](bazel-rules-primer.md#three-phases))**: Official GHC Linux binary tarballs ("bindists") normally expect host `make` during installation, bake `/usr/bin/gcc` into `lib/settings`, and dynamically import `libgmp.so.10` and `libtinfo.so.6` from `/usr/lib`. `rules_hs` unpacks bindists in pure Starlark with zero `./configure && make install`, poisons hardcoded host tool paths in `lib/settings` to `/nonexistent/*`, and places hermetically compiled `libgmp.so.10` + `libtinfo.so.6` directly inside GHC's own relative ELF `$ORIGIN/../lib/...` `RUNPATH` directory — requiring zero `LD_LIBRARY_PATH`, zero `patchelf` binary patching, and zero Nix daemon on developer laptops or Remote Build Execution (RBE) workers.
+4. **Portable static-GMP user binaries ([why GMP & `DT_NEEDED` matter](haskell-and-ghc-primer.md#gmp-and-tinfo))**: On Linux, an ELF executable's header lists every shared library (`DT_NEEDED`) the OS dynamic loader must find at startup. While GHC's own compiler executable dynamically loads `rules_hs`'s staged `libgmp.so.10` at compile time, user [`hs_binary`](../reference/rules.md#hs_binary) and [`hs_test`](../reference/rules.md#hs_test) executables link **statically** against `libgmp.a`. The resulting binaries depend *exclusively* on base `glibc` (`libc.so.6`, `libm.so.6`, `libdl.so.2`, `libpthread.so.0`) and run unmodified in bare `debian:bookworm-slim`, `ubuntu:24.04`, or `rockylinux:9` containers where `libgmp10` is not installed.
+5. **Zero Python on the build hot path**: Under the hood, GHC invokes a C preprocessor, C compiler, assembler, and linker as subprocesses ([C Toolchain & RTS](haskell-and-ghc-primer.md#c-toolchain-and-rts)). Instead of wrapping the C compiler in a Python script (which would force every consumer to download `rules_python` and pay Python interpreter startup overhead on hundreds of compile actions), `rules_hs` compiles a self-contained 460-line C11 binary (`ghc_cc_wrapper` in `hs/private/cc_wrapper.c`) once in `cfg = "exec"` to adapt GHC, `hsc2hs`, and Cabal `./configure` to whatever `@bazel_tools//tools/cpp:toolchain_type` the consumer registers.
+6. **Two-phase Hackage resolution & fine-grained Cabal actions ([ecosystem overview](haskell-and-ghc-primer.md#ecosystem-map))**: Third-party Hackage `.cabal` files contain conditional OS/CPU/flag logic (`if os(linux) && flag(...)`). Rather than running an external `cabal` or `stack` CLI during builds, `rules_hs` resolves `.cabal` manifests offline via GHC's own pre-bundled [`Cabal-syntax` boot library](haskell-and-ghc-primer.md#boot-libraries) ([`//tools/lock:lock`](../reference/lock-cli.md) -> `hackage.lock.json`), decodes that JSON lockfile in pure Starlark during Bzlmod evaluation (`reproducible = True`), and compiles packages via [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) across five cacheable, parallelizable Bazel stages with zero per-package `Setup.hs` compilation.
 
 ---
 
@@ -47,25 +55,25 @@ Auditing `tweag/rules_haskell` (both `master` and BCR `1.0`) reveals **six struc
 ### 2. Non-Hermetic Linux Bindists Forcing `rules_nixpkgs`
 
 - `rules_haskell`'s `haskell/ghc_bindist.bzl` unpacks GHC `deb10` bindists and executes host `./configure --prefix ... && make install` inside a repository rule. That requires host `make`, `perl`, a C compiler, and system shared libraries on the machine running `bazel fetch` — reflected in `rules_haskell`'s own BCR `1.0` `presubmit.yml`, which runs `sudo apt install libtinfo5 libgmp-dev` before Bazel starts.
-- To achieve Linux hermeticity, `rules_haskell` directs users to `rules_nixpkgs`, which invokes a host Nix daemon to populate `/nix/store` during repository fetch. Host `/nix/store` paths break Remote Build Execution (RBE) digest portability, fail in bare container environments without Nix, and make Bazel Central Registry (BCR) consumption impractical (`rules_haskell` issue #2451).
+- To achieve Linux hermeticity, `rules_haskell` directs users to `rules_nixpkgs`, which invokes a host Nix daemon to populate `/nix/store` during repository fetch. Because `/nix/store` lives on the host filesystem outside Bazel's sandboxed `execroot`, host `/nix/store` paths break Remote Build Execution (RBE) digest portability, fail in bare container environments without Nix, and make Bazel Central Registry (BCR) consumption impractical (`rules_haskell` issue #2451).
 
 ### 3. Python Runtime Wrapper (`cc_wrapper.py.tpl`) & Environment Leakage
 
-- Wrapping the C compiler in a templated Python script (`cc_wrapper.py.tpl`) pulls `rules_python` and a Python runtime interpreter into the input closure of every single Haskell compile, preprocess, and link action.
+- Wrapping the C compiler in a templated Python script (`cc_wrapper.py.tpl`) pulls `rules_python` and a Python runtime interpreter into the sandbox input closure of every single Haskell compile, preprocess, and link action.
 - Beyond adding Python startup latency across hundreds of actions, this layer accumulated cross-platform path and quoting bugs (`rules_haskell` issues #2317, #2492, #2493) while still needing shell-wrapper workarounds (`unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY`) so Bazel runfiles environment variables do not corrupt nested tool invocations.
 
 ### 4. Dynamic Linking & `$ORIGIN` Rpath Complexity on User Binaries
 
-- `ghc_bindist.bzl` hardcodes `fully_static_link = False` for bindist toolchains, forcing downstream executables through complex `$ORIGIN` / `@loader_path` rpath rewrites and runtime shared-library packaging (`libHS*.so`, `libgmp.so.10`, `libffi.so.8`) even when consumers simply want a self-contained CLI or service binary.
+- `ghc_bindist.bzl` hardcodes `fully_static_link = False` for bindist toolchains, forcing downstream executables through complex `$ORIGIN` / `@loader_path` rpath rewrites and runtime shared-library packaging (`libHS*.so`, `libgmp.so.10`, `libffi.so.8`) even when consumers simply want a self-contained CLI or service binary they can copy into a minimal container image.
 
 ### 5. Heavyweight `stack_snapshot` & Opaque `cabal_wrapper.py`
 
 - Resolving Hackage packages through `stack_snapshot` requires an external `stack` CLI binary (or manual `stack_snapshot_json` pinning plus `setup_deps = ["@Cabal//:Cabal"]` overrides; `rules_haskell` issue #1871).
-- At build time, each Hackage package executes `runghc Setup.hs configure && build && copy && register && clean` inside a single opaque Python action (`cabal_wrapper.py`). That monolithic action mutates `cwd`, compiles `Setup.hs` repeatedly, relocates `libHS*.a` archives to dodge Bazel `TreeArtifact` path overlaps with `.hi` directories (`rules_haskell` issues #2496, #2499), regex-patches `.conf` files to `${pkgroot}`, sacrifices per-file `hsc2hs` and C compilation parallelism, and fails to propagate transitive `install-includes` natively via `CcInfo`.
+- At build time, each Hackage package executes `runghc Setup.hs configure && build && copy && register && clean` inside a single opaque Python action (`cabal_wrapper.py`). That monolithic action mutates `cwd`, compiles `Setup.hs` repeatedly, relocates `libHS*.a` archives to dodge Bazel [`TreeArtifact`](bazel-rules-primer.md#rules-and-actions) path overlaps with `.hi` directories (`rules_haskell` issues #2496, #2499), regex-patches `.conf` files to `${pkgroot}`, sacrifices per-file `hsc2hs` and C compilation parallelism, and fails to propagate transitive `install-includes` C headers natively via `CcInfo`.
 
 ### 6. High End-User Boilerplate
 
-- Users must manually declare `haskell_toolchain_library` targets for boot libraries (`base`, `text`, `bytestring`, `containers`, etc.) unless everything is routed through `@stackage`, while package-level wrapper macros and external generators (`gazelle_haskell_modules`) add configuration surface.
+- Users must manually declare `haskell_toolchain_library` targets for GHC boot libraries (`base`, `text`, `bytestring`, `containers`, etc.) unless everything is routed through `@stackage`, while package-level wrapper macros and external `BUILD`-file generators (`gazelle_haskell_modules`) add configuration surface.
 
 ### Architectural Comparison Summary
 
@@ -87,27 +95,27 @@ Auditing `tweag/rules_haskell` (both `master` and BCR `1.0`) reveals **six struc
 
 ### Buck2 Haskell (`facebook/buck2/prelude/haskell`)
 
-Buck2's Haskell prelude cleanly decouples **direct** package metadata (`HaskellLibraryProvider`) from **transitive** link/interface closures (`HaskellLinkInfo` + C++ `MergedLinkInfo`). `rules_hs` implements this exact split in `hs/providers.bzl` ([`HsPackageInfo`](../reference/extensions-and-providers.md#hspackageinfo) vs. [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo) + `CcInfo`):
+Buck2's Haskell prelude cleanly decouples **direct** package metadata (`HaskellLibraryProvider`) from **transitive** link/interface closures (`HaskellLinkInfo` + C++ `MergedLinkInfo`). `rules_hs` implements this exact split in `hs/providers.bzl` ([`HsPackageInfo`](../reference/extensions-and-providers.md#hspackageinfo) vs. [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo) + `CcInfo`; see [Providers and Depsets](bazel-rules-primer.md#providers-and-depsets)):
 
-- Direct dependencies supply unit IDs passed via `-package-id <unit_id>` alongside `-hide-all-packages`, enforcing Bazel's strict direct-dependency visibility at compile time.
-- Transitive closures propagate via `depset`s (`pkg_dbs`, `hs_libs`, `include_dirs`, `headers`) and `cc_common.merge_cc_infos`, avoiding quadratic Starlark list copying while giving GHC transitive `.hi` interface visibility and full native C archive closures.
+- Direct dependencies supply exact GHC unit IDs passed via `-package-id <unit_id>` alongside `-hide-all-packages`, enforcing Bazel's strict direct-dependency visibility at compile time (so target `C` cannot accidentally `import` a module from transitive dependency `A` without declaring `A` in `deps`).
+- Transitive closures propagate via `O(1)` `depset`s (`pkg_dbs`, `hs_libs`, `include_dirs`, `headers`) and `cc_common.merge_cc_infos`, avoiding quadratic `O(N²)` Starlark list copying during Analysis while giving GHC full transitive `.hi` interface visibility and native C archive closures.
 
 ### Modern Bzlmod-Only Rulesets (`rules_zig`, `rules_dotnet`, `rules_rust`, `rules_go`)
 
-Following modern Bazel 9 ruleset conventions:
+Following modern Bazel 9 ruleset conventions ([Module Extensions, Repository Rules, and Lazy Hubs](bazel-rules-primer.md#bzlmod-and-repos)):
 
-- Every module extension ([`hs`](../reference/extensions-and-providers.md#hs) and [`hackage`](../reference/extensions-and-providers.md#hackage) in `hs/extensions.bzl` and `hs/private/hackage.bzl`) performs zero network calls during extension evaluation and returns `module_ctx.extension_metadata(reproducible = True)` so consumer `MODULE.bazel.lock` files stay deterministic.
-- Boot libraries are synthesized automatically in `@hs_boot` (and re-exposed uniformly in `@hackage`), while third-party packages live in lazy per-package repositories (`@hackage__<pkg>`) that Bazel downloads only when reachable from requested build targets.
+- Every module extension ([`hs`](../reference/extensions-and-providers.md#hs) and [`hackage`](../reference/extensions-and-providers.md#hackage) in `hs/extensions.bzl` and `hs/private/hackage.bzl`) performs zero network calls during extension evaluation and returns `module_ctx.extension_metadata(reproducible = True)` so consumer `MODULE.bazel.lock` files never accumulate noisy machine-specific diffs.
+- GHC boot libraries are synthesized automatically in `@hs_boot` (and re-exposed uniformly in `@hackage`), while third-party packages live in lazy per-package spoke repositories (`@hackage__<pkg>`) that Bazel downloads *only* when reachable from the targets you actually build.
 
 ---
 
 ## System Architecture & Phase Boundaries {#phase-boundaries}
 
-`rules_hs` separates dependency resolution, repository declaration, toolchain staging, and target compilation across three crisp phases:
+Building on [Bazel's Three Phases](bazel-rules-primer.md#three-phases), `rules_hs` separates Hackage constraint resolution, repository declaration, toolchain staging, and target compilation across crisp, non-overlapping phase boundaries:
 
 ```mermaid
 flowchart TD
-    subgraph DevTime["Phase 0: Offline Lock Generation (Dev Time)"]
+    subgraph DevTime["Phase 0: Offline Lock Generation (Developer Update Time Only)"]
         SNAP["Stackage Snapshot YAML + cabal.config"] --> LOCKCLI["//tools/lock:lock (boot Cabal-syntax)"]
         LOCKCLI --> LOCKJSON["hackage.lock.json (schema_version = 1)"]
     end
@@ -121,7 +129,7 @@ flowchart TD
         EXTHACK --> PKGREPO["@hackage__pkg lazy repos (hs_cabal_library)"]
     end
 
-    subgraph Build["Phase 2: Bazel Sandboxed Build Graph (Hermetic Actions)"]
+    subgraph Build["Phase 2 & 3: Starlark Analysis & Sandboxed Build Execution"]
         GMP["@gmp//:gmp (BCR)"] --> STAGE["staged_ghc ($ORIGIN bin/ + lib/ TreeArtifact + gmp_static/libgmp.a)"]
         TINFO["libtinfo.so.6 (8-symbol stub)"] --> STAGE
         BINDIST --> STAGE
@@ -138,18 +146,18 @@ flowchart TD
     end
 ```
 
-### Phase Invariants
+### Phase Invariants (And Why Each Boundary Matters)
 
-| Phase | Executes When | Allowed Operations | Forbidden Operations |
+| Phase | Executes When | Allowed Operations | Forbidden Operations & Why |
 |---|---|---|---|
-| **0. Offline Lock Generation** ([`//tools/lock:lock`](../reference/lock-cli.md)) | Developer updates Hackage dependencies (`bazel run @rules_hs//tools/lock:lock -- ...`) | Fetch Stackage YAML + Hackage `.cabal`/`.tar.gz`, evaluate `finalizePD` via boot `Cabal-syntax`, verify SHA-256s, write `hackage.lock.json` | Requires zero host `cabal`, `stack`, or Python; never runs during `bazel build` / `bazel test` |
-| **1a. Bzlmod Extension Evaluation** (`hs/extensions.bzl`, `hs/private/hackage.bzl`) | `bazel mod` / analysis startup | Pure Starlark `module_ctx.read` + `json.decode` of `hackage.lock.json`; declare `ghc_bindist_repo`, `@hs_boot`, `@hs_toolchains`, `@hackage`, and `@hackage__<pkg>` (`reproducible = True`) | Zero `module_ctx.download`, zero `module_ctx.execute`, zero host tool lookups |
-| **1b. Repository Rule Fetch** (`ghc_bindist_repo`, `_hackage_package_repo`) | Lazily when a target in that repo is needed | SHA-256-verified `repository_ctx.download_and_extract`, pure-Starlark file sanitization/parsing, `BUILD.bazel` synthesis | Zero `./configure`, zero `make`, zero `ghc-pkg` subprocesses during repo fetch |
-| **2. Sandboxed Build Execution** (`staged_ghc`, `hs_*` rules) | `bazel build` / `bazel test` under `--incompatible_strict_action_env` | Hermetic actions inside Bazel sandbox/execroot using staged GHC, `ghc_cc_wrapper`, and resolved `cc_toolchain` | Zero network access, zero `LD_LIBRARY_PATH`, zero `/usr/bin/*` fallback, zero `RUNFILES_*` leakage into compilers |
+| **0. Offline Lock Generation** ([`//tools/lock:lock`](../reference/lock-cli.md)) | Only when a developer adds or updates Hackage dependencies (`bazel run @rules_hs//tools/lock:lock -- ...`) | Fetch Stackage YAML + Hackage `.cabal`/`.tar.gz`, evaluate `finalizePD` across 4 OS/CPU platforms via boot `Cabal-syntax`, verify SHA-256s, write `hackage.lock.json` | Never runs during `bazel build` or `bazel test`, keeping CI/developer builds 100% deterministic and independent of live Hackage/Stackage registry metadata changes; requires zero host `cabal`, `stack`, or Python. |
+| **1a. Bzlmod Extension Evaluation** (`hs/extensions.bzl`, `hs/private/hackage.bzl`) | `bazel mod` / Loading startup | Pure Starlark `module_ctx.read` + `json.decode` of `hackage.lock.json`; declare `ghc_bindist_repo`, `@hs_boot`, `@hs_toolchains`, `@hackage`, and `@hackage__<pkg>` (`reproducible = True`) | **Zero `module_ctx.download` and zero `module_ctx.execute`**: avoiding network/subprocess I/O lets extensions run in milliseconds and return `reproducible = True` without bloating consumer `MODULE.bazel.lock` files. |
+| **1b. Repository Rule Fetch** (`ghc_bindist_repo`, `_hackage_package_repo`) | Lazily when a build target actually references that external repository | SHA-256-verified `repository_ctx.download_and_extract`, pure-Starlark `lib/settings` sanitization & `.conf` parsing, `BUILD.bazel` synthesis | **Zero `./configure`, zero `make`, zero `ghc-pkg` subprocesses**: `bazel fetch` must succeed on bare containers that have no host C compiler, `make`, `perl`, `libgmp`, or `libtinfo` installed. |
+| **2 & 3. Analysis & Sandboxed Execution** (`staged_ghc`, `hs_*` rules) | `bazel build` / `bazel test` under `--incompatible_strict_action_env` | Pure in-memory Starlark graph construction followed by sandboxed actions using `$ORIGIN`-staged GHC, `ghc_cc_wrapper`, and Bazel's `cc_toolchain` | **Zero network access, zero `LD_LIBRARY_PATH`, zero `/usr/bin/*` fallback, zero `RUNFILES_*` leakage**: guarantees bit-for-bit action cache safety across local `linux-sandbox` runs and remote RBE workers. |
 
 > **Important — Why Root `MODULE.bazel` Calls `hs.toolchain` Without `dev_dependency = True`:** In `rules_hs`'s own `MODULE.bazel`, `hs = use_extension("//hs:extensions.bzl", "hs")` and `use_repo(hs, "hs_boot", "hs_toolchains")` are intentionally **non-dev**, whereas `register_toolchains("@hs_toolchains//:all", dev_dependency = True)` is **dev-only**.
 >
-> This split ensures that when a downstream consumer runs `bazel run @rules_hs//tools/lock:lock`, `@rules_hs//tools/lock` can always resolve `@hs_boot//:Cabal-syntax` and its sibling boot libraries — while `_hs_extension_impl` (`hs/extensions.bzl`) gives precedence to `mod.is_root` tags so any consumer [`hs.toolchain(ghc_version = ...)`](../reference/extensions-and-providers.md#hs-toolchain) cleanly overrides the GHC version across the entire build graph without forcing toolchain registration before the consumer chooses it.
+> This split solves a subtle consumer bootstrap requirement: when a downstream consumer runs `bazel run @rules_hs//tools/lock:lock` to generate their first `hackage.lock.json`, `@rules_hs//tools/lock`'s `BUILD.bazel` must be able to resolve `@hs_boot//:Cabal-syntax` and its sibling boot libraries inside `@rules_hs`'s repository visibility scope. Meanwhile, `_hs_extension_impl` (`hs/extensions.bzl`) gives precedence to `mod.is_root` tags so any consumer [`hs.toolchain(ghc_version = ...)`](../reference/extensions-and-providers.md#hs-toolchain) cleanly overrides the GHC version across the entire build graph without `rules_hs` registering toolchains behind the consumer's back.
 
 ---
 
@@ -163,12 +171,12 @@ Every source file in `rules_hs` has a single, bounded responsibility:
 | `.bazelrc` | Strict action environment (`--incompatible_strict_action_env`), runfiles (`--enable_runfiles`), platform config (`--enable_platform_specific_config`), and dev Zig cache sandbox mount (`/tmp/zig-cc-cache`). |
 | `hs/defs.bzl` | Public rule entrypoint re-exporting [`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), [`hs_test`](../reference/rules.md#hs_test), [`hs_toolchain_library`](../reference/rules.md#hs_toolchain_library), [`hs_cabal_library`](../reference/rules.md#hs_cabal_library), and [`hs_haddock`](../reference/rules.md#hs_haddock). |
 | `hs/providers.bzl` | Public provider schemas: [`HsPackageInfo`](../reference/extensions-and-providers.md#hspackageinfo), [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo), [`HsToolchainInfo`](../reference/extensions-and-providers.md#hstoolchaininfo), and [`HsHaddockInfo`](../reference/extensions-and-providers.md#hshaddockinfo). |
-| `hs/toolchain.bzl` | Declares `TOOLCHAIN_TYPE = "@rules_hs//hs:toolchain_type"` and the [`hs_toolchain`](../reference/rules.md#hs_toolchain) rule combining `staged_ghc`, `ghc_cc_wrapper`, and decoded `boot_packages_json`. |
+| `hs/toolchain.bzl` | Declares `TOOLCHAIN_TYPE = "@rules_hs//hs:toolchain_type"` and the [`hs_toolchain`](../reference/rules.md#hs_toolchain) rule combining `staged_ghc`, `ghc_cc_wrapper` (both `cfg = "exec"`), and decoded `boot_packages_json`. |
 | `hs/extensions.bzl` | Public Bzlmod extensions: [`hs`](../reference/extensions-and-providers.md#hs) ([`hs.toolchain`](../reference/extensions-and-providers.md#hs-toolchain)) and re-exported [`hackage`](../reference/extensions-and-providers.md#hackage) ([`hackage.from_lock`](../reference/extensions-and-providers.md#hackage-from_lock), [`hackage.override`](../reference/extensions-and-providers.md#hackage-override)). |
 | `hs/private/ghc_versions.bzl` | Declarative bindist table (`GHC_BINDISTS`, `BOOT_PACKAGE_NAMES`, `SUPPORTED_PLATFORMS`, `DEFAULT_GHC_VERSION = "9.10.3"`) covering GHC `9.10.3` and `9.12.4` across 6 platform keys. |
 | `hs/private/ghc_bindist.bzl` | Repository rules `ghc_bindist_repo` (`_sanitize_settings`, `_parse_pkg_conf`), `hs_toolchains_repo`, and `hs_boot_repo`. |
-| `hs/private/staged_ghc.bzl` | `staged_ghc` build rule (`HsLinkGmpShared` + `HsStageGhc`), assembling `<prefix>/bin/` (including `ghc`, `ghc-pkg`, `hsc2hs`, `haddock`, `ghc-iserv-dyn`, `unlit`), `<prefix>/lib/` TreeArtifact (including `lib/html/`), and `<prefix>/gmp_static/libgmp.a`. |
-| `hs/private/tinfo_stub.c` & `hs/private/tinfo_stub.lds` | 8-symbol `@NCURSES6_TINFO_5.0.19991023` C11 shared-library stub compiled to `//hs/private:libtinfo.so.6`. |
+| `hs/private/staged_ghc.bzl` | `staged_ghc` build rule (`HsLinkGmpShared` + `HsStageGhc`), assembling `<prefix>/bin/` (including `ghc`, `ghc-pkg`, `hsc2hs`, `haddock`, `ghc-iserv-dyn`, `unlit`), `<prefix>/lib/` `TreeArtifact` (including `lib/html/`), and `<prefix>/gmp_static/libgmp.a`. |
+| `hs/private/tinfo_stub.c` & `hs/private/tinfo_stub.lds` | 8-symbol `@NCURSES6_TINFO_5.0.19991023` C11 shared-library and static stub compiled to `//hs/private:libtinfo.so.6` and `//hs/private:tinfo_stub_static`. |
 | `hs/private/rt_shims.c` | Hidden weak `x86_64` `__cpu_model` fallback (`//hs/private:rt_shims`) satisfying `R_X86_64_PC32` relocations from `__builtin_cpu_supports` under `zig cc` while yielding to strong symbols on GCC/LLVM. |
 | `hs/private/cc_wrapper.c` | Native POSIX C11 compiler/linker/preprocessor wrapper (`//hs/private:ghc_cc_wrapper`). |
 | `hs/private/actions.bzl` | Shared action builders: `resolve_cc_tools`, `collect_deps`, `write_cabal_macros_h`, `write_paths_module`, `ghc_tool_flags`, `run_configure_action`, `run_hsc2hs_actions`, `compile_c_sources`, `compile_hs_library_action`. |
@@ -179,7 +187,7 @@ Every source file in `rules_hs` has a single, bounded responsibility:
 | `hs/private/cabal_library.bzl` | 5-stage [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) rule implementation (including C/C++ compilation, `pkg_cwd` compile-time `data` staging, and C-only package short-circuiting). |
 | `tools/lock/{Main,CabalExtract,LockJson,LockTest}.hs` | Boot-only `Cabal-syntax` lockfile library (`//tools/lock:lock_lib`), CLI ([`//tools/lock:lock`](../reference/lock-cli.md)), Haddock API target (`//tools/lock:lock_haddock`), and offline unit tests (`//tools/lock:lock_test`). |
 | `tests/starlark/rules_analysis_test.bzl` | `@bazel_skylib//lib:unittest.bzl` `analysistest` suite inspecting providers, action `argv`s, strict `-package-id` visibility, static `libgmp.a`, `cabal_macros.h`, C-only Cabal targets, `hs_haddock`, and `CcInfo` propagation. |
-| `tests/basic/` & `tests/rules/` | End-to-end tests covering multi-library DAGs, `.hs-boot` cycles, `Configure` + `hsc2hs` + C-only Cabal pipelines, C FFI (`cc_deps` + `c_sources`), language editions (`Haskell98`/`Haskell2010`/`GHC2021`), threaded/non-threaded RTS, 2-hop runfiles, same-library & cross-library Template Haskell (`th_test`, `cross_lib_th_test`, `cross_lib_th_elf_test`), Haddock HTML/QuickJump/hyperlinked-source generation (`tests/rules/haddock/`), ELF `DT_NEEDED`, and Bzlmod hygiene. |
+| `tests/basic/` & `tests/rules/` | End-to-end tests covering multi-library DAGs, `.hs-boot` cycles, `Configure` + `hsc2hs` + C-only Cabal pipelines, C/C++ FFI (`cc_deps` + `c_sources`), language editions (`Haskell98`/`Haskell2010`/`GHC2021`), threaded/non-threaded RTS, 2-hop runfiles, same-library & cross-library Template Haskell (`th_test`, `cross_lib_th_test`, `cross_lib_th_elf_test`), Haddock HTML/QuickJump/hyperlinked-source generation (`tests/rules/haddock/`), ELF `DT_NEEDED`, and Bzlmod hygiene. |
 | `examples/size/` | Standalone consumer workspace compiling 69 Hackage packages (`xml-conduit`, `http-client-tls`, `zlib-clib`, `async`) into a concurrent HTTPS sitemap page counter (`//:size`) and Haddock API docs (`//:size_haddock`). |
 | `docs/` | Vanilla Hakyll (`docs/site.hs`) + Pandoc + Skylighting documentation site (`//docs:docs_gen`, `//docs:site`, `//docs:serve`), mounted Haddock API docs (`haddock/lock/`), standard Markdown content (`docs/content/`), and verification suites (`//docs:link_check_test`, `//docs:site_test`). |
 
@@ -187,7 +195,7 @@ Every source file in `rules_hs` has a single, bounded responsibility:
 
 ## Automated Bzlmod Hygiene & Hermeticity Enforcement {#hygiene-enforcement}
 
-Architectural invariants decay unless continuously enforced in CI. `//tests/rules:bzlmod_hygiene_test` (`tests/rules/bzlmod_hygiene_test.sh`) inspects both the repository source tree and a compiled Haskell binary (`//tests/rules:hermetic_bin`) on every `bazel test //...` run:
+Architectural invariants decay unless continuously enforced in CI ([Testing a Bazel Ruleset](bazel-rules-primer.md#testing-rulesets)). `//tests/rules:bzlmod_hygiene_test` (`tests/rules/bzlmod_hygiene_test.sh`) inspects both the repository source tree and a compiled Haskell binary (`//tests/rules:hermetic_bin`) on every `bazel test //...` run:
 
 1. **Zero legacy `WORKSPACE` files**: Walks both the resolved repository root and `$TEST_SRCDIR/$TEST_WORKSPACE`, failing immediately if any `WORKSPACE`, `WORKSPACE.bazel`, or `WORKSPACE.bzlmod` file exists.
 2. **Strict `MODULE.bazel` audit**: Strips `#` comments from `MODULE.bazel` and verifies with `grep` and an `awk` call-block parser that:
