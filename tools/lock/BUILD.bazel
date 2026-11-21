@@ -1,0 +1,49 @@
+load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_library", "hs_test")
+
+package(default_visibility = ["//visibility:public"])
+
+hs_library(
+    name = "lock_lib",
+    srcs = [
+        "CabalExtract.hs",
+        "LockJson.hs",
+    ],
+    deps = [
+        "@hs_boot//:Cabal-syntax",
+        "@hs_boot//:base",
+        "@hs_boot//:bytestring",
+        "@hs_boot//:containers",
+        "@hs_boot//:text",
+    ],
+)
+
+hs_binary(
+    name = "lock",
+    srcs = ["Main.hs"],
+    main_module = "Main",
+    deps = [
+        ":lock_lib",
+        "@hs_boot//:Cabal-syntax",
+        "@hs_boot//:base",
+        "@hs_boot//:bytestring",
+        "@hs_boot//:containers",
+        "@hs_boot//:directory",
+        "@hs_boot//:filepath",
+        "@hs_boot//:process",
+        "@hs_boot//:text",
+    ],
+)
+
+hs_test(
+    name = "lock_test",
+    srcs = ["LockTest.hs"],
+    main_module = "Main",
+    deps = [
+        ":lock_lib",
+        "@hs_boot//:Cabal-syntax",
+        "@hs_boot//:base",
+        "@hs_boot//:bytestring",
+        "@hs_boot//:containers",
+        "@hs_boot//:text",
+    ],
+)
