@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+# Verify hermetic CC works inside autoconf-style ./configure (compile + preprocess)
+cat > conftest.c <<'EOF'
+#include <stdint.h>
+int main(void) { return 0; }
+EOF
+"$CC" $CFLAGS -E conftest.c >/dev/null
+"$CC" $CFLAGS -c conftest.c -o conftest.o
+"$CC" $CFLAGS conftest.o $LDFLAGS -o conftest
+
+VAL="$(cat cabal_cfg/configure.data | tr -d '[:space:]')"
+mkdir -p include
+cat > include/GeneratedCfg.h <<EOF
+#ifndef GENERATED_CFG_H
+#define GENERATED_CFG_H
+#define CFG_MAGIC_NUM ${VAL}
+#endif
+EOF

@@ -1,0 +1,46 @@
+module(
+    name = "rules_hs",
+    version = "0.1.0",
+    bazel_compatibility = [">=9.0.0"],
+)
+
+# Minimal non-dev dependencies (zero WORKSPACE, zero Nix, zero Python/Java/Node)
+bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "bazel_skylib", version = "1.9.2")
+bazel_dep(name = "rules_cc", version = "0.2.28")
+bazel_dep(name = "gmp", version = "6.3.0.bcr.5")
+
+# Dev-only dependencies for testing & hermetic Linux C/C++ toolchain
+bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0", dev_dependency = True)
+bazel_dep(name = "rules_shell", version = "0.6.1", dev_dependency = True)
+
+cc_toolchains = use_extension(
+    "@hermetic_cc_toolchain//toolchain:ext.bzl",
+    "toolchains",
+    dev_dependency = True,
+)
+use_repo(cc_toolchains, "zig_sdk")
+
+# Register glibc 2.32 toolchains before the wildcard so hermetic_cc_toolchain
+# satisfies both GHC deb10 bindists (glibc <= 2.28: memfd_create, statx, fcntl64)
+# and BCR m4/gmp (sys/single_threaded.h requires glibc >= 2.32 under Zig).
+# Binaries remain compatible with Debian 12 (2.36), Ubuntu 22.04 (2.35) / 24.04 (2.39), Rocky 9 (2.34).
+register_toolchains(
+    "@zig_sdk//toolchain:linux_amd64_gnu.2.32",
+    "@zig_sdk//toolchain:linux_arm64_gnu.2.32",
+    "@zig_sdk//toolchain/...",
+    "@zig_sdk//libc_aware/toolchain/...",
+    dev_dependency = True,
+)
+
+# Default GHC toolchain & boot packages.
+# Non-dev so @rules_hs//tools/lock can resolve @hs_boot even when invoked by a
+# downstream consumer; a root module's hs.toolchain(...) overrides the version.
+hs = use_extension("//hs:extensions.bzl", "hs")
+hs.toolchain(ghc_version = "9.10.3")
+use_repo(hs, "hs_boot", "hs_toolchains")
+
+register_toolchains(
+    "@hs_toolchains//:all",
+    dev_dependency = True,
+)

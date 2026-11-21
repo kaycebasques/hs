@@ -1,0 +1,37 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+
+package(default_visibility = ["//visibility:public"])
+
+toolchain_type(
+    name = "toolchain_type",
+)
+
+bzl_library(
+    name = "providers",
+    srcs = ["providers.bzl"],
+)
+
+bzl_library(
+    name = "toolchain",
+    srcs = ["toolchain.bzl"],
+    deps = [":providers"],
+)
+
+bzl_library(
+    name = "defs",
+    srcs = ["defs.bzl"],
+    deps = [
+        ":providers",
+        ":toolchain",
+        "//hs/private:rules_bzl",
+    ],
+)
+
+bzl_library(
+    name = "extensions",
+    srcs = ["extensions.bzl"],
+    deps = [
+        "//hs/private:ghc_bindist_bzl",
+        "//hs/private:ghc_versions_bzl",
+    ],
+)
