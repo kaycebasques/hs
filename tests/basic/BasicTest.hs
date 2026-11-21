@@ -6,7 +6,7 @@ import CfgLib (cfgMagicCapi, cfgMagicHsc)
 import Control.Monad (unless)
 import qualified Data.Text as T
 import Greet (greetWithNative, sIfregConst)
-import MidLib (clibScaled, midSummary, midVersionStr)
+import MidLib (clibScaled, midGhcInt, midSummary, midUcredSize, midVersionStr)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import TopLib (topSummary, topValue)
@@ -37,6 +37,8 @@ main = do
     assertEq "midVersionStr" "0.4.2" midVersionStr
     assertEq "midSummary" "mid-ok:42:7:0.4.2" midSummary
     assertEq "clibScaled" 52 (clibScaled 5)
+    assertEq "hsc2hs __GLASGOW_HASKELL__" 910 midGhcInt
+    assertEq "hsc2hs struct ucred > 0" True (midUcredSize > 0)
     -- 5. Transitive install_includes header propagation (cabal_top -> cabal_mid -> cabal_c_only)
     assertEq "topValue" 94 (topValue 5)
     assertEq "topSummary" "mid-ok:42:7:0.4.2|top=94" topSummary

@@ -347,6 +347,39 @@ static bool handle_print_file_name(int argc, char **argv) {
     return true;
 }
 
+static bool detect_cxx_invocation(char **tokens, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        const char *a = tokens[i];
+        if (strcmp(a, "-xc++") == 0 ||
+            strcmp(a, "-xc++-header") == 0 ||
+            strcmp(a, "-xc++-cpp-output") == 0 ||
+            starts_with(a, "-std=c++") ||
+            starts_with(a, "-std=gnu++") ||
+            starts_with(a, "-stdlib=")) {
+            return true;
+        }
+        if (strcmp(a, "-x") == 0 && i + 1 < n) {
+            const char *lang = tokens[i + 1];
+            if (strcmp(lang, "c++") == 0 ||
+                strcmp(lang, "c++-header") == 0 ||
+                strcmp(lang, "c++-cpp-output") == 0) {
+                return true;
+            }
+        }
+        if (a[0] != '-' &&
+            (ends_with(a, ".cc") ||
+             ends_with(a, ".cpp") ||
+             ends_with(a, ".cxx") ||
+             ends_with(a, ".C") ||
+             ends_with(a, ".hh") ||
+             ends_with(a, ".hpp") ||
+             ends_with(a, ".hxx"))) {
+            return true;
+        }
+    }
+    return false;
+}
+
 int main(int argc, char **argv) {
     /* Never let Bazel runfiles env vars leak into compiler/linker subprocesses. */
     unsetenv("RUNFILES_DIR");
@@ -376,6 +409,8 @@ int main(int argc, char **argv) {
         }
     }
 
+    bool is_cxx = detect_cxx_invocation(argv + 1, (size_t)(argc - 1));
+
     StrVec final_args = {0};
     vec_push(&final_args, xstrdup(real_cc));
 
@@ -403,6 +438,17 @@ int main(int argc, char **argv) {
 
     if (!is_version_query) {
         vec_push(&final_args, xstrdup("-Wno-unused-command-line-argument"));
+        /*
+         * hermetic_cc_toolchain exposes `zig c++` for C compilation, which places
+         * libcxx/include ahead of C headers. That pulls <features.h> via
+         * libcxx/include/stddef.h (from GHC's template-hsc.h) before user headers
+         * like HsNet.h can `#define _GNU_SOURCE 1`, hiding struct ucred /
+         * struct in6_pktinfo. Dropping C++ includes for C/asm/link invocations
+         * restores standard C header order.
+         */
+        if (!is_cxx) {
+            vec_push(&final_args, xstrdup("-nostdinc++"));
+        }
     }
 
     rewrite_tokens(argv + 1, (size_t)(argc - 1), force_pic, &final_args, NULL);
