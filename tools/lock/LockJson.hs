@@ -108,9 +108,11 @@ data PlatformDelta = PlatformDelta
   }
   deriving (Eq, Show)
 
+-- | Empty t'PlatformDelta' with no platform-specific additions.
 emptyDelta :: PlatformDelta
 emptyDelta = PlatformDelta [] [] [] [] [] [] [] [] [] [] [] [] [] []
 
+-- | Return 'True' when every field in a t'PlatformDelta' is empty.
 isDeltaEmpty :: PlatformDelta -> Bool
 isDeltaEmpty d = d == emptyDelta
 
@@ -166,7 +168,7 @@ data LockFile = LockFile
 strArray :: [Text] -> JValue
 strArray = JArray . map JString
 
--- | Encode non-empty fields of a 'PlatformDelta' so lockfiles stay compact.
+-- | Encode non-empty fields of a t'PlatformDelta' so lockfiles stay compact.
 platformDeltaToJson :: PlatformDelta -> JValue
 platformDeltaToJson d =
   JObject $
@@ -190,6 +192,7 @@ platformDeltaToJson d =
     nonEmpty _ [] = []
     nonEmpty k xs = [(k, strArray xs)]
 
+-- | Serialize a t'ComponentSpec' into its deterministic JSON object representation.
 componentSpecToJson :: ComponentSpec -> JValue
 componentSpecToJson cs =
   JObject $
@@ -255,6 +258,7 @@ lockedPackageToJson lp =
                ]
          )
 
+-- | Serialize a complete t'LockFile' into its top-level @hackage.lock.json@ 'JValue'.
 lockFileToJson :: LockFile -> JValue
 lockFileToJson lf =
   JObject

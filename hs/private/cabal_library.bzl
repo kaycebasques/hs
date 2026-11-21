@@ -6,6 +6,7 @@ load("//hs:providers.bzl", "HsLinkInfo", "HsPackageInfo")
 load("//hs:toolchain.bzl", "TOOLCHAIN_TYPE")
 load(
     "//hs/private:actions.bzl",
+    "HsDocSourceInfo",
     "collect_deps",
     "compile_c_sources",
     "compile_hs_library_action",
@@ -174,6 +175,27 @@ def _hs_cabal_library_impl(ctx):
                 cc_info = merged_cc_info,
             ),
             merged_cc_info,
+            HsDocSourceInfo(
+                package_name = pkg_name,
+                version = version,
+                unit_id = None,
+                pkg_db = None,
+                all_hs_srcs = [],
+                doc_src_files = [],
+                import_dirs = [],
+                c_include_dirs = [],
+                headers = depset(),
+                cabal_macros_h = None,
+                hidden_modules = [],
+                default_language = ctx.attr.default_language,
+                default_extensions = [],
+                ghc_opts = [],
+                cpp_options = [],
+                direct_unit_ids = [],
+                compile_data = [],
+                pkg_root = ".",
+                boot_pkg_names = dep_info.boot_pkg_names,
+            ),
         ]
 
     # ------------------------------------------------------------------
@@ -185,7 +207,7 @@ def _hs_cabal_library_impl(ctx):
         if d and d not in ghc_inc_dirs:
             ghc_inc_dirs.append(d)
 
-    hi_dir, pkg_db, hs_lib = compile_hs_library_action(
+    hi_dir, pkg_db, hs_lib, doc_info = compile_hs_library_action(
         ctx = ctx,
         hs_tc = hs_tc,
         cc_tools = cc_tools,
@@ -239,6 +261,7 @@ def _hs_cabal_library_impl(ctx):
             cc_info = merged_cc_info,
         ),
         merged_cc_info,
+        doc_info,
     ]
 
 hs_cabal_library = rule(
@@ -297,5 +320,5 @@ hs_cabal_library = rule(
     },
     toolchains = [TOOLCHAIN_TYPE] + use_cc_toolchain(),
     fragments = ["cpp"],
-    provides = [HsPackageInfo, HsLinkInfo, CcInfo],
+    provides = [HsPackageInfo, HsLinkInfo, CcInfo, HsDocSourceInfo],
 )

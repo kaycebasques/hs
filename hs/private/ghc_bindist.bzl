@@ -135,6 +135,9 @@ def _ghc_bindist_repo_impl(repository_ctx):
 
     rts_include_rel = "lib/{}/rts-{}/include".format(arch_libdir, rts_version)
     iserv_label = '":bin/ghc-iserv-dyn-ghc-{}"'.format(ver) if repository_ctx.attr.is_dynamic_ghc else "None"
+    haddock_rel = "bin/haddock-ghc-{}".format(ver)
+    if not repository_ctx.path(haddock_rel).exists:
+        haddock_rel = "bin/haddock"
 
     # Note: Keep the repository BUILD clean and expose both raw bindist files and
     # the $ORIGIN-staged GHC + hs_toolchain target.
@@ -148,6 +151,7 @@ exports_files([
     "bin/ghc-{ver}",
     "bin/ghc-pkg-{ver}",
     "bin/hsc2hs-ghc-{ver}",
+    "{haddock_rel}",
     "bin/unlit-ghc-{ver}",
     "lib/settings",
     "lib/template-hsc.h",
@@ -158,9 +162,18 @@ filegroup(
     srcs = glob(
         ["lib/**"],
         exclude = [
-            "lib/html/**",
+            "lib/html/js-src/**",
+            "lib/html/package-lock.json",
             "lib/latex/**",
         ],
+    ),
+)
+
+filegroup(
+    name = "boot_haddock_files",
+    srcs = glob(
+        ["doc/html/libraries/**/*.haddock"],
+        allow_empty = True,
     ),
 )
 
@@ -180,10 +193,12 @@ staged_ghc(
     ghc = ":bin/ghc-{ver}",
     ghc_pkg = ":bin/ghc-pkg-{ver}",
     hsc2hs = ":bin/hsc2hs-ghc-{ver}",
+    haddock = ":{haddock_rel}",
     unlit = ":bin/unlit-ghc-{ver}",
     ghc_iserv = {iserv_label},
     template_hsc_h = ":lib/template-hsc.h",
     lib_files = [":lib_files"],
+    boot_haddock_files = [":boot_haddock_files"],
     rts_headers = [":rts_headers"],
     gmp = "@gmp//:gmp",
     tinfo_stub = "@rules_hs//hs/private:libtinfo.so.6",
@@ -209,6 +224,7 @@ hs_toolchain(
         needs_tinfo_stub = repository_ctx.attr.needs_tinfo_stub,
         iserv_exports = '["bin/ghc-iserv-dyn-ghc-{}"]'.format(ver) if repository_ctx.attr.is_dynamic_ghc else "[]",
         iserv_label = iserv_label,
+        haddock_rel = haddock_rel,
         boot_packages_json = repr(boot_packages_json_dict),
         target_os = repository_ctx.attr.target_os,
         target_cpu = repository_ctx.attr.target_cpu,

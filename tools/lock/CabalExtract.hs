@@ -58,6 +58,7 @@ import Distribution.Utils.Path (getSymbolicPath)
 import Distribution.Compiler (PerCompilerFlavor (..))
 import LockJson
 
+-- | Canonical Bazel target platform identifier (e.g. @"linux_x86_64"@, @"macos_arm64"@).
 type PlatformKey = Text
 
 -- | Supported Bazel target platforms evaluated per Hackage package.
@@ -194,7 +195,7 @@ readMaybeInt t =
         [(n, "")] -> Just n
         _ -> Nothing
 
--- | Parse @"<pkg> installed"@ entries from a Stackage @cabal.config@.
+-- | Parse @"\<pkg\> installed"@ entries from a Stackage @cabal.config@.
 parseCabalConfigBootPkgs :: Text -> Set Text
 parseCabalConfigBootPkgs content =
   Set.fromList $
@@ -284,8 +285,8 @@ data RawComp = RawComp
   }
   deriving (Eq, Show)
 
--- | Extract cross-platform 'ComponentSpec's and Configure/Custom metadata
--- from a parsed 'GenericPackageDescription'.
+-- | Extract cross-platform t'ComponentSpec's and Configure/Custom metadata
+-- from a parsed t'GenericPackageDescription'.
 extractComponentSpecs
   :: Text
   -- ^ GHC version string (e.g. @"9.10.3"@)
@@ -565,7 +566,7 @@ expandSublibs initial perPlat selfPkg pathsMod selfSublibs = go initial initial
                   ]
            in go (seen `Set.union` next) next
 
--- | Merge per-platform 'RawComp's into common base fields + minimal per-platform deltas.
+-- | Merge per-platform t'RawComp's into common base fields + minimal per-platform deltas.
 mergeRawComps :: [(PlatformKey, RawComp)] -> ComponentSpec
 mergeRawComps perPlat =
   let (expBase, expDelta) = splitField rcExposedModules
@@ -662,7 +663,7 @@ collectComponentDeps bootPkgs selfPkg cs =
   where
     isExt p = p /= selfPkg && not (p `Set.member` bootPkgs) && p /= "Win32"
 
--- | Enrich an 'ExtractedPackage' with tarball URL and verified SHA-256 into a 'LockedPackage'.
+-- | Enrich an t'ExtractedPackage' with tarball URL and verified SHA-256 into a t'LockedPackage'.
 extractLockedPackage :: Text -> Text -> ExtractedPackage -> LockedPackage
 extractLockedPackage url sha ep =
   LockedPackage

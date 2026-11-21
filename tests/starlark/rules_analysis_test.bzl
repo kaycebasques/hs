@@ -2,7 +2,7 @@
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
-load("//hs:providers.bzl", "HsLinkInfo", "HsPackageInfo")
+load("//hs:providers.bzl", "HsHaddockInfo", "HsLinkInfo", "HsPackageInfo")
 
 # ==============================================================================
 # Helpers
@@ -516,5 +516,57 @@ hs_binary_cc_propagation_test = analysistest.make(
     _hs_binary_cc_propagation_test_impl,
     attrs = {
         "cc_dep": attr.label(mandatory = True, providers = [CcInfo]),
+    },
+)
+
+# ==============================================================================
+# 7. hs_haddock provider & HsHaddock action checks
+# ==============================================================================
+
+def _hs_haddock_action_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    actions = analysistest.target_actions(env)
+
+    asserts.true(env, HsHaddockInfo in target, "hs_haddock must provide HsHaddockInfo")
+    hinfo = target[HsHaddockInfo]
+    asserts.true(env, hinfo.html_dir != None, "HsHaddockInfo.html_dir must be set")
+    asserts.true(env, hinfo.interface != None, "HsHaddockInfo.interface must be set")
+    asserts.true(
+        env,
+        hinfo.interface.basename.endswith(".haddock"),
+        "interface basename must end with .haddock",
+    )
+
+    default_files = target[DefaultInfo].files.to_list()
+    asserts.equals(env, [hinfo.html_dir], default_files, "DefaultInfo.files must contain strictly html_dir")
+
+    haddock_actions = _find_actions_by_mnemonic(actions, "HsHaddock")
+    asserts.equals(env, 1, len(haddock_actions), "expected exactly one HsHaddock action")
+    argv = haddock_actions[0].argv
+
+    asserts.true(env, "--html" in argv, "expected --html in HsHaddock argv")
+    asserts.true(env, "--quickjump" in argv, "expected --quickjump in HsHaddock argv")
+    asserts.true(env, "--hyperlinked-source" in argv, "expected --hyperlinked-source in HsHaddock argv")
+    asserts.true(env, "--optghc=-hide-all-packages" in argv, "expected --optghc=-hide-all-packages in HsHaddock argv")
+
+    if ctx.attr.upstream_haddock != None:
+        up_info = ctx.attr.upstream_haddock[HsHaddockInfo]
+        expected_read_iface = "--read-interface=../{},{}".format(
+            up_info.html_dir.basename,
+            up_info.interface.path,
+        )
+        asserts.true(
+            env,
+            expected_read_iface in argv,
+            "expected '{}' in HsHaddock argv".format(expected_read_iface),
+        )
+
+    return analysistest.end(env)
+
+hs_haddock_action_test = analysistest.make(
+    _hs_haddock_action_test_impl,
+    attrs = {
+        "upstream_haddock": attr.label(providers = [HsHaddockInfo]),
     },
 )

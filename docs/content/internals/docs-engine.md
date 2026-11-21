@@ -1,103 +1,81 @@
 ---
-title: "Haskell Documentation Engine (Hakyll + Pandoc)"
-description: "Architecture, Haskell SSG ecosystem evaluation, Sphinx-inspired AST extensions, and hermetic Bazel 9 dogfooding behind //docs:site."
+title: "Vanilla Hakyll & GHC Haddock Documentation"
+description: "How rules_hs dogfoods canonical vanilla Hakyll + Pandoc + Skylighting for Markdown prose and bundled GHC Haddock (hs_haddock) for Haskell API docs."
 section: internals
-nav_title: "Haskell Docs Engine"
+nav_title: "Hakyll & Haddock Docs"
 order: 60
 ---
 
-`rules_hs` builds its own documentation site (`//docs:site`) and local preview server (`//docs:serve`) **100% hermetically in Haskell** on top of **Hakyll + Pandoc + Skylighting**, compiled by `rules_hs` itself under Bazel 9 with zero Python, zero Node.js, and zero Nix dependencies.
+`rules_hs` builds its own documentation site (`//docs:site`), Haskell API reference ([`//tools/lock` Haddock API](../haddock/lock/index.html)), and local preview server (`//docs:serve`) **100% hermetically in Haskell** under Bazel 9 — using the canonical Haskell documentation stack of **vanilla Hakyll + Pandoc + Skylighting** for prose and **GHC Haddock** ([`hs_haddock`](../reference/rules.md)) for Haskell libraries, with zero Python, zero Node.js, zero Nix, and zero custom Markdown DSLs.
 
-::: {.important title="Zero Downstream Bzlmod Footprint"}
-In `MODULE.bazel`, the `@hackage` hub backing `//docs/...` is loaded with `dev_dependency = True` (enforced by `//tests/rules:bzlmod_hygiene_test`). Downstream consumers of `rules_hs` never download or evaluate `docs/hackage.lock.json` and retain `rules_hs`'s minimal 4-module non-dev dependency graph (`platforms`, `bazel_skylib`, `rules_cc`, `gmp`).
-:::
+> **Important — Zero Downstream Bzlmod Footprint:** In `MODULE.bazel`, the `@hackage` hub backing `//docs/...` is loaded with `dev_dependency = True` (enforced by `//tests/rules:bzlmod_hygiene_test`). Downstream consumers of `rules_hs` never fetch or evaluate `docs/hackage.lock.json` and retain `rules_hs`'s minimal 4-module non-dev dependency graph (`platforms`, `bazel_skylib`, `rules_cc`, `gmp`).
 
-## Why Dogfood a Haskell Documentation Engine?
+## Why Canonical Vanilla Hakyll + GHC Haddock?
 
-A build ruleset's documentation site can either pull in an external language ecosystem (`rules_python` + Sphinx/MkDocs, or `aspect_rules_js` + Docusaurus/VitePress) or dogfood the ruleset itself. Building `//docs:site` with `bzl:rule:hs_library`, `bzl:rule:hs_binary`, `bzl:rule:hs_test`, and `bzl:rule:hs_cabal_library` serves two simultaneous goals:
+Rather than pulling in a foreign language runtime (`rules_python` + Sphinx/MkDocs or `aspect_rules_js` + Docusaurus) or inventing bespoke Sphinx-like custom roles and fenced-div directives on top of Pandoc, `rules_hs` pairs the two standard tools of the Haskell ecosystem for the exact jobs each was designed to solve:
 
-1. **Zero foreign language runtimes in CI and contributor workflows**: Anyone who can run `bazel build //...` on `rules_hs` already has everything needed to compile, link-check, test, and serve the documentation site — even inside bare Linux containers with zero host compilers, Python, or Node.js installed.
-2. **Production-scale Hackage stress test**: Whereas `examples/size` exercises a 69-package networking and XML closure, `docs/hackage.lock.json` compiles **182 Hackage packages + 41 GHC boot packages** (`pandoc-3.7.0.2`, `hakyll-4.16.8.0`, `skylighting-0.14.7`, `citeproc-0.9.0.1`, `typst-0.7`, `aeson-2.2.5.1`, `yaml-0.11.11.2`, `libyaml-clib`, `zlib-clib`, `digest`), continuously exercising every advanced capability of `rules_hs`:
-   - **Cross-library Template Haskell (`-dynamic-too`)**: `aeson`, `th-lift`, `file-embed`, `wai-app-static`, `unicode-collation`, `citeproc`, and `pandoc` evaluate cross-package TH splices during compilation via relocatable `<name>.pkgdb/dyn/libHS<unit_id>-ghc9.10.3.so` shared libraries while keeping `//docs:docs_gen` statically linked (`DT_NEEDED` strictly base glibc).
-   - **Compile-time data embedding in Bazel sandboxes**: `pandoc` (`--flag pandoc:embed_data_files=true`, including hidden OOXML `.rels` files), `citeproc` (`locales/`), and `unicode-collation` (`data/UnicodeData.txt`) embed data files at compile time via sandbox-staged package working directories (`pkg_cwd`).
-   - **Source-bootstrapped `alex` & `happy` preprocessors**: `pretty-show` (`.y`) and `toml-parser` (`.x` + `.y`) compile grammar files using `alex-3.5.4.2` and `happy-2.1.7` bootstrapped lazily from `@hs_boot` with zero host tools.
-   - **Mixed C / C++11 / `hsc2hs` / `Configure` packages**: `libyaml-clib` (ANSI C), `zlib-clib` (ANSI C), `digest` (C++11 CRC32C + `hsc2hs` Adler32), `unix-compat` (boot `HsUnixConfig.h` headers), and `network` (`./configure`) all build natively via `rules_cc`.
+1. **Vanilla Hakyll + Pandoc + Skylighting (`docs/site.hs`)** compiles standard GitHub-flavored Markdown guides, Starlark rule/provider tables, and architecture internals. Authors write ordinary Markdown links (`[Quickstart](../guide/quickstart.md)`), standard `>` blockquotes, and fenced code blocks — readable directly in any Git forge or editor with zero proprietary syntax.
+2. **Bundled GHC Haddock (`hs/private/haddock.bzl`)** extracts module headers, type signatures, QuickJump `doc-index.json` indices, and syntax-highlighted hyperlinked source (`src/*.html`) directly from `-- |` Haddock comments in Haskell libraries such as `//tools/lock:lock_lib` and `examples/size//:size_haddock`.
+3. **Production-scale `rules_hs` dogfooding**: Building `//docs:docs_gen` with [`hs_binary`](../reference/rules.md#hs_binary) and [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) compiles **182 Hackage packages + 41 GHC boot packages** (`hakyll-4.16.8.0`, `pandoc-3.7.0.2`, `skylighting-0.14.7`, `citeproc-0.9.0.1`, `typst-0.7`, `aeson-2.2.5.1`, `yaml-0.11.11.2`, `libyaml-clib`, `zlib-clib`, `digest`), continuously exercising:
+   - **Cross-library Template Haskell (`-dynamic-too`)**: `aeson`, `th-lift`, `file-embed`, `unicode-collation`, `citeproc`, and `pandoc` evaluate cross-package TH splices via relocatable `<name>.pkgdb/dyn/libHS*.so` shared libraries while keeping `//docs:docs_gen` statically linked (`DT_NEEDED` strictly base glibc).
+   - **Compile-time data embedding in Bazel sandboxes**: `pandoc` (`--flag pandoc:embed_data_files=true`), `citeproc`, and `unicode-collation` embed data files via `file-embed` TH inside sandbox-staged package working directories.
+   - **Source-bootstrapped `alex` & `happy` preprocessors** (`pretty-show`, `toml-parser`) and **mixed C / C++11 / `hsc2hs` / `./configure` packages** (`libyaml-clib`, `zlib-clib`, `digest`, `network`).
+
+> **Tip — Trimming Hakyll's Dependency Closure with Cabal Flags:** Passing `--flag hakyll:checkexternal=false --flag hakyll:watchserver=false --flag hakyll:previewserver=false` and `--flag pandoc:embed_data_files=true` to [`//tools/lock:lock`](../reference/lock-cli.md) eliminates `http-conduit`, `warp`, and `fsnotify` and bakes Pandoc's templates directly into `//docs:docs_gen`, yielding a single portable executable with zero runtime `Paths_*` data-directory lookups.
 
 ---
 
-## Haskell & Polyglot SSG Ecosystem Comparison
+## SSG & API Documentation Ecosystem Evaluation
 
-Before adopting **Hakyll + Pandoc + Skylighting**, six documentation engine architectures were evaluated against `rules_hs`'s hermeticity, Stackage LTS availability, and technical documentation UX requirements (see `doc:internals/dependencies` for full catalyst records):
+Six documentation architectures were evaluated against `rules_hs`'s hermeticity, Stackage `lts-24.67` availability, and canonical Haskell ergonomics (see [Dependency Decisions](dependencies.md) for full catalyst records):
 
-| Engine | Ecosystem & Core | Stackage `lts-24.67` | Technical Docs Fit & Tradeoffs | Decision |
+| Tool | Role & Ecosystem | Stackage `lts-24.67` | Fit & Tradeoffs | Decision |
 |---|---|---|---|---|
-| **Hakyll + Pandoc + Skylighting** | Haskell (`hakyll` `4.16.8.0`, `pandoc` `3.7.0.2`, `skylighting` `0.14.7`) | **In Stackage LTS** (all 182 transitive deps) | Mature `Rules`/`Compiler` DSL, native `Pandoc` AST transforms for Sphinx-like directives/roles/autodoc, 140+ language Skylighting grammars, `relativizeUrls`, clean flag-trimmed hermetic build | **Adopted** |
-| **Emanote / Ema** | Haskell (Nix-first reactive SSG, `ema` + `emanote`) | **Absent** (pinned via Nix flakes & Git overrides) | Rich live-reload Zettelkasten UX, but tightly coupled to Nix flakes, `tailwind`/external asset tooling, and non-Stackage dependency pins incompatible with Nix-free Bazel Bzlmod | Not Adopted |
-| **Slick** | Haskell (Shake + Pandoc + Mustache) | Partial / unmaintained bounds | Tiny ~100-line wrapper over Shake, which pulls Shake's build-database runtime (`js-dgtable`, `js-flot`, `js-jquery`) while still leaving routing, URL relativization, and link checking to custom code | Not Adopted |
-| **Raw Shake + Pandoc** | Haskell (`shake` + `pandoc`) | In Stackage LTS | Duplicates Bazel's outer build graph with a second nested build system (`shake`) without providing Hakyll's `Identifier` routing, `Context` templates, or `relativizeUrls` | Not Adopted |
-| **Haddock** | GHC bundled tool | Bundled in GHC bindist | Purpose-built for `.hs` module API docs, not multi-section prose guides, Starlark `.bzl` rule references, Mermaid diagrams, or instant search | Not Adopted (for site) |
-| **Sphinx / MkDocs / mdBook / Docusaurus** | Python / Rust / Node.js | N/A (external ecosystems) | Polished out-of-the-box themes, but require pulling `rules_python`, `rules_rust`, or `aspect_rules_js`/`rules_nodejs` into `MODULE.bazel` and forfeit Haskell dogfooding | Not Adopted |
-
-::: {.tip title="Trimming Hakyll's Dependency Closure with Cabal Flags"}
-By passing `--flag hakyll:checkexternal=false --flag hakyll:watchserver=false --flag hakyll:previewserver=false` and `--flag pandoc:embed_data_files=true` to `cli:lock`, `//docs:docs_gen` eliminates `http-conduit` and `fsnotify` and bakes Pandoc's templates directly into the binary — making `//docs:docs_gen` a single portable static-GMP executable with zero runtime `Paths_*` data-directory lookups.
-:::
+| **Vanilla Hakyll + Pandoc + Skylighting** | Static site generator (`hakyll`, `pandoc`, `skylighting`) | **In Stackage LTS** (all 182 transitive deps) | Idiomatic `Rules`/`Compiler`/`Context` DSL, Pandoc native TOC (`writerTableOfContents = True`), 140+ Skylighting grammars, `relativizeUrls`, zero custom Markdown syntax | **Adopted (Prose & Starlark Docs)** |
+| **GHC Bundled Haddock (`hs_haddock`)** | Haskell API documentation (`bin/haddock-ghc-<ver>`) | **Bundled in GHC bindist** (zero extra downloads) | Native GHC typechecker integration, `--hyperlinked-source`, `--quickjump` (`doc-index.json`), cross-package `--read-interface` links | **Adopted (Haskell Library APIs)** |
+| **Emanote / Ema** | Reactive Nix-first Haskell SSG | **Absent** (Nix flake pins) | Tightly coupled to Nix flakes and external Tailwind tooling incompatible with Nix-free Bazel Bzlmod | Not Adopted |
+| **Slick / Raw Shake + Pandoc** | Shake-based SSG wrappers | Partial / LTS | Duplicates Bazel's outer build graph with a second nested build database (`shake`) while lacking Hakyll's `Identifier` routing, `listField` contexts, and `relativizeUrls` | Not Adopted |
+| **Custom Sphinx-like AST DSL on Pandoc** | Bespoke role code spans, fenced-div directives, and Starlark parsers | N/A (bespoke code) | Breaks standard GitHub Markdown previews, adds hundreds of lines of non-idiomatic AST machinery, and duplicates Haddock | Not Adopted |
+| **Sphinx / MkDocs / mdBook / Docusaurus** | Python / Rust / Node.js SSGs | External ecosystems | Require pulling `rules_python`, `rules_rust`, or `aspect_rules_js` into `MODULE.bazel` and forfeit `rules_hs` dogfooding | Not Adopted |
 
 ---
 
-## Engine Architecture & Compilation Pipeline
+## Architecture & Build Pipeline
 
-The documentation engine lives under `docs/app/` (`//docs:docs_engine_lib`, `//docs:docs_gen`, and `//docs:serve`), compiled with `-Wall -Wcompat`.
+The entire site generator is a single warning-clean file (`docs/site.hs`, compiled as `//docs:docs_gen` with `-Wall -Wcompat`), paired with `hs/private/haddock.bzl` (`hs_haddock`) and `docs/app/site.bzl` (`hs_docs_site`).
 
 ```mermaid
 flowchart TD
-    MD["docs/content/**/*.md (YAML Frontmatter + Markdown)"] --> FM["Docs.Site: parseFrontmatterFile + sortPages"]
-    BZL["hs/*.bzl + hs/private/*.bzl"] --> STAR["Docs.Starlark: loadStarlarkBundle"]
-    FM --> HAK["Hakyll Rules (sandboxed --cache-dir/provider)"]
-    STAR --> AST1["1. Docs.Toc.stripDuplicateLeadingH1"]
-    HAK --> AST1
-    AST1 --> AST2["2. Docs.Starlark.expandStarlarkAutodoc (::: .bzl-autodoc)"]
-    AST2 --> AST3["3. Docs.Directive.transformDirectives (::: .note + > [!NOTE])"]
-    AST3 --> AST4["4. Docs.CrossRef.resolveCrossRefs (bzl:*/cli:*/doc:* + .md -> .html)"]
-    AST4 --> AST5["5. Docs.Toc.prepareCodeAndMermaid (starlark -> Skylighting + mermaid)"]
-    AST5 --> AST6["6. Docs.Toc.enrichHeadingsAndExtractToc (# permalinks + right TOC)"]
-    AST6 --> HTML["Pandoc writeHtml5String + Skylighting"]
-    AST6 --> SEARCH["Docs.Search: search-index.json"]
-    HTML --> TPL["Hakyll templates/default.html + Docs.Nav + relativizeUrls"]
-    TPL --> VERIFY["Docs.Starlark Coverage + Docs.LinkCheck (--strict-links)"]
+    MD["docs/content/**/*.md (Standard GitHub Markdown)"] --> HAK["docs/site.hs: Vanilla Hakyll (hakyllWith)"]
+    TPL["docs/templates/default.html + docs/static/*"] --> HAK
+    HAK --> HTML["18 HTML Pages + Skylighting syntax.css + Native Pandoc TOC + relativizeUrls"]
+    LOCK["//tools/lock:lock_lib (CabalExtract.hs, LockJson.hs)"] --> HAD["hs_haddock: //tools/lock:lock_haddock (HsHaddock)"]
+    GHC["Staged GHC bin/haddock-ghc-9.10.3 + lib/html + boot .haddock"] --> HAD
+    HTML --> SITE["hs_docs_site (//docs:site)"]
+    HAD --> SITE
+    SITE --> CHECK["//docs:link_check_test + //docs:site_test"]
 ```
 
-### Module Responsibilities
+### 1. Hermetic `hs_haddock` Action (`hs/private/haddock.bzl`)
 
-| Module (`docs/app/`) | Responsibility |
-|---|---|
-| `Docs.Types` | Canonical `SectionId` ranking (`overview`, `guide`, `reference`, `internals`), `PageMeta`, `SiteConfig`, `TocEntry`, and `SearchDoc` types. |
-| `Docs.Site` | Stages inputs into `--cache-dir/provider`, configures `Hakyll` (`hakyllWithExitCodeAndArgs`), runs the 6-pass pure Pandoc pipeline (`compileMarkdownPagePure`), emits `static/syntax.css` and `search-index.json`, and orchestrates post-build checks. |
-| `Docs.Nav` | Deterministic `(sectionRank, order, route)` sorting, active-highlighted left sidebar navigation, breadcrumbs, and sequential Previous / Next footer cards. |
-| `Docs.Directive` | Pandoc AST transform turning both fenced divs (`::: {.note title="..."}`) and GitHub blockquote alerts (`> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, `> [!CAUTION]`) into semantic `<aside class="admonition ...">` elements while keeping inner blocks in the Pandoc AST for downstream passes. |
-| `Docs.CrossRef` | Rewrites relative `.md` / `.md#anchor` links to `.html` and resolves Sphinx-like inline roles (`bzl:rule:*`, `bzl:ext:*`, `bzl:provider:*`, `cli:lock`, `doc:*`) against the site's `PageMeta` map. |
-| `Docs.Starlark` | Balanced recursive-descent Starlark parser extracting `rule(...)`, `_EXECUTABLE_ATTRS`, `provider(...)`, `tag_class(...)`, `module_extension(...)`, and `hs/defs.bzl` exports; powers `::: {.bzl-autodoc}` blocks and reference symbol-coverage checks. |
-| `Docs.Toc` | Strips duplicate leading H1s, maps `starlark`/`bzl` code fences to Skylighting's Python grammar, emits `<pre class="mermaid">`, injects `#` heading permalinks, extracts right-sidebar TOC HTML, and generates dual light/dark Skylighting CSS (`kate` + `breezeDark`). |
-| `Docs.Search` | Extracts normalized plain text from prose and code blocks in the Pandoc AST and serializes deterministic `search-index.json` entries consumed by `docs/static/docs.js`. |
-| `Docs.LinkCheck` | Parses every generated `.html` file via `tagsoup` and verifies that every internal `<a href="...">` file path and `#id` fragment exists across `out-dir`. |
-| `Main.hs` / `ServeMain.hs` | CLI entrypoints for `//docs:docs_gen` and `//docs:serve` (loopback HTTP/1.1 server built directly on `network` sockets with runfiles auto-discovery and path-traversal guards). |
+As detailed in [Hermeticity & Toolchain](hermeticity.md) and [Providers & Actions](providers-and-actions.md), `staged_ghc.bzl` stages `bin/haddock-ghc-<ver>` alongside `bin/ghc-<ver>` under the same `$ORIGIN/../lib/<arch_libdir>` layout, retains `lib/html/**` (the `Linuwial` theme, `quick-jump.min.js`, `haddock-bundle.min.js`, and hyperlinked-source assets), and indexes bundled boot `.haddock` files on [`HsToolchainInfo`](../reference/extensions-and-providers.md#hstoolchaininfo).
 
----
+When `hs_haddock` executes (`HsHaddock` mnemonic):
+- It invokes `hs_tc.haddock` with `-B <libdir> -l <libdir>`, `--html`, `--use-unicode`, `--quickjump` (`doc-index.json`), `--hyperlinked-source` (`src/<Module>.html`), and `--dump-interface=<name>.haddock`.
+- It forwards hermetic compiler and C-toolchain flags (`-hide-all-packages`, transitive `-package-db`s, direct `-package-id`s, and `ghc_cc_wrapper` `-pgm*` flags) via `--optghc=` so `{-# LANGUAGE CPP #-}`, `CApiFFI`, and cross-library Template Haskell work identically under `env -i` in `linux-sandbox`.
+- It wires `--read-interface` against GHC's bundled boot `.haddock` interfaces (linking types like `Text`, `Map`, and `GenericPackageDescription` to Hackage) as well as any upstream `haddock_deps` targets.
 
-## Hermetic Bazel Action Design (`hs_docs_site`)
+### 2. Vanilla Hakyll Site Compilation (`docs/site.hs` & `docs/app/site.bzl`)
 
-Hakyll's default `Configuration` writes `_cache/` and `_site/` into the current working directory (`providerDirectory = "."`). Inside a Bazel sandbox (`HsDocsSite` in `docs/app/site.bzl`), mutating source directories or leaving state in `/tmp` would violate action hermeticity.
+`docs/site.hs` uses standard Hakyll primitives end-to-end:
+- `match "templates/*" $ compile templateBodyCompiler` and `match "static/**" $ route idRoute >> compile copyFileCompiler`.
+- `create ["static/syntax.css"]` emitting dual light/dark CSS directly from `Skylighting.styleToCss` (`kate` + `breezeDark`).
+- `version "nav"` and `version "toc"` snapshots powering Hakyll `listField` / `listFieldWith` section navigation (`overview`, `guide`, `reference`, `internals` ordered by YAML frontmatter `section` and `order`), sequential Previous / Next links, and Pandoc's native `writerTableOfContents = True` right-hand table of contents.
+- `pandocCompilerWithTransform` performing **only** relative `.md` -> `.html` link target rewriting (so links work both in raw Markdown on GitHub and in the built site), `starlark`/`bzl` Skylighting language mapping, and `<pre class="mermaid">` emission, followed by `loadAndApplyTemplate "templates/default.html"` and `relativizeUrls`.
+- Inside `HsDocsSite` (`docs/app/site.bzl`), inputs are staged into a sandbox-local scratch directory (`DOCS_PROVIDER_DIR`, `DOCS_CACHE_DIR`) so Hakyll never mutates source directories or leaks state into `/tmp`, and `haddocks = {"//tools/lock:lock_haddock": "haddock/lock"}` mounts the generated Haddock bundle at [`/haddock/lock/index.html`](../haddock/lock/index.html).
 
-`//docs:docs_gen` solves this cleanly:
-1. `hs_docs_site` creates an isolated scratch tree `CACHE_WORK` with `trap 'rm -rf "$CACHE_WORK"' EXIT` and sets `TMPDIR="$CACHE_WORK/tmp"`.
-2. `Docs.Site` stages `docs/content`, `docs/templates`, and `docs/static` into `$CACHE_WORK/hakyll/provider`, sets `storeDirectory = "$CACHE_WORK/hakyll/store"` (`inMemoryCache = True`), and writes compiled outputs directly into Bazel's declared `TreeArtifact` directory (`--out-dir bazel-out/.../bin/docs/site`).
-3. Every internal URL is authored root-relative (`/guide/quickstart.html`, `/static/style.css`) during AST compilation and then transformed per-page by Hakyll's `relativizeUrls` compiler step — ensuring the static site works identically on `http://127.0.0.1:8000/`, under a reverse-proxy subpath `/docs/rules_hs/`, or opened directly from disk.
-4. When `docs/content/index.md` is present, `--strict-links` and `Docs.Starlark.verifyStarlarkReferenceCoverage` activate automatically, turning broken internal links, missing `#anchor` IDs, or undocumented public Starlark symbols into immediate Bazel build failures.
+### 3. Verification (`//docs:link_check_test` & `//docs:site_test`)
 
----
-
-## Live Starlark `bzl-autodoc` Showcase
-
-Below is live output rendered directly at build time by `Docs.Starlark.expandStarlarkAutodoc` introspecting `hs/providers.bzl` (`bzl:provider:HsPackageInfo`, `bzl:provider:HsLinkInfo`, and `bzl:provider:HsToolchainInfo`):
-
-::: {.bzl-autodoc source="hs/providers.bzl"}
-:::
+Every `bazel test //docs/...` run executes two complementary hermetic checks:
+- **`//docs:link_check_test`** (`docs/test/LinkCheckTest.hs`): parses every generated `.html` file across both Hakyll and `haddock/lock/` using `tagsoup` and verifies that every internal `<a href="...">` file target and `#id` anchor exists.
+- **`//docs:site_test`** (`docs/test/site_test.sh`): verifies all 18 Hakyll pages + mounted `haddock/lock/` QuickJump & hyperlinked-source artifacts, checks via `readelf -d` that `//docs:docs_gen` and `//docs:serve` dynamically link strictly base glibc, and tests `//docs:serve` over loopback HTTP/1.1 for both Hakyll pages and `/haddock/lock/index.html`.

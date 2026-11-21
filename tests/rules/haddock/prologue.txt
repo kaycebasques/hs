@@ -1,0 +1,1 @@
+Prologue overview rendered onto the Haddock contents page by @hs_haddock@.

@@ -1,0 +1,3 @@
+Hermetic Hackage & Stackage lockfile generator library (@//tools/lock:lock_lib@) for @rules_hs@.
+
+Built exclusively against GHC's bundled boot packages (@base@, @Cabal-syntax@, @containers@, @bytestring@, @text@) so @rules_hs@ resolves Stackage snapshots, evaluates multi-platform Cabal flag/OS/arch conditionals, and emits deterministic @hackage.lock.json@ files with zero third-party bootstrap dependencies.

@@ -5,7 +5,7 @@ SITE_DIR="$1"
 DOCS_GEN_BIN="$2"
 SERVE_BIN="$3"
 
-echo "=== 1. Verifying //docs:site directory outputs ==="
+echo "=== 1. Verifying //docs:site vanilla Hakyll + mounted Haddock outputs ==="
 if [ ! -d "$SITE_DIR" ]; then
     echo "FAIL: built site directory not found at $SITE_DIR" >&2
     exit 1
@@ -33,20 +33,23 @@ for required in \
     "static/style.css" \
     "static/syntax.css" \
     "static/docs.js" \
-    "search-index.json"; do
+    "haddock/lock/index.html" \
+    "haddock/lock/CabalExtract.html" \
+    "haddock/lock/LockJson.html" \
+    "haddock/lock/doc-index.json" \
+    "haddock/lock/src/CabalExtract.html" \
+    "haddock/lock/src/LockJson.html"; do
     if [ ! -s "$SITE_DIR/$required" ]; then
         echo "FAIL: missing or empty required site artifact: $SITE_DIR/$required" >&2
         exit 1
     fi
 done
 
-grep -qF "Haskell Docs Engine" "$SITE_DIR/internals/docs-engine.html"
-grep -qF "Comparison with Other Rulesets" "$SITE_DIR/internals/rulesets-comparison.html"
-grep -qF "admonition" "$SITE_DIR/internals/docs-engine.html"
-grep -qF "admonition" "$SITE_DIR/internals/rulesets-comparison.html"
-grep -qF "docs-engine.html" "$SITE_DIR/search-index.json"
-grep -qF "rulesets-comparison.html" "$SITE_DIR/search-index.json"
-echo "OK: all 18 HTML pages, CSS, JS, and search-index.json outputs verified"
+grep -qF "Vanilla Hakyll" "$SITE_DIR/internals/docs-engine.html"
+grep -qF "../haddock/lock/index.html" "$SITE_DIR/internals/docs-engine.html"
+grep -qF "CabalExtract.html" "$SITE_DIR/haddock/lock/index.html"
+grep -qF "parseStackageYaml" "$SITE_DIR/haddock/lock/doc-index.json"
+echo "OK: all 18 Hakyll HTML pages, Skylighting CSS, and mounted //tools/lock Haddock verified"
 
 echo "=== 2. Verifying ELF DT_NEEDED hermeticity of //docs:docs_gen and //docs:serve ==="
 for bin in "$DOCS_GEN_BIN" "$SERVE_BIN"; do
@@ -78,12 +81,12 @@ echo "OK: both //docs:docs_gen and //docs:serve link strictly base glibc"
 
 echo "=== 3. Verifying execution under env -i PATH=/nonexistent ==="
 HELP_GEN="$(env -i PATH=/nonexistent "$DOCS_GEN_BIN" --help)"
-echo "$HELP_GEN" | grep -qF "Usage: docs_gen"
+echo "$HELP_GEN" | grep -qi "hakyll"
 
 HELP_SERVE="$(env -i PATH=/nonexistent "$SERVE_BIN" --help)"
 echo "$HELP_SERVE" | grep -qF "Usage: serve"
 
-echo "=== 4. Verifying //docs:serve HTTP/1.1 static server over loopback ==="
+echo "=== 4. Verifying //docs:serve HTTP/1.1 static server for Hakyll & Haddock ==="
 SERVE_LOG="${TEST_TMPDIR:-/tmp}/serve_test.$$.log"
 "$SERVE_BIN" --host 127.0.0.1 --port 0 --site-dir "$SITE_DIR" >"$SERVE_LOG" 2>&1 &
 SERVE_PID=$!
@@ -111,10 +114,19 @@ fi
 
 exec 3<>"/dev/tcp/127.0.0.1/${ACTUAL_PORT}"
 printf 'GET /internals/docs-engine.html HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n' >&3
-HTTP_RESP="$(cat <&3)"
+HTTP_RESP_HAKYLL="$(cat <&3)"
 exec 3>&-
 
-echo "$HTTP_RESP" | grep -qF "HTTP/1.1 200 OK"
-echo "$HTTP_RESP" | grep -qF "Haskell Documentation Engine"
-echo "OK: //docs:serve served /internals/docs-engine.html over HTTP/1.1 on port $ACTUAL_PORT"
+echo "$HTTP_RESP_HAKYLL" | grep -qF "HTTP/1.1 200 OK"
+echo "$HTTP_RESP_HAKYLL" | grep -qF "Hakyll"
+
+exec 4<>"/dev/tcp/127.0.0.1/${ACTUAL_PORT}"
+printf 'GET /haddock/lock/index.html HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n' >&4
+HTTP_RESP_HADDOCK="$(cat <&4)"
+exec 4>&-
+
+echo "$HTTP_RESP_HADDOCK" | grep -qF "HTTP/1.1 200 OK"
+echo "$HTTP_RESP_HADDOCK" | grep -qF "CabalExtract"
+
+echo "OK: //docs:serve served both Hakyll and /haddock/lock/index.html over HTTP/1.1 on port $ACTUAL_PORT"
 echo "DOCS SITE & ELF HERMETICITY TEST PASSED!"

@@ -3,6 +3,7 @@ load(
     "//hs:defs.bzl",
     "hs_binary",
     "hs_cabal_library",
+    "hs_haddock",
     "hs_library",
     "hs_toolchain_library",
 )
@@ -12,6 +13,7 @@ load(
     "hs_binary_cc_propagation_test",
     "hs_cabal_c_only_test",
     "hs_cabal_library_test",
+    "hs_haddock_action_test",
     "hs_library_cc_propagation_test",
     "hs_library_providers_test",
     "strict_direct_dep_visibility_test",
@@ -146,6 +148,19 @@ hs_binary(
     deps = ["@hs_boot//:base"],
 )
 
+hs_haddock(
+    name = "lib_a_haddock",
+    title = "LibA Docs",
+    deps = [":lib_a"],
+)
+
+hs_haddock(
+    name = "lib_b_haddock",
+    haddock_deps = [":lib_a_haddock"],
+    title = "LibB Docs",
+    deps = [":lib_b"],
+)
+
 # ------------------------------------------------------------------------------
 # Starlark analysistest targets
 # ------------------------------------------------------------------------------
@@ -255,4 +270,11 @@ hs_binary_cc_propagation_test(
     size = "small",
     cc_dep = ":sample_cc",
     target_under_test = ":bin_with_direct_cc",
+)
+
+hs_haddock_action_test(
+    name = "hs_haddock_action_test",
+    size = "small",
+    target_under_test = ":lib_b_haddock",
+    upstream_haddock = ":lib_a_haddock",
 )

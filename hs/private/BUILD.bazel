@@ -84,6 +84,7 @@ bzl_library(
     name = "rules_bzl",
     srcs = [
         "cabal_library.bzl",
+        "haddock.bzl",
         "rules.bzl",
     ],
     deps = [

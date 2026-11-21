@@ -7,6 +7,31 @@ load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("//hs:providers.bzl", "HsLinkInfo", "HsPackageInfo")
 load("//hs:toolchain.bzl", "TOOLCHAIN_TYPE")
 
+HsDocSourceInfo = provider(
+    doc = "Internal library source and GHC flag metadata consumed by hs_haddock.",
+    fields = [
+        "package_name",
+        "version",
+        "unit_id",
+        "pkg_db",
+        "all_hs_srcs",
+        "doc_src_files",
+        "import_dirs",
+        "c_include_dirs",
+        "headers",
+        "cabal_macros_h",
+        "hidden_modules",
+        "default_language",
+        "default_extensions",
+        "ghc_opts",
+        "cpp_options",
+        "direct_unit_ids",
+        "compile_data",
+        "pkg_root",
+        "boot_pkg_names",
+    ],
+)
+
 _HEADER_EXTENSIONS = (".h", ".hh", ".hpp", ".hxx", ".inc", ".inl")
 
 def get_hs_toolchain(ctx):
@@ -101,10 +126,17 @@ def collect_deps(deps, cc_deps = []):
     include_dirs = []
     headers = []
     cc_infos = []
+    direct_boot_names = []
+    trans_boot_names = []
 
     for dep in deps:
         if HsPackageInfo in dep:
-            direct_pkgs.append(dep[HsPackageInfo])
+            pkg = dep[HsPackageInfo]
+            direct_pkgs.append(pkg)
+            if pkg.is_boot and pkg.name:
+                direct_boot_names.append(pkg.name)
+        if HsDocSourceInfo in dep:
+            trans_boot_names.append(dep[HsDocSourceInfo].boot_pkg_names)
         if HsLinkInfo in dep:
             link = dep[HsLinkInfo]
             pkg_dbs.append(link.pkg_dbs)
@@ -140,6 +172,7 @@ def collect_deps(deps, cc_deps = []):
         include_dirs = depset(transitive = include_dirs + [cc_inc_dirs]),
         headers = depset(transitive = headers + [cc_hdrs]),
         cc_info = merged_cc,
+        boot_pkg_names = depset(direct_boot_names, transitive = trans_boot_names),
     )
 
 def _parse_version_tuple(version_str):
@@ -1147,4 +1180,40 @@ CONF="$PKG_DB/${UNIT_ID}.conf"
         ],
     )
 
-    return pkg_db, pkg_db, hs_lib
+    if use_module_names:
+        wanted_rel_paths = {}
+        for m in compile_targets:
+            mod_rel = m.replace(".", "/")
+            wanted_rel_paths[mod_rel + ".hs"] = True
+            wanted_rel_paths[mod_rel + ".lhs"] = True
+        doc_src_files = [
+            f
+            for f in compile_src_files
+            if _strip_prefix_path(f.path, all_import_dirs) in wanted_rel_paths
+        ]
+    else:
+        doc_src_files = compile_src_files
+
+    doc_info = HsDocSourceInfo(
+        package_name = package_name,
+        version = version,
+        unit_id = unit_id,
+        pkg_db = pkg_db,
+        all_hs_srcs = list(hs_srcs) + list(generated_hs_srcs),
+        doc_src_files = doc_src_files,
+        import_dirs = all_import_dirs,
+        c_include_dirs = list(include_dirs),
+        headers = headers,
+        cabal_macros_h = cabal_macros_h,
+        hidden_modules = list(other_modules) + list(hidden_modules),
+        default_language = default_language,
+        default_extensions = list(default_extensions),
+        ghc_opts = list(ghc_opts),
+        cpp_options = list(cpp_options),
+        direct_unit_ids = direct_unit_ids,
+        compile_data = list(compile_data),
+        pkg_root = pkg_root,
+        boot_pkg_names = dep_info.boot_pkg_names,
+    )
+
+    return pkg_db, pkg_db, hs_lib, doc_info

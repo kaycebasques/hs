@@ -1,4 +1,4 @@
-load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_library", "hs_test")
+load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_haddock", "hs_library", "hs_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -15,6 +15,13 @@ hs_library(
         "@hs_boot//:containers",
         "@hs_boot//:text",
     ],
+)
+
+hs_haddock(
+    name = "lock_haddock",
+    prologue = "prologue.txt",
+    title = "rules_hs //tools/lock API Reference",
+    deps = [":lock_lib"],
 )
 
 hs_binary(

@@ -95,11 +95,12 @@ unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY
     out_ghc = ctx.actions.declare_file(prefix + "/bin/ghc-" + ver)
     out_ghc_pkg = ctx.actions.declare_file(prefix + "/bin/ghc-pkg-" + ver)
     out_hsc2hs = ctx.actions.declare_file(prefix + "/bin/hsc2hs-ghc-" + ver)
+    out_haddock = ctx.actions.declare_file(prefix + "/bin/haddock-ghc-" + ver)
     out_unlit = ctx.actions.declare_file(prefix + "/bin/unlit")
     out_lib = ctx.actions.declare_directory(prefix + "/lib")
 
-    outputs = [out_ghc, out_ghc_pkg, out_hsc2hs, out_unlit, out_lib]
-    inputs = [ctx.file.ghc, ctx.file.ghc_pkg, ctx.file.hsc2hs, ctx.file.unlit] + stage_extra_inputs
+    outputs = [out_ghc, out_ghc_pkg, out_hsc2hs, out_haddock, out_unlit, out_lib]
+    inputs = [ctx.file.ghc, ctx.file.ghc_pkg, ctx.file.hsc2hs, ctx.file.haddock, ctx.file.unlit] + stage_extra_inputs
 
     out_iserv = None
     iserv_src = ""
@@ -133,16 +134,19 @@ GHCPKG_SRC="$6"
 GHCPKG_DST="$7"
 HSC2HS_SRC="$8"
 HSC2HS_DST="$9"
-UNLIT_SRC="${10}"
-UNLIT_DST="${11}"
-ISERV_SRC="${12}"
-ISERV_DST="${13}"
-GMP_SO="${14}"
-TINFO_SO="${15}"
+HADDOCK_SRC="${10}"
+HADDOCK_DST="${11}"
+UNLIT_SRC="${12}"
+UNLIT_DST="${13}"
+ISERV_SRC="${14}"
+ISERV_DST="${15}"
+GMP_SO="${16}"
+TINFO_SO="${17}"
 
 cp -L "$GHC_SRC" "$GHC_DST" && chmod +x "$GHC_DST"
 cp -L "$GHCPKG_SRC" "$GHCPKG_DST" && chmod +x "$GHCPKG_DST"
 cp -L "$HSC2HS_SRC" "$HSC2HS_DST" && chmod +x "$HSC2HS_DST"
+cp -L "$HADDOCK_SRC" "$HADDOCK_DST" && chmod +x "$HADDOCK_DST"
 cp -L "$UNLIT_SRC" "$UNLIT_DST" && chmod +x "$UNLIT_DST"
 if [ -n "$ISERV_SRC" ]; then
     cp -L "$ISERV_SRC" "$ISERV_DST" && chmod +x "$ISERV_DST"
@@ -173,6 +177,8 @@ fi
             out_ghc_pkg.path,
             ctx.file.hsc2hs.path,
             out_hsc2hs.path,
+            ctx.file.haddock.path,
+            out_haddock.path,
             ctx.file.unlit.path,
             out_unlit.path,
             iserv_src,
@@ -192,7 +198,13 @@ fi
     if not rts_include_dir:
         fail("Could not find Rts.h in bindist rts_headers")
 
-    all_files_list = [out_ghc, out_ghc_pkg, out_hsc2hs, out_unlit, out_lib, ctx.file.template_hsc_h]
+    boot_haddocks = {}
+    for f in ctx.files.boot_haddock_files:
+        if f.basename.endswith(".haddock"):
+            pkg_name = f.basename[:-len(".haddock")]
+            boot_haddocks[pkg_name] = f
+
+    all_files_list = [out_ghc, out_ghc_pkg, out_hsc2hs, out_haddock, out_unlit, out_lib, ctx.file.template_hsc_h]
     if out_iserv:
         all_files_list.append(out_iserv)
     if gmp_static_lib:
@@ -205,6 +217,7 @@ fi
             ghc = out_ghc,
             ghc_pkg = out_ghc_pkg,
             hsc2hs = out_hsc2hs,
+            haddock = out_haddock,
             ghc_iserv = out_iserv,
             libdir = out_lib,
             template_hsc_h = ctx.file.template_hsc_h,
@@ -215,6 +228,7 @@ fi
             gmp_static_dir = gmp_static_dir,
             gmp_static_lib = gmp_static_lib,
             boot_packages = {},  # Populated by hs_toolchain rule
+            boot_haddocks = boot_haddocks,
             bignum = ctx.attr.bignum,
             is_dynamic_ghc = ctx.attr.is_dynamic_ghc,
             target_os = "",
@@ -235,10 +249,12 @@ staged_ghc = rule(
         "ghc": attr.label(mandatory = True, allow_single_file = True),
         "ghc_pkg": attr.label(mandatory = True, allow_single_file = True),
         "hsc2hs": attr.label(mandatory = True, allow_single_file = True),
+        "haddock": attr.label(mandatory = True, allow_single_file = True),
         "unlit": attr.label(mandatory = True, allow_single_file = True),
         "ghc_iserv": attr.label(allow_single_file = True),
         "template_hsc_h": attr.label(mandatory = True, allow_single_file = True),
         "lib_files": attr.label_list(allow_files = True, mandatory = True),
+        "boot_haddock_files": attr.label_list(allow_files = True, default = []),
         "rts_headers": attr.label_list(allow_files = True, mandatory = True),
         "gmp": attr.label(mandatory = True, providers = [CcInfo]),
         "tinfo_stub": attr.label(allow_single_file = True),

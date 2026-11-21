@@ -1,6 +1,6 @@
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//docs:app/site.bzl", "hs_docs_site")
-load("//hs:defs.bzl", "hs_binary", "hs_library", "hs_test")
+load("//hs:defs.bzl", "hs_binary", "hs_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -24,66 +24,33 @@ filegroup(
     srcs = glob(["content/**/*.md"]),
 )
 
-hs_library(
-    name = "docs_engine_lib",
-    srcs = [
-        "app/Docs/CrossRef.hs",
-        "app/Docs/Directive.hs",
-        "app/Docs/LinkCheck.hs",
-        "app/Docs/Nav.hs",
-        "app/Docs/Search.hs",
-        "app/Docs/Site.hs",
-        "app/Docs/Starlark.hs",
-        "app/Docs/Toc.hs",
-        "app/Docs/Types.hs",
-    ],
+hs_binary(
+    name = "docs_gen",
+    srcs = ["site.hs"],
     ghc_opts = [
         "-Wall",
         "-Wcompat",
     ],
-    hs_source_dirs = ["app"],
+    main_module = "Main",
     deps = [
-        "@hackage//:aeson",
         "@hackage//:base",
-        "@hackage//:bytestring",
-        "@hackage//:containers",
-        "@hackage//:directory",
         "@hackage//:filepath",
         "@hackage//:hakyll",
-        "@hackage//:mtl",
         "@hackage//:pandoc",
         "@hackage//:pandoc-types",
         "@hackage//:skylighting",
-        "@hackage//:tagsoup",
         "@hackage//:text",
-        "@hackage//:yaml",
-    ],
-)
-
-hs_binary(
-    name = "docs_gen",
-    srcs = ["app/Main.hs"],
-    ghc_opts = [
-        "-Wall",
-        "-Wcompat",
-    ],
-    hs_source_dirs = ["app"],
-    main_module = "Main",
-    deps = [
-        ":docs_engine_lib",
-        "@hackage//:base",
-        "@hackage//:directory",
-        "@hackage//:filepath",
     ],
 )
 
 hs_docs_site(
     name = "site",
-    bzl_dir = "hs",
-    bzl_srcs = ["//hs:all_bzl_srcs"],
     compiler = ":docs_gen",
     content = [":content_srcs"],
     content_dir = "docs/content",
+    haddocks = {
+        "//tools/lock:lock_haddock": "haddock/lock",
+    },
     static = [":static_assets"],
     static_dir = "docs/static",
     templates = [":templates"],
@@ -110,14 +77,11 @@ hs_binary(
 )
 
 hs_test(
-    name = "engine_test",
+    name = "link_check_test",
     size = "small",
-    srcs = ["test/EngineTest.hs"],
-    data = [
-        ":static_assets",
-        ":templates",
-        "//hs:all_bzl_srcs",
-    ],
+    srcs = ["test/LinkCheckTest.hs"],
+    args = ["$(rootpath :site)"],
+    data = [":site"],
     ghc_opts = [
         "-Wall",
         "-Wcompat",
@@ -125,14 +89,12 @@ hs_test(
     hs_source_dirs = ["test"],
     main_module = "Main",
     deps = [
-        ":docs_engine_lib",
-        "@hackage//:aeson",
         "@hackage//:base",
         "@hackage//:bytestring",
         "@hackage//:containers",
         "@hackage//:directory",
         "@hackage//:filepath",
-        "@hackage//:pandoc",
+        "@hackage//:tagsoup",
         "@hackage//:text",
     ],
 )

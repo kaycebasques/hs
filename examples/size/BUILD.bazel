@@ -1,4 +1,4 @@
-load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_library", "hs_test")
+load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_haddock", "hs_library", "hs_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 hs_library(
@@ -53,6 +53,16 @@ hs_binary(
         ":sitemap",
         "@hackage//:base",
         "@hackage//:text",
+    ],
+)
+
+hs_haddock(
+    name = "size_haddock",
+    title = "size — Sitemap Size Tracker API",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":sitemap",
+        ":fetch",
     ],
 )
 

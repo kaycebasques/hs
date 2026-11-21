@@ -1,22 +1,15 @@
 /* ==========================================================================
-   rules_hs Documentation Interactive Runtime
-   - Instant client-side search modal (`/` or Ctrl/Cmd+K) with snippet highlighting
-   - Persistent light/dark theme toggle
-   - Copy-code buttons on all code blocks
+   rules_hs Vanilla Hakyll UI Helpers
+   - Light / dark theme toggle
+   - Mobile sidebar drawer toggle
+   - Copy-code button on code blocks
    - Right-sidebar TOC active scrollspy
-   - Mobile navigation drawer
-   - Optional client-side Mermaid diagram rendering hook (graceful offline fallback)
+   - Progressive Mermaid diagram rendering (graceful offline fallback)
    ========================================================================== */
 (function () {
   "use strict";
 
   var rootEl = document.documentElement;
-  var siteRoot = rootEl.getAttribute("data-site-root") || ".";
-
-  function joinSitePath(relPath) {
-    var clean = String(relPath || "").replace(/^\/+/, "");
-    return siteRoot === "." ? clean : siteRoot + "/" + clean;
-  }
 
   /* 1. Light / Dark Theme Toggle */
   var themeBtn = document.getElementById("theme-toggle-btn");
@@ -96,7 +89,7 @@
 
   /* 4. Right-Sidebar TOC Scrollspy */
   function initScrollSpy() {
-    var tocLinks = Array.prototype.slice.call(document.querySelectorAll(".toc-link"));
+    var tocLinks = Array.prototype.slice.call(document.querySelectorAll(".docs-toc a"));
     if (!tocLinks.length) return;
 
     var pairs = tocLinks
@@ -129,247 +122,7 @@
     updateActive();
   }
 
-  /* 5. Client-Side Instant Search Modal */
-  var modal = document.getElementById("search-modal");
-  var openBtn = document.getElementById("search-open-btn");
-  var closeBtn = document.getElementById("search-close-btn");
-  var searchInput = document.getElementById("search-input");
-  var resultsContainer = document.getElementById("search-results");
-  var searchIndexPromise = null;
-  var activeResultIdx = 0;
-  var currentRenderedLinks = [];
-
-  function loadSearchIndex() {
-    if (!searchIndexPromise) {
-      searchIndexPromise = fetch(joinSitePath("search-index.json"))
-        .then(function (res) {
-          if (!res.ok) throw new Error("HTTP " + res.status);
-          return res.json();
-        })
-        .catch(function () {
-          return [];
-        });
-    }
-    return searchIndexPromise;
-  }
-
-  function escapeHtml(str) {
-    return String(str)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
-  function highlightMatches(text, terms) {
-    var safe = escapeHtml(text);
-    if (!terms.length) return safe;
-    var escapedTerms = terms
-      .map(function (t) {
-        return escapeHtml(t).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      })
-      .filter(Boolean);
-    if (!escapedTerms.length) return safe;
-    var re = new RegExp("(" + escapedTerms.join("|") + ")", "gi");
-    return safe.replace(re, "<mark>$1</mark>");
-  }
-
-  function extractSnippet(body, terms, fallbackDesc) {
-    var src = body || fallbackDesc || "";
-    if (!src) return "";
-    if (!terms.length) return src.slice(0, 150) + (src.length > 150 ? "..." : "");
-    var lower = src.toLowerCase();
-    var pos = -1;
-    for (var i = 0; i < terms.length; i++) {
-      pos = lower.indexOf(terms[i]);
-      if (pos !== -1) break;
-    }
-    if (pos === -1) return (fallbackDesc || src).slice(0, 150);
-    var start = Math.max(0, pos - 48);
-    var end = Math.min(src.length, pos + 112);
-    var prefix = start > 0 ? "..." : "";
-    var suffix = end < src.length ? "..." : "";
-    return prefix + src.slice(start, end) + suffix;
-  }
-
-  function scoreDoc(doc, terms) {
-    if (!terms.length) return { score: 1, anchor: "" };
-    var titleL = (doc.title || "").toLowerCase();
-    var navL = (doc.nav_title || "").toLowerCase();
-    var descL = (doc.description || "").toLowerCase();
-    var bodyL = (doc.body || "").toLowerCase();
-    var headings = doc.headings || [];
-
-    var total = 0;
-    var bestHeading = null;
-
-    for (var i = 0; i < terms.length; i++) {
-      var t = terms[i];
-      var termScore = 0;
-      if (titleL.indexOf(t) !== -1) termScore += 30;
-      if (navL.indexOf(t) !== -1) termScore += 25;
-      if (descL.indexOf(t) !== -1) termScore += 12;
-      for (var h = 0; h < headings.length; h++) {
-        var ht = (headings[h].title || "").toLowerCase();
-        var hid = (headings[h].id || "").toLowerCase();
-        if (ht.indexOf(t) !== -1 || hid.indexOf(t) !== -1) {
-          termScore += 18;
-          if (!bestHeading) bestHeading = headings[h];
-        }
-      }
-      if (bodyL.indexOf(t) !== -1) termScore += 5;
-      if (termScore === 0) return { score: 0, anchor: "" };
-      total += termScore;
-    }
-    return { score: total, matchedHeading: bestHeading };
-  }
-
-  function renderResults(docs, rawQuery) {
-    if (!resultsContainer) return;
-    var terms = String(rawQuery || "")
-      .toLowerCase()
-      .split(/\s+/)
-      .filter(Boolean);
-
-    var ranked = [];
-    for (var i = 0; i < docs.length; i++) {
-      var res = scoreDoc(docs[i], terms);
-      if (res.score > 0) {
-        ranked.push({ doc: docs[i], score: res.score, heading: res.matchedHeading });
-      }
-    }
-    if (terms.length) {
-      ranked.sort(function (a, b) {
-        return b.score - a.score;
-      });
-    }
-    ranked = ranked.slice(0, 14);
-
-    if (!ranked.length) {
-      resultsContainer.innerHTML = '<div class="search-empty">No matching documentation found for <strong>' + escapeHtml(rawQuery) + "</strong>.</div>";
-      currentRenderedLinks = [];
-      activeResultIdx = 0;
-      return;
-    }
-
-    var html = ranked
-      .map(function (entry, idx) {
-        var doc = entry.doc;
-        var anchorSuffix = entry.heading && entry.heading.id ? "#" + entry.heading.id : "";
-        var href = joinSitePath(doc.url) + anchorSuffix;
-        var headingSuffix = entry.heading ? " &rsaquo; " + escapeHtml(entry.heading.title) : "";
-        var snippet = extractSnippet(doc.body, terms, doc.description);
-        return (
-          '<a role="option" class="search-result-item' +
-          (idx === 0 ? " selected" : "") +
-          '" href="' +
-          escapeHtml(href) +
-          '">' +
-          '<div class="search-result-meta">' +
-          escapeHtml(doc.section || "Docs") +
-          headingSuffix +
-          "</div>" +
-          '<div class="search-result-title">' +
-          highlightMatches(doc.title || doc.nav_title, terms) +
-          "</div>" +
-          '<div class="search-result-snippet">' +
-          highlightMatches(snippet, terms) +
-          "</div></a>"
-        );
-      })
-      .join("");
-
-    resultsContainer.innerHTML = html;
-    currentRenderedLinks = Array.prototype.slice.call(resultsContainer.querySelectorAll(".search-result-item"));
-    activeResultIdx = 0;
-    currentRenderedLinks.forEach(function (a) {
-      a.addEventListener("click", function () {
-        closeSearch();
-      });
-    });
-  }
-
-  function updateSelectedResult(nextIdx) {
-    if (!currentRenderedLinks.length) return;
-    activeResultIdx = (nextIdx + currentRenderedLinks.length) % currentRenderedLinks.length;
-    currentRenderedLinks.forEach(function (el, idx) {
-      el.classList.toggle("selected", idx === activeResultIdx);
-      if (idx === activeResultIdx && el.scrollIntoView) {
-        el.scrollIntoView({ block: "nearest" });
-      }
-    });
-  }
-
-  function openSearch() {
-    if (!modal || !searchInput) return;
-    modal.hidden = false;
-    searchInput.focus();
-    searchInput.select();
-    loadSearchIndex().then(function (docs) {
-      renderResults(docs, searchInput.value);
-    });
-  }
-
-  function closeSearch() {
-    if (!modal) return;
-    modal.hidden = true;
-  }
-
-  if (openBtn) openBtn.addEventListener("click", openSearch);
-  if (closeBtn) closeBtn.addEventListener("click", closeSearch);
-  if (modal) {
-    modal.addEventListener("click", function (ev) {
-      if (ev.target && ev.target.getAttribute("data-close-search") === "true") {
-        closeSearch();
-      }
-    });
-  }
-
-  if (searchInput) {
-    searchInput.addEventListener("input", function () {
-      var val = searchInput.value;
-      loadSearchIndex().then(function (docs) {
-        renderResults(docs, val);
-      });
-    });
-    searchInput.addEventListener("keydown", function (ev) {
-      if (ev.key === "ArrowDown") {
-        ev.preventDefault();
-        updateSelectedResult(activeResultIdx + 1);
-      } else if (ev.key === "ArrowUp") {
-        ev.preventDefault();
-        updateSelectedResult(activeResultIdx - 1);
-      } else if (ev.key === "Enter" && currentRenderedLinks[activeResultIdx]) {
-        ev.preventDefault();
-        var href = currentRenderedLinks[activeResultIdx].getAttribute("href");
-        closeSearch();
-        if (href) window.location.href = href;
-      }
-    });
-  }
-
-  document.addEventListener("keydown", function (ev) {
-    var tag = ev.target && ev.target.tagName ? ev.target.tagName.toLowerCase() : "";
-    var isEditable = tag === "input" || tag === "textarea" || (ev.target && ev.target.isContentEditable);
-
-    if (ev.key === "Escape" && modal && !modal.hidden) {
-      ev.preventDefault();
-      closeSearch();
-      return;
-    }
-    if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "k") {
-      ev.preventDefault();
-      if (modal && !modal.hidden) closeSearch();
-      else openSearch();
-      return;
-    }
-    if (ev.key === "/" && !isEditable && modal && modal.hidden) {
-      ev.preventDefault();
-      openSearch();
-    }
-  });
-
-  /* 6. Progressive Mermaid Rendering Hook (gracefully readable as source offline) */
+  /* 5. Progressive Mermaid Rendering Hook (graceful offline fallback) */
   function initMermaidHook() {
     var blocks = document.querySelectorAll("pre.mermaid");
     if (!blocks.length) return;
@@ -388,9 +141,7 @@
         window.mermaid.run({ nodes: blocks });
       }
     };
-    script.onerror = function () {
-      /* Offline or blocked: `<pre class="mermaid">` stays clean and readable! */
-    };
+    script.onerror = function () {};
     document.head.appendChild(script);
   }
 

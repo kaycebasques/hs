@@ -6,6 +6,7 @@ load("//hs:providers.bzl", "HsLinkInfo", "HsPackageInfo")
 load("//hs:toolchain.bzl", "TOOLCHAIN_TYPE")
 load(
     "//hs/private:actions.bzl",
+    "HsDocSourceInfo",
     "collect_deps",
     "compile_c_sources",
     "compile_hs_library_action",
@@ -113,7 +114,7 @@ def _hs_library_impl(ctx):
         dep_cc_info = dep_info.cc_info,
     )
 
-    hi_dir, pkg_db, hs_lib = compile_hs_library_action(
+    hi_dir, pkg_db, hs_lib, doc_info = compile_hs_library_action(
         ctx = ctx,
         hs_tc = hs_tc,
         cc_tools = cc_tools,
@@ -169,6 +170,7 @@ def _hs_library_impl(ctx):
             cc_info = merged_cc_info,
         ),
         merged_cc_info,
+        doc_info,
     ]
 
 hs_library = rule(
@@ -211,7 +213,7 @@ hs_library = rule(
     },
     toolchains = [TOOLCHAIN_TYPE] + use_cc_toolchain(),
     fragments = ["cpp"],
-    provides = [HsPackageInfo, HsLinkInfo, CcInfo],
+    provides = [HsPackageInfo, HsLinkInfo, CcInfo, HsDocSourceInfo],
 )
 
 # ==============================================================================

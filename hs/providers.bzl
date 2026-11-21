@@ -32,6 +32,7 @@ HsToolchainInfo = provider(
         "ghc": "File: Staged ghc executable.",
         "ghc_pkg": "File: Staged ghc-pkg executable.",
         "hsc2hs": "File: Staged hsc2hs executable.",
+        "haddock": "File: Staged haddock executable.",
         "ghc_iserv": "File | None: Optional staged ghc-iserv-dyn / ghc-iserv executable.",
         "libdir": "File: Staged GHC lib/ directory TreeArtifact.",
         "template_hsc_h": "File: Path to template-hsc.h for hsc2hs.",
@@ -42,10 +43,21 @@ HsToolchainInfo = provider(
         "gmp_static_dir": "string | None: Directory containing only libgmp.a for static GMP linking.",
         "gmp_static_lib": "File | None: Static libgmp.a file.",
         "boot_packages": "dict[str, struct]: Parsed boot package metadata keyed by package name.",
+        "boot_haddocks": "dict[str, File]: Map of boot package name to bundled .haddock interface File.",
         "bignum": "string: Bignum backend ('gmp' or 'native').",
         "is_dynamic_ghc": "bool: True if GHC compiler binary is dynamically linked.",
         "target_os": "string: Target OS ('linux', 'macos', 'windows').",
         "target_cpu": "string: Target CPU ('x86_64', 'arm64').",
         "arch_libdir": "string: GHC arch libdir basename (e.g. 'x86_64-linux-ghc-9.10.3').",
+    },
+)
+
+HsHaddockInfo = provider(
+    doc = "Generated Haddock HTML documentation directory and binary .haddock interface.",
+    fields = {
+        "html_dir": "File: Directory (TreeArtifact) containing generated Haddock HTML, QuickJump index, and hyperlinked source.",
+        "interface": "File: Generated .haddock interface file (--dump-interface) for cross-package linking.",
+        "unit_ids": "depset[str]: GHC unit IDs documented by this hs_haddock target.",
+        "transitive_haddocks": "depset[struct]: Transitive struct(html_dir, interface) entries from this target and haddock_deps.",
     },
 )
