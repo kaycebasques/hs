@@ -204,11 +204,25 @@ testTocHighlightingAndMermaid = do
           , ""
           , "### Sub Heading {#explicit-sub}"
           , ""
+          , "### What `cli:lock` Does Under the Hood"
+          , ""
+          , "Jump straight to `doc:guide/quickstart` to build `bzl:rule:hs_library`."
+          , ""
           , "```mermaid"
           , "flowchart LR"
           , "  A --> B"
           , "```"
           ]
+      qsMeta =
+        PageMeta
+          { pmRoute = "guide/quickstart"
+          , pmUrl = "/guide/quickstart.html"
+          , pmTitle = "Getting Started"
+          , pmNavTitle = "Quickstart"
+          , pmDescription = "Quickstart guide."
+          , pmSection = SecGuide
+          , pmOrder = 10
+          }
       pm =
         PageMeta
           { pmRoute = "internals/overview"
@@ -219,14 +233,18 @@ testTocHighlightingAndMermaid = do
           , pmSection = SecInternals
           , pmOrder = 10
           }
-  (html, toc, sdoc) <- compileMarkdownPagePure emptyStarlarkBundle Map.empty pm md
+  (html, toc, sdoc) <- compileMarkdownPagePure emptyStarlarkBundle (Map.singleton "guide/quickstart" qsMeta) pm md
   assertTrue "duplicate H1 stripped" (not ("<h1" `T.isInfixOf` html))
   assertEq
-    "TOC entries extracted"
+    "TOC entries extracted (including resolved cross-ref role label in heading)"
     [ TocEntry 2 "first-heading" "First Heading"
     , TocEntry 3 "explicit-sub" "Sub Heading"
+    , TocEntry 3 "what-clilock-does-under-the-hood" "What //tools/lock:lock Does Under the Hood"
     ]
     toc
+  assertContains "SearchDoc body retains doc: cross-ref label" "Jump straight to Quickstart to build" (sdBody sdoc)
+  assertContains "SearchDoc body retains bzl:rule: cross-ref label" "hs_library" (sdBody sdoc)
+  assertContains "SearchDoc body retains cli:lock cross-ref label" "//tools/lock:lock" (sdBody sdoc)
   assertContains "heading permalink anchor" "class=\"heading-anchor\" href=\"#first-heading\"" html
   assertContains "explicit heading id preserved" "id=\"explicit-sub\"" html
   assertContains "Starlark highlighted via Skylighting" "sourceCode python language-starlark" html

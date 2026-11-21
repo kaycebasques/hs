@@ -13,6 +13,7 @@
 module Docs.CrossRef
   ( resolveCrossRefs
   , rewriteMdHref
+  , resolveRoleInline
   , resolveRoleCode
   , formatRouteFallbackTitle
   ) where
@@ -28,6 +29,12 @@ import Text.Pandoc.Definition
 import Text.Pandoc.Walk (walk)
 
 -- | Rewrite both inline cross-reference roles and internal @.md@ links across a Pandoc AST.
+--
+-- Emits native Pandoc 'Link' nodes (rather than 'RawInline' HTML) so downstream
+-- 'Text.Pandoc.Shared.stringify' passes in 'Docs.Toc' and 'Docs.Search' preserve
+-- cross-reference labels in right-sidebar TOC headings and @search-index.json@ bodies,
+-- while Pandoc's HTML5 writer and Hakyll's 'relativizeUrls' still render and relativize
+-- @<a class="xref ..." href="...">@.
 resolveCrossRefs :: Map Text PageMeta -> Pandoc -> Pandoc
 resolveCrossRefs pageMap = walk stepInline
   where
@@ -36,17 +43,23 @@ resolveCrossRefs pageMap = walk stepInline
       | null classes
       , null kvs
       , T.null ident
-      , Just html <- resolveRoleCode pageMap codeTxt =
-          RawInline (Format "html") html
+      , Just linkInline <- resolveRoleInline pageMap codeTxt =
+          linkInline
     stepInline (Link attr label (url, title)) =
-      Link attr label (rewriteMdHref url, title)
+      Link attr (stripNestedLinks label) (rewriteMdHref url, title)
     stepInline other = other
 
--- | Resolve a single inline role string (e.g. @"bzl:rule:hs_library"@) into @<a class="xref ...">@ HTML.
+    stripNestedLinks :: [Inline] -> [Inline]
+    stripNestedLinks = concatMap unwrapLink
+      where
+        unwrapLink (Link _ inner _) = inner
+        unwrapLink x = [x]
+
+-- | Resolve a single inline role string (e.g. @"bzl:rule:hs_library"@) into a native Pandoc 'Link' 'Inline'.
 -- Metasyntax placeholders containing wildcards or brackets (e.g. @"bzl:rule:<name>"@, @"bzl:rule:*"@)
 -- return 'Nothing' so documentation prose explaining role syntax stays literal @<code>@.
-resolveRoleCode :: Map Text PageMeta -> Text -> Maybe Text
-resolveRoleCode pageMap raw =
+resolveRoleInline :: Map Text PageMeta -> Text -> Maybe Inline
+resolveRoleInline pageMap raw =
   let trimmed = T.strip raw
    in case () of
         _
@@ -54,25 +67,25 @@ resolveRoleCode pageMap raw =
           , isConcreteTarget ruleName ->
               let r = T.strip ruleName
                   href = "/reference/rules.html#" <> r
-               in Just (renderCodeXref "xref-rule" href r)
+               in Just (codeXrefInline "xref-rule" href r)
           | Just extName <- T.stripPrefix "bzl:ext:" trimmed
           , isConcreteTarget extName ->
               let e = T.strip extName
                   slug = T.map (\c -> if c == '.' then '-' else toLower c) e
                   href = "/reference/extensions-and-providers.html#" <> slug
-               in Just (renderCodeXref "xref-ext" href e)
+               in Just (codeXrefInline "xref-ext" href e)
           | Just provName <- T.stripPrefix "bzl:provider:" trimmed
           , isConcreteTarget provName ->
               let p = T.strip provName
                   slug = T.map toLower p
                   href = "/reference/extensions-and-providers.html#" <> slug
-               in Just (renderCodeXref "xref-provider" href p)
+               in Just (codeXrefInline "xref-provider" href p)
           | trimmed == "cli:lock" ->
-              Just (renderCodeXref "xref-cli" "/reference/lock-cli.html" "//tools/lock:lock")
+              Just (codeXrefInline "xref-cli" "/reference/lock-cli.html" "//tools/lock:lock")
           | Just cliSub <- T.stripPrefix "cli:lock:" trimmed
           , isConcreteTarget cliSub ->
               let s = T.strip cliSub
-               in Just (renderCodeXref "xref-cli" "/reference/lock-cli.html#flags" s)
+               in Just (codeXrefInline "xref-cli" "/reference/lock-cli.html#flags" s)
           | Just docRouteRaw <- T.stripPrefix "doc:" trimmed
           , isConcreteTarget docRouteRaw ->
               let (routePart0, fragPart) = T.breakOn "#" (T.strip docRouteRaw)
@@ -82,8 +95,26 @@ resolveRoleCode pageMap raw =
                     case Map.lookup routeClean pageMap of
                       Just pm -> pmNavTitle pm
                       Nothing -> formatRouteFallbackTitle routeClean
-               in Just (renderDocXref href labelTxt)
+               in Just (docXrefInline href labelTxt)
           | otherwise -> Nothing
+
+codeXrefInline :: Text -> Text -> Text -> Inline
+codeXrefInline subCls href codeLabel =
+  Link ("", ["xref", subCls], []) [Code ("", [], []) codeLabel] (href, "")
+
+docXrefInline :: Text -> Text -> Inline
+docXrefInline href labelTxt =
+  Link ("", ["xref", "xref-doc"], []) [Str labelTxt] (href, "")
+
+-- | Resolve a single inline role string into its HTML @<a class="xref ...">@ representation.
+resolveRoleCode :: Map Text PageMeta -> Text -> Maybe Text
+resolveRoleCode pageMap raw =
+  case resolveRoleInline pageMap raw of
+    Just (Link (_, ["xref", "xref-doc"], _) [Str labelTxt] (href, _)) ->
+      Just (renderDocXref href labelTxt)
+    Just (Link (_, ["xref", subCls], _) [Code _ codeLabel] (href, _)) ->
+      Just (renderCodeXref subCls href codeLabel)
+    _ -> Nothing
 
 isConcreteTarget :: Text -> Bool
 isConcreteTarget rawTarget =
