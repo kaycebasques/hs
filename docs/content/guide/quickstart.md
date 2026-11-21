@@ -8,6 +8,8 @@ order: 10
 
 This guide walks you through creating a standalone Bazel 9 Haskell project from scratch using `rules_hs` — with zero host Haskell or C toolchain packages installed.
 
+> **Tip — Brand New to Haskell or Bazel Rulesets?** Every step below explains the Haskell and Bazel concepts inline as they appear. For deeper background at any time, see [Haskell & GHC Primer](../internals/haskell-and-ghc-primer.md) and [Bazel Ruleset Primer](../internals/bazel-rules-primer.md).
+
 ## Prerequisites
 
 The only host tool required is **[Bazelisk](https://github.com/bazelbuild/bazelisk)** (which automatically downloads and runs the pinned Bazel `>= 9.0.0` binary declared in `.bazelversion`).
@@ -100,12 +102,16 @@ register_toolchains("@hs_toolchains//:all")
 
 > **Important — Register `gnu.2.32` before the `@zig_sdk` wildcard:** When pairing `rules_hs` with `hermetic_cc_toolchain`, always list `@zig_sdk//toolchain:linux_amd64_gnu.2.32` and `@zig_sdk//toolchain:linux_arm64_gnu.2.32` **before** `@zig_sdk//toolchain/...`. Otherwise Bazel's wildcard registration picks `gnu.2.17` alphabetically, which lacks glibc 2.28/2.32 symbols required by GHC `deb10` bindists and BCR `gmp`. See [C FFI & Toolchains](c-interop-and-toolchains.md) for details.
 
-### What `hs.toolchain` Creates
+### What `MODULE.bazel` and `hs.toolchain` Set Up
 
-Calling [`hs.toolchain`](../reference/extensions-and-providers.md#hs-toolchain) exposes two repositories via `use_repo`:
+If this is your first Haskell + Bazel workspace, notice why `MODULE.bazel` configures two toolchains:
 
-1. **`@hs_toolchains`**: Contains Bazel `toolchain()` declarations matching `@rules_hs//hs:toolchain_type` for each active platform (`linux_x86_64` and `linux_arm64` by default). You can select `ghc_version = "9.10.3"` (default) or `ghc_version = "9.12.4"`.
-2. **`@hs_boot`**: Exposes every package shipped in GHC's global package database (`base`, `bytestring`, `containers`, `deepseq`, `directory`, `exceptions`, `filepath`, `mtl`, `process`, `stm`, `template-haskell`, `text`, `time`, `transformers`, `unix`, `Cabal-syntax`, etc.) as ready-to-use [`hs_toolchain_library`](../reference/rules.md#hs_toolchain_library) targets — zero manual boilerplate required.
+- **Why a C toolchain (`hermetic_cc_toolchain` / `@zig_sdk`) sits alongside GHC**: Unlike Go or Java, GHC compiles Haskell via a C assembler and system linker, linking your code against GHC's C Runtime System (`libHSrts.a` — garbage collector and green-thread scheduler) and static `libgmp.a` (arbitrary-precision math). `hermetic_cc_toolchain` downloads a self-contained `zig cc` compiler so you need zero host `gcc` or `clang` installed (see [Dependency Decisions](../internals/dependencies.md#module-bazel-anatomy)).
+- **What [`hs.toolchain`](../reference/extensions-and-providers.md#hs-toolchain) creates**: Calling `use_repo(hs, "hs_boot", "hs_toolchains")` exposes two repositories:
+  1. **`@hs_toolchains`**: Registers hermetic GHC (`9.10.3` by default, or `9.12.4`) for `linux_x86_64` and `linux_arm64`.
+  2. **`@hs_boot`**: Exposes all **41 built-in "boot" libraries** bundled inside GHC itself as ready-to-use Bazel targets — with zero lockfile needed! In this tutorial we use two of them:
+     - **`@hs_boot//:base`**: Haskell's core standard library (`Prelude`, `IO`, CLI `getArgs`, `exitFailure`).
+     - **`@hs_boot//:text`**: Contiguous, packed UTF-8 text (`Data.Text`, analogous to Rust's `String`/`&str` or Go's `string`). In real Haskell code, `Text` is preferred over `base`'s legacy `String` type (which is a linked list of characters `[Char]`).
 
 ## Step 3: Write Haskell Sources
 
@@ -164,6 +170,13 @@ main = do
     exitFailure
 ```
 
+### Understanding These Three `.hs` Files (For First-Time Haskell Readers)
+
+- **`default_language = "GHC2021"`**: All `rules_hs` rules compile with GHC's modern `GHC2021` language edition by default (rather than legacy `Haskell2010`), enabling ergonomic features like post-qualified imports (`import Data.Text qualified as T`) automatically.
+- **`{-# LANGUAGE OverloadedStrings #-}`**: A per-file compiler pragma allowing `"..."` string literals to construct packed UTF-8 `Text` values directly instead of only `[Char]`.
+- **`module Greet (greetingFor) where`**: Names the module `Greet` and exports `greetingFor :: Text -> Text` publicly (`<>` concatenates two `Text` values, and `T.strip` trims whitespace).
+- **`module Main (main) where` and `main :: IO ()`**: Every Haskell executable (`hs_binary` and `hs_test`) starts at `Main.main` of type `IO ()` — an effectful program sequenced step-by-step using `do`-notation (`args <- getArgs`). In `GreetTest.hs`, returning normally exits with code `0` (test pass), while `exitFailure` exits non-zero (test failure).
+
 ## Step 4: Declare Targets in `BUILD.bazel`
 
 Load [`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), and [`hs_test`](../reference/rules.md#hs_test) from `@rules_hs//hs:defs.bzl`:
@@ -215,6 +228,12 @@ hs_test(
     ],
 )
 ```
+
+### What Each `BUILD.bazel` Attribute Does
+
+- **`hs_source_dirs = ["src"]` (or `["test"]`)**: Sets the root directory from which GHC resolves hierarchical module names — mapping `module Greet` -> `src/Greet.hs` (and `module Foo.Bar` -> `src/Foo/Bar.hs`).
+- **`ghc_opts = ["-Wall", "-Wcompat"]`**: Enables GHC's standard warning suite (`-Wall`) plus forward-compatibility warnings (`-Wcompat`).
+- **`hs_library` vs. `hs_binary` vs. `hs_test`**: [`hs_library`](../reference/rules.md#hs_library) compiles reusable `.a` archives and `.hi` compiler interface files; [`hs_binary`](../reference/rules.md#hs_binary) compiles `Main.main` and links all transitive Haskell and C archives into a standalone native binary; [`hs_test`](../reference/rules.md#hs_test) builds a test binary that `bazel test` executes inside an isolated sandbox.
 
 > **Tip — Strict Direct-Dependency Visibility:** `rules_hs` compiles every target with `-hide-all-packages` and exposes **only** direct `deps` via `-package-id` (modeled on Buck2 Haskell's [`HsPackageInfo`](../reference/extensions-and-providers.md#hspackageinfo) vs. [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo) split). Notice how `:hello` imports `Data.Text` directly, so it declares `@hs_boot//:text` in its own `deps` even though `:greet` also depends on `@hs_boot//:text`. Conversely, `:greet_test` only calls `greetingFor` without importing `Data.Text` directly, so it only needs `:greet` and `@hs_boot//:base`.
 

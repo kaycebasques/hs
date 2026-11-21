@@ -12,6 +12,14 @@ On Linux, `rules_hs` builds complete Haskell applications with **zero Nix**, **z
 
 > **Tip — New to `rules_hs`?** Jump straight to [Quickstart](guide/quickstart.md) to build and test a hermetic Haskell library, binary, and test suite in under five minutes, or explore [Showcase: `examples/size`](guide/showcase-size.md) for a walkthrough of a 69-package real-world HTTPS sitemap crawler.
 
+## New to Bazel Rulesets or Haskell?
+
+This documentation is written to be approachable with **zero prior Bazel ruleset-authoring experience and zero prior Haskell or GHC experience**. Start with these first-principles primers before diving into the internals:
+
+- **[Bazel Ruleset Primer](internals/bazel-rules-primer.md)** — How Bazel rulesets actually work under the hood: consumer vs. ruleset `MODULE.bazel` (`dev_dependency = True`), Bazel's three phases (Loading, Analysis, Execution), lazy Bzlmod hub-and-spoke repositories, `Provider`s and $O(1)$ `depset`s, `TreeArtifact`s, `cfg = "exec"` vs. target configurations, and `rules_cc` / `CcInfo` interoperability.
+- **[Haskell & GHC Primer](internals/haskell-and-ghc-primer.md)** — Everything a build engineer needs to know about Haskell: disambiguating `GHC`, `.cabal`, `Cabal-syntax`, `Hackage`, and `Stackage`, why GHC bundles 41 boot libraries, `.o` archives vs. `.hi` interface files and `${pkgroot}` package DBs, why GHC shells out to a C toolchain and links `gmp` + `libtinfo`, `hsc2hs`/Alex/Happy/`.hs-boot`, Template Haskell (`-dynamic-too`), and Haddock.
+- **[Anatomy of `MODULE.bazel` & Dependency Decisions](internals/dependencies.md#module-bazel-anatomy)** — Line-by-line plain-English walkthrough of every dependency in `MODULE.bazel`, `examples/size` (69 Hackage packages), and `//docs` (182 Hackage packages), what Go/Rust/Python library each corresponds to, and what would break without it.
+
 ## Key Capabilities
 
 - **Nix-free hermetic Linux GHC (`9.10.3` & `9.12.4`)**: Pure-Starlark extraction of official GHC bindists via [`hs.toolchain`](reference/extensions-and-providers.md#hs-toolchain) — zero `./configure && make install` at fetch time. Compiler binaries resolve `$ORIGIN`-staged `libgmp.so.10` (built from BCR `@gmp`) and a minimal 8-symbol `libtinfo.so.6` stub without `LD_LIBRARY_PATH` or `patchelf`, making every action RBE-ready.
@@ -74,6 +82,8 @@ For a deep implementation-level comparison across `tweag/rules_haskell`, Buck2's
 
 ### Internals & Architecture
 
+- **[Bazel Ruleset Primer](internals/bazel-rules-primer.md)** — First-principles guide from Bazel end user to ruleset author: Loading/Analysis/Execution phases, Bzlmod lazy hubs, `Provider`s & `depset`s, `TreeArtifact`s, `cfg = "exec"`, and `CcInfo` interop.
+- **[Haskell & GHC Primer](internals/haskell-and-ghc-primer.md)** — Zero-prerequisite guide to GHC, Cabal, Hackage, Stackage, boot libraries, `.hi` interfaces, RTS C linking, `gmp` & `libtinfo`, `hsc2hs`/Alex/Happy, Template Haskell, and Haddock.
 - **[Architecture Overview](internals/overview.md)** — Architectural philosophy, `tweag/rules_haskell` post-mortem, Buck2 Haskell & Bzlmod inspirations, and repository layout.
 - **[Comparison with Other Rulesets](internals/rulesets-comparison.md)** — Deep architectural comparison against `tweag/rules_haskell`, Buck2's `prelude/haskell` & `buck2-haskell`, Please Build, `haskell.nix`, and Cabal/Stack wrappers.
 - **[Hermeticity & Toolchain](internals/hermeticity.md)** — Pure-Starlark bindist sanitization, `$ORIGIN` staging, the 8-symbol `libtinfo.so.6` stub, static-GMP linking, and every rewrite inside `ghc_cc_wrapper`.
