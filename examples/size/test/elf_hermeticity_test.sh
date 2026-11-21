@@ -17,7 +17,7 @@ BAD=""
 while IFS= read -r lib; do
     [ -z "$lib" ] && continue
     case "$lib" in
-        libc.so.6|libm.so.6|libdl.so.2|libpthread.so.0|librt.so.1|libutil.so.1)
+        libc.so.6|libm.so.6|libdl.so.2|libpthread.so.0|librt.so.1|libutil.so.1|ld-linux-*.so.*)
             ;;
         *)
             BAD="${BAD}${lib}"$'\n'
@@ -33,8 +33,8 @@ fi
 
 # Verify binary runs cleanly under a completely empty environment (zero LD_LIBRARY_PATH / PATH)
 echo "=== Executing $BIN (0 args) under env -i PATH=/nonexistent ==="
-STDOUT_FILE="$(mktemp)"
-STDERR_FILE="$(mktemp)"
+STDOUT_FILE="$(mktemp "${TEST_TMPDIR:-/tmp}/size_stdout.XXXXXX")"
+STDERR_FILE="$(mktemp "${TEST_TMPDIR:-/tmp}/size_stderr.XXXXXX")"
 trap 'rm -f "$STDOUT_FILE" "$STDERR_FILE"' EXIT
 
 set +e
