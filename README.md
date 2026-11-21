@@ -279,5 +279,6 @@ You can pair `rules_hs` with:
 ## Documentation & License
 
 - **Architecture & Prior-Art Deep Dive**: [`docs/architecture.md`](docs/architecture.md)
+- **Dependency Decision Record (Adopted & Not Adopted + Catalysts)**: [`docs/dependencies.md`](docs/dependencies.md)
 - **Standalone Sitemap Counter Showcase**: [`examples/size/README.md`](examples/size/README.md)
 - **License**: Apache License 2.0 ([`LICENSE`](LICENSE))

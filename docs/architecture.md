@@ -2,6 +2,8 @@
 
 This document explains why `rules_hs` exists, analyzes the failure modes of prior Haskell-on-Bazel designs, and walks through every subsystem of `rules_hs`: hermetic `$ORIGIN`-staged GHC toolchains, static-GMP user binaries, the native C11 `ghc_cc_wrapper`, the direct-vs-transitive provider model, the two-phase Hackage lockfile architecture, the 5-stage `hs_cabal_library` pipeline, and cross-OS extensibility.
 
+> For the complete evaluation of adopted vs. not-adopted dependencies across `rules_hs` and `examples/size` — including concrete catalysts for reconsidering each choice — see [`docs/dependencies.md`](dependencies.md).
+
 ---
 
 ## 1. Prior Art Analysis
