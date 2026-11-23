@@ -8,7 +8,7 @@ order: 50
 
 > **New to Bazel Toolchains or GHC Internals?** Read the [Bazel Ruleset Primer](bazel-rules-primer.md) ([Toolchains & Configurations](bazel-rules-primer.md#toolchains-and-configs)) and the [Haskell & GHC Primer](haskell-and-ghc-primer.md) ([Why GMP and libtinfo Show Up](haskell-and-ghc-primer.md#gmp-and-tinfo) and [Template Haskell](haskell-and-ghc-primer.md#template-haskell)) first for background context.
 
-`rules_hs` separates platform-specific GHC archive metadata, OS/CPU constraint mapping, and Cabal conditional `select()` evaluation from its core Starlark rule implementations. Today, `linux_x86_64` and `linux_arm64` are active in `SUPPORTED_PLATFORMS` (`linux_x86_64` is tested on every commit in GitHub Actions CI), while `macos_arm64`, `macos_x86_64`, `windows_x86_64`, and `linux_x86_64_musl` are cataloged with verified upstream URLs and SHA-256 digests for GHC `9.10.3` and `9.12.4` in `hs/private/ghc_versions.bzl`.
+`rules_haskell` separates platform-specific GHC archive metadata, OS/CPU constraint mapping, and Cabal conditional `select()` evaluation from its core Starlark rule implementations. Today, `linux_x86_64` and `linux_arm64` are active in `SUPPORTED_PLATFORMS` (`linux_x86_64` is tested on every commit in GitHub Actions CI), while `macos_arm64`, `macos_x86_64`, `windows_x86_64`, and `linux_x86_64_musl` are cataloged with verified upstream URLs and SHA-256 digests for GHC `9.10.3` and `9.12.4` in `hs/private/ghc_versions.bzl`.
 
 This page explains how multi-platform toolchain resolution and cross-platform `hackage.lock.json` generation work today, why Debian 10 (`glibc`) was chosen over Alpine (`musl` static) as the default Linux GHC archive, and what specific changes are needed to enable macOS, Windows, and static Linux `musl`.
 
@@ -51,7 +51,7 @@ When a workspace configures [`hs.toolchain`](../reference/extensions-and-provide
        exec_compatible_with = ["@platforms//os:linux", "@platforms//cpu:arm64"],
        target_compatible_with = ["@platforms//os:linux", "@platforms//cpu:arm64"],
        toolchain = "@ghc_9_10_3_linux_arm64//:toolchain_impl",
-       toolchain_type = "@rules_hs//hs:toolchain_type",
+       toolchain_type = "@rules_haskell//hs:toolchain_type",
    )
    ```
 3. **`@hs_boot` (`hs_boot_repo`)**: Exposes platform-independent [`hs_toolchain_library`](../reference/rules.md#hs_toolchain_library) targets (`@hs_boot//:base`, etc.) that read package IDs from whichever `hs_toolchain` Bazel selected for the current build configuration.
@@ -82,7 +82,7 @@ On Linux, programs normally call the **C standard library (`libc`)** rather than
 - **`glibc` (GNU C Library)**: The dynamic system C library (`libc.so.6` and `ld-linux.so`) shipped by Debian, Ubuntu, RHEL/Rocky, Fedora, and Arch Linux. It uses symbol versioning (`@GLIBC_2.xx`, described in [Hermeticity & Toolchain](hermeticity.md#glibc-window-and-ci)) and provides the standard OS dynamic loader (`dlopen`).
 - **`musl` libc**: A lightweight C standard library used by Alpine Linux, designed so its static library (`libc.a`) links into standalone static ELF executables (`PT_INTERP = NONE` — meaning the ELF header requests no dynamic linker from the kernel).
 
-When selecting `rules_hs`'s Linux GHC archive, both official Haskell.org GHC `9.10.3` Linux builds were tested with `hermetic_cc_toolchain` (`zig cc`) under `env -i PATH=/nonexistent`:
+When selecting `rules_haskell`'s Linux GHC archive, both official Haskell.org GHC `9.10.3` Linux builds were tested with `hermetic_cc_toolchain` (`zig cc`) under `env -i PATH=/nonexistent`:
 
 1. `ghc-9.10.3-{x86_64,aarch64}-deb10-linux.tar.xz` (dynamically linked `glibc` compiler, `bignum = gmp`)
 2. `ghc-9.10.3-x86_64-alpine3_12-linux-static-int_native.tar.xz` (statically linked `musl` compiler, `PT_INTERP = NONE`, `bignum = native`)
@@ -193,11 +193,11 @@ Add `#ifdef _WIN32` branches in `cc_wrapper.c`:
 
 For deployments targeting empty `FROM scratch` container images that contain no `/lib/libc.so.6` (`PT_INTERP = NONE`), `linux_x86_64_musl` (`ghc-{9.10.3,9.12.4}-x86_64-alpine3_12-linux-static-int_native.tar.xz`) can be enabled as an opt-in Linux toolchain:
 
-1. **Separate `libc` Constraint Value**: Today `linux_x86_64` and `linux_x86_64_musl` in `hs/private/ghc_versions.bzl` list the same `["@platforms//os:linux", "@platforms//cpu:x86_64"]` constraints. Registering both at once without a distinguishing `libc` constraint would cause Bazel to pick whichever toolchain came first. Add a `libc_musl` constraint (`@rules_hs//hs/constraints:libc_musl` / `@zig_sdk//libc:musl`) to `linux_x86_64_musl`'s `target_constraints`, selected via `--platforms=//:linux_x86_64_musl` alongside `@zig_sdk//libc_aware/toolchain:linux_amd64_musl`.
+1. **Separate `libc` Constraint Value**: Today `linux_x86_64` and `linux_x86_64_musl` in `hs/private/ghc_versions.bzl` list the same `["@platforms//os:linux", "@platforms//cpu:x86_64"]` constraints. Registering both at once without a distinguishing `libc` constraint would cause Bazel to pick whichever toolchain came first. Add a `libc_musl` constraint (`@rules_haskell//hs/constraints:libc_musl` / `@zig_sdk//libc:musl`) to `linux_x86_64_musl`'s `target_constraints`, selected via `--platforms=//:linux_x86_64_musl` alongside `@zig_sdk//libc_aware/toolchain:linux_amd64_musl`.
 2. **Static Link Flag (`HsLinkExecutable`)**: When `hs_tc.bignum == "native"` and targeting static `musl`, `staged_ghc` already skips `gmp_static_dir`; pass `-optl-static` in `HsLinkExecutable` (`hs/private/rules.bzl`) so `zig cc -target x86_64-linux-musl` produces a fully static ELF executable (`readelf -l` shows no `INTERP` header and `readelf -d` shows no `NEEDED` libraries).
 3. **Lockfile Flag Overrides**: When generating a lockfile for `bignum = "native"` via [`//tools/lock:lock`](../reference/lock-cli.md), disable explicit GMP flags on packages that expose them:
    ```bash
-   bazel run @rules_hs//tools/lock:lock -- \
+   bazel run @rules_haskell//tools/lock:lock -- \
      --snapshot lts-24.67 \
      --flag crypton:integer-gmp=false \
      --flag cborg:optimize-gmp=false \

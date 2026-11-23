@@ -1,4 +1,4 @@
-"""Bzlmod module extensions for rules_hs."""
+"""Bzlmod module extensions for rules_haskell."""
 
 load("//hs/private:ghc_bindist.bzl", "ghc_bindist_repo", "hs_boot_repo", "hs_toolchains_repo")
 load("//hs/private:ghc_versions.bzl", "DEFAULT_GHC_VERSION", "GHC_BINDISTS", "SUPPORTED_PLATFORMS")
@@ -24,7 +24,7 @@ def _hs_extension_impl(module_ctx):
     selected_version = None
     selected_platforms = []
 
-    # Root module takes precedence over non-root defaults (e.g. rules_hs itself).
+    # Root module takes precedence over non-root defaults (e.g. rules_haskell itself).
     root_tags = []
     other_tags = []
     for mod in module_ctx.modules:

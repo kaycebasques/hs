@@ -6,7 +6,7 @@ nav_title: "C FFI & Toolchains"
 order: 30
 ---
 
-Every Haskell rule in `rules_hs` ([`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), [`hs_test`](../reference/rules.md#hs_test), and [`hs_cabal_library`](../reference/rules.md#hs_cabal_library)) resolves Bazel's active `@bazel_tools//tools/cpp:toolchain_type` through `rules_cc` (`cc_common`) and routes GHC's C compiler, assembler, preprocessor, and linker invocations through a small compiled C11 adapter binary (`ghc_cc_wrapper`).
+Every Haskell rule in `rules_haskell` ([`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), [`hs_test`](../reference/rules.md#hs_test), and [`hs_cabal_library`](../reference/rules.md#hs_cabal_library)) resolves Bazel's active `@bazel_tools//tools/cpp:toolchain_type` through `rules_cc` (`cc_common`) and routes GHC's C compiler, assembler, preprocessor, and linker invocations through a small compiled C11 adapter binary (`ghc_cc_wrapper`).
 
 ## Haskell C FFI Basics (`ccall` vs. `capi`)
 
@@ -151,7 +151,7 @@ Connect `:vec_cc` to `cc_deps` in `BUILD.bazel`:
 
 ```starlark
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
-load("@rules_hs//hs:defs.bzl", "hs_library", "hs_test")
+load("@rules_haskell//hs:defs.bzl", "hs_library", "hs_test")
 
 cc_library(
     name = "vec_cc",
@@ -178,7 +178,7 @@ hs_test(
 )
 ```
 
-> **Note — Automatic transitive C header and archive propagation (`CcInfo`):** In Bazel, C/C++ targets pass header search paths, preprocessor `#define` flags, and compiled `.a` static archives through a standard provider named `CcInfo`. [`hs_library`](../reference/rules.md#hs_library) returns both [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo) and `CcInfo`, so downstream [`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), and [`hs_test`](../reference/rules.md#hs_test) targets inherit `:vec_cc`'s headers and `.a` archive automatically without repeating `cc_deps = [":vec_cc"]`. When linking a final executable, `rules_hs` wraps all transitive static C archives in `-Wl,--start-group ... -Wl,--end-group` so the linker resolves cross-archive C symbols regardless of ordering.
+> **Note — Automatic transitive C header and archive propagation (`CcInfo`):** In Bazel, C/C++ targets pass header search paths, preprocessor `#define` flags, and compiled `.a` static archives through a standard provider named `CcInfo`. [`hs_library`](../reference/rules.md#hs_library) returns both [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo) and `CcInfo`, so downstream [`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), and [`hs_test`](../reference/rules.md#hs_test) targets inherit `:vec_cc`'s headers and `.a` archive automatically without repeating `cc_deps = [":vec_cc"]`. When linking a final executable, `rules_haskell` wraps all transitive static C archives in `-Wl,--start-group ... -Wl,--end-group` so the linker resolves cross-archive C symbols regardless of ordering.
 
 ---
 
@@ -198,7 +198,7 @@ hs_library(
 )
 ```
 
-`rules_hs` compiles `c_sources` via `cc_common.compile` with:
+`rules_haskell` compiles `c_sources` via `cc_common.compile` with:
 - Position-independent code (`-fPIC`) enabled so the compiled C objects can be linked both into static `.a` executables and into shared `.so` libraries used when evaluating Template Haskell splices at compile time.
 - GHC's own runtime header directory (`Rts.h`, `HsFFI.h`, `ghcversion.h`) automatically added to `-I`, so your `.c` files can `#include <HsFFI.h>` or `#include <Rts.h>` without extra configuration.
 - All files in `hdrs` and `include_dirs` propagated downstream via `CcInfo` and [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo).
@@ -211,7 +211,7 @@ hs_library(
 
 ## Choosing a C/C++ Toolchain
 
-`rules_hs` works with any Linux C/C++ toolchain registered for `@bazel_tools//tools/cpp:toolchain_type`. `hermetic_cc_toolchain` is marked `dev_dependency = True` in `rules_hs`'s own `MODULE.bazel`, so your workspace chooses whichever C toolchain fits your build environment.
+`rules_haskell` works with any Linux C/C++ toolchain registered for `@bazel_tools//tools/cpp:toolchain_type`. `hermetic_cc_toolchain` is marked `dev_dependency = True` in `rules_haskell`'s own `MODULE.bazel`, so your workspace chooses whichever C toolchain fits your build environment.
 
 ### Option A: `hermetic_cc_toolchain` (`zig cc`) — No Host C Packages Required
 
@@ -246,7 +246,7 @@ build:linux --sandbox_add_mount_pair=/tmp
 
 ### Option B: `toolchains_llvm` (Clang + `mold` / `lld` + Sysroot)
 
-If your workspace uses `toolchains_llvm` with a Debian `>= 10` (`glibc >= 2.28`) sysroot (a directory tree containing target Linux headers and `libc` libraries), `rules_hs` builds with Clang without needing `/tmp` sandbox mounts in `.bazelrc`:
+If your workspace uses `toolchains_llvm` with a Debian `>= 10` (`glibc >= 2.28`) sysroot (a directory tree containing target Linux headers and `libc` libraries), `rules_haskell` builds with Clang without needing `/tmp` sandbox mounts in `.bazelrc`:
 
 ```starlark
 bazel_dep(name = "toolchains_llvm", version = "1.13.0")
@@ -269,15 +269,15 @@ use_repo(llvm, "llvm_toolchain")
 register_toolchains("@llvm_toolchain//:all")
 ```
 
-`resolve_cc_tools` in `hs/private/actions.bzl` reads `--sysroot`, `--target`, `-B`, `-resource-dir`, `-fuse-ld`, and `--ld-path` flags from `toolchains_llvm`'s `cc_toolchain` configuration and forwards them to `ghc_cc_wrapper` through `RULES_HS_CC_EXTRA_ARGS`.
+`resolve_cc_tools` in `hs/private/actions.bzl` reads `--sysroot`, `--target`, `-B`, `-resource-dir`, `-fuse-ld`, and `--ld-path` flags from `toolchains_llvm`'s `cc_toolchain` configuration and forwards them to `ghc_cc_wrapper` through `RULES_HASKELL_CC_EXTRA_ARGS`.
 
 ### Option C: System or Remote-Execution GCC / Clang Toolchain
 
-If you omit `hermetic_cc_toolchain` and `toolchains_llvm`, `rules_cc` detects the host or remote-execution container's GCC or Clang toolchain (see `examples/system_cc_toolchain`). Because `rules_hs` replaces GHC's hardcoded `lib/settings` paths (`/usr/bin/gcc` -> `/nonexistent/gcc`) and passes every tool path and `-B` search directory explicitly from `@bazel_tools//tools/cpp:toolchain_type`, GHC uses the exact `cc`, `ar`, and `ld` configured by Bazel even under `--incompatible_strict_action_env`. On Linux hosts using GNU `ld.bfd`, add `build:linux --features=-supports_start_end_lib` and `build:linux --host_features=-supports_start_end_lib` to `.bazelrc` so C/C++ dependencies link `.a` archives rather than `--start-lib`/`--end-lib` object lists.
+If you omit `hermetic_cc_toolchain` and `toolchains_llvm`, `rules_cc` detects the host or remote-execution container's GCC or Clang toolchain (see `examples/system_cc_toolchain`). Because `rules_haskell` replaces GHC's hardcoded `lib/settings` paths (`/usr/bin/gcc` -> `/nonexistent/gcc`) and passes every tool path and `-B` search directory explicitly from `@bazel_tools//tools/cpp:toolchain_type`, GHC uses the exact `cc`, `ar`, and `ld` configured by Bazel even under `--incompatible_strict_action_env`. On Linux hosts using GNU `ld.bfd`, add `build:linux --features=-supports_start_end_lib` and `build:linux --host_features=-supports_start_end_lib` to `.bazelrc` so C/C++ dependencies link `.a` archives rather than `--start-lib`/`--end-lib` object lists.
 
 ## What `ghc_cc_wrapper` Translates Between GHC and C Toolchains
 
-GHC invokes its C compiler and linker using older GCC-style flags that Clang, `lld`, and `zig cc` either reject or interpret differently. Instead of running a Python script on every compile or link action, `rules_hs` compiles a small C11 program (`hs/private/cc_wrapper.c`, 552 lines) that adjusts arguments before executing the real C compiler:
+GHC invokes its C compiler and linker using older GCC-style flags that Clang, `lld`, and `zig cc` either reject or interpret differently. Instead of running a Python script on every compile or link action, `rules_haskell` compiles a small C11 program (`hs/private/cc_wrapper.c`, 552 lines) that adjusts arguments before executing the real C compiler:
 
 - Clears Bazel's `RUNFILES_DIR`, `RUNFILES_MANIFEST_FILE`, and `RUNFILES_MANIFEST_ONLY` environment variables from subprocesses so tools do not confuse wrapper runfiles with target inputs.
 - Rewrites Solaris/GCC shared-library name flags (`-Wl,-h,<soname>`) into standard `-Wl,-soname,<soname>` flags, including inside `@args` response files (temporary files GHC uses to pass long command lines).

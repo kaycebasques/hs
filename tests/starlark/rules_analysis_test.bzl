@@ -1,4 +1,4 @@
-"""Starlark analysis & provider unit tests for rules_hs."""
+"""Starlark analysis & provider unit tests for rules_haskell."""
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")

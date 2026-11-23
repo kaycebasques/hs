@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Canonical vanilla Hakyll + Pandoc + Skylighting static site generator
--- for @rules_hs@ (@//docs:docs_gen@).
+-- for @rules_haskell@ (@//docs:docs_gen@).
 module Main (main) where
 
 import Control.Applicative ((<|>))

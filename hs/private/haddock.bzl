@@ -288,9 +288,9 @@ PKG_ROOT="$4"
 shift 4
 
 EXECROOT="$(pwd)"
-case "${RULES_HS_REAL_CC:-}" in
+case "${RULES_HASKELL_REAL_CC:-}" in
     ""|/*) ;;
-    *) export RULES_HS_REAL_CC="$EXECROOT/$RULES_HS_REAL_CC" ;;
+    *) export RULES_HASKELL_REAL_CC="$EXECROOT/$RULES_HASKELL_REAL_CC" ;;
 esac
 case "$HADDOCK" in
     /*) HADDOCK_ABS="$HADDOCK" ;;

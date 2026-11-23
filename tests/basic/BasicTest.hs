@@ -58,7 +58,7 @@ main = do
     -- 8. Runfiles data propagation
     fixturePath <- resolveFixture "tests/basic/fixture.txt"
     content <- readFile fixturePath
-    assertEq "fixture.txt" "rules_hs-hermetic-fixture" (filter (`notElem` ("\r\n" :: String)) content)
+    assertEq "fixture.txt" "rules_haskell-hermetic-fixture" (filter (`notElem` ("\r\n" :: String)) content)
 
     -- 9. Pure reexported-modules (boot package-qualified + hs_library shell-discovered)
     assertEq "Reexported.List.sort" [1, 2, 3 :: Int] (RL.sort [3, 1, 2])

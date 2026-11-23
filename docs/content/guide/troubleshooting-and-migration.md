@@ -1,22 +1,22 @@
 ---
 title: "Migration & Troubleshooting"
-description: "Migrate projects from tweag/rules_haskell, Cabal, or Stack to rules_hs and fix common build, Setup.hs, C header, and lockfile issues."
+description: "Migrate projects from tweag/rules_haskell, Cabal, or Stack to rules_haskell and fix common build, Setup.hs, C header, and lockfile issues."
 section: guide
 nav_title: "Migration & Troubleshooting"
 order: 60
 ---
 
-This guide covers migrating existing Haskell builds from `tweag/rules_haskell`, Cabal, and Stack to `rules_hs`, followed by causes and fixes for common build, `Setup.hs`, C toolchain, runfiles, and lockfile errors.
+This guide covers migrating existing Haskell builds from `tweag/rules_haskell`, Cabal, and Stack to `rules_haskell`, followed by causes and fixes for common build, `Setup.hs`, C toolchain, runfiles, and lockfile errors.
 
 ## Migrating from `tweag/rules_haskell`
 
-`rules_hs` targets Bazel 9 with Bzlmod (`MODULE.bazel`), replacing `WORKSPACE` files, `rules_nixpkgs`, Python `cc_wrapper` scripts, and manual `haskell_toolchain_library` rules. (For a full comparison across `rules_hs`, `tweag/rules_haskell`, Buck2's Haskell rules, Please Build, and `haskell.nix`, see [Comparison with Other Rulesets](../internals/rulesets-comparison.md).)
+`rules_haskell` targets Bazel 9 with Bzlmod (`MODULE.bazel`), replacing `WORKSPACE` files, `rules_nixpkgs`, Python `cc_wrapper` scripts, and manual `haskell_toolchain_library` rules. (For a full comparison across `rules_haskell`, `tweag/rules_haskell`, Buck2's Haskell rules, Please Build, and `haskell.nix`, see [Comparison with Other Rulesets](../internals/rulesets-comparison.md).)
 
-Before starting a migration, check [What Is Supported, Planned, and Out of Scope](../index.md#project-scope): if your existing `rules_haskell` build currently depends on macOS or Windows execution, `-prof` profiling builds, `c2hs`, GHC plugins, or third-party Hackage packages with arbitrary `build-type: Custom` `Setup.hs` code generators, note that the first four are planned (not yet wired) and arbitrary `Custom` `Setup.hs` execution is out of scope (see Troubleshooting item 8 below for workarounds).
+Before starting a migration, check [What Is Supported, Planned, and Out of Scope](../index.md#project-scope): if your existing `tweag/rules_haskell` build currently depends on macOS or Windows execution, `-prof` profiling builds, `c2hs`, GHC plugins, or third-party Hackage packages with arbitrary `build-type: Custom` `Setup.hs` code generators, note that the first four are planned (not yet wired) and arbitrary `Custom` `Setup.hs` execution is out of scope (see Troubleshooting item 8 below for workarounds).
 
 ### Concept and Rule Mapping
 
-| `tweag/rules_haskell` | `rules_hs` | Key Differences |
+| `tweag/rules_haskell` | `rules_haskell` | Key Differences |
 |---|---|---|
 | `WORKSPACE` + `rules_haskell_dependencies()` | `MODULE.bazel` (`bazel_compatibility = [">=9.0.0"]`) | Uses Bzlmod exclusively; delete `WORKSPACE` and `WORKSPACE.bzlmod` |
 | `haskell_register_ghc_bindists()` / `haskell_register_ghc_nixpkgs()` | [`hs.toolchain`](../reference/extensions-and-providers.md#hs-toolchain) + `register_toolchains("@hs_toolchains//:all")` | Pinned Linux GHC archives (`9.10.3` / `9.12.4`) without Nix or host `./configure` |
@@ -25,7 +25,7 @@ Before starting a migration, check [What Is Supported, Planned, and Out of Scope
 | `haskell_library` | [`hs_library`](../reference/rules.md#hs_library) | Defaults to `GHC2021`; separates `deps` and `cc_deps`; uses `hs_source_dirs` instead of `src_strip_prefix` |
 | `haskell_binary` | [`hs_binary`](../reference/rules.md#hs_binary) | Links `libgmp.a` statically; defaults to `threaded = True` and `main_module = "Main"` |
 | `haskell_test` | [`hs_test`](../reference/rules.md#hs_test) | Same attributes as [`hs_binary`](../reference/rules.md#hs_binary) |
-| `haskell_repl` / `@rules_haskell//tools/ghci` | [`hs_repl`](../reference/rules.md#hs_repl) / `@rules_hs//tools/ghci` | Loads workspace targets into GHCi bytecode (`interpret_deps = True`, `:reload`, `:break`) and external packages from `.pkgdb/dyn/`; `@rules_hs//tools/ghci:runghc` runs standalone scripts |
+| `haskell_repl` / `@rules_haskell//tools/ghci` | [`hs_repl`](../reference/rules.md#hs_repl) / `@rules_haskell//tools/ghci` | Loads workspace targets into GHCi bytecode (`interpret_deps = True`, `:reload`, `:break`) and external packages from `.pkgdb/dyn/`; `@rules_haskell//tools/ghci:runghc` runs standalone scripts |
 | `haskell_doc` | [`hs_haddock`](../reference/rules.md#hs_haddock) | Runs GHC's bundled `haddock` inside Bazel's sandbox with hyperlinked source and QuickJump (`doc-index.json`) |
 | `ghcopts = [...]` | `ghc_opts = [...]` | Snake-case attribute names (`ghc_opts`, `cpp_options`, `cc_options`) |
 | `src_strip_prefix = "src"` | `hs_source_dirs = ["src"]` | Matches Cabal's `hs-source-dirs` list (supports multiple source roots) |
@@ -36,12 +36,12 @@ Before starting a migration, check [What Is Supported, Planned, and Out of Scope
 
 1. **Upgrade `.bazelversion` to `>= 9.0.0`** (for example, `9.3.3`) and remove legacy `WORKSPACE`, `WORKSPACE.bazel`, and `WORKSPACE.bzlmod` files.
 2. **Replace `MODULE.bazel` toolchain setup** with [`hs.toolchain`](../reference/extensions-and-providers.md#hs-toolchain) (plus `hermetic_cc_toolchain`, `toolchains_llvm`, or your existing Linux `cc_toolchain` — see [C FFI & Toolchains](c-interop-and-toolchains.md)). Remove `rules_nixpkgs` and manual `haskell_toolchain_library` targets.
-3. **Replace `stack_snapshot` with `hackage.lock.json`**: Run `bazel run @rules_hs//tools/lock:lock -- --snapshot lts-24.67 --package ... --output "$PWD/hackage.lock.json"` and load it via [`hackage.from_lock`](../reference/extensions-and-providers.md#hackage-from_lock) in `MODULE.bazel`.
+3. **Replace `stack_snapshot` with `hackage.lock.json`**: Run `bazel run @rules_haskell//tools/lock:lock -- --snapshot lts-24.67 --package ... --output "$PWD/hackage.lock.json"` and load it via [`hackage.from_lock`](../reference/extensions-and-providers.md#hackage-from_lock) in `MODULE.bazel`.
 4. **Update `BUILD.bazel` loads and attribute names**:
-   - Change `load("@rules_haskell//haskell:defs.bzl", ...)` to `load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_haddock", "hs_library", "hs_test")`.
+   - Change `load("@rules_haskell//haskell:defs.bzl", ...)` to `load("@rules_haskell//hs:defs.bzl", "hs_binary", "hs_haddock", "hs_library", "hs_test")`.
    - Rename `ghcopts` -> `ghc_opts`, `src_strip_prefix` -> `hs_source_dirs`, and `@stackage//:` -> `@hackage//:`.
    - Note that [`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), and [`hs_test`](../reference/rules.md#hs_test) default to `default_language = "GHC2021"` and `threaded = True`. If older code requires `Haskell2010` semantics, set `default_language = "Haskell2010"`.
-5. **List all directly imported packages in `deps`**: Because `rules_hs` compiles with `-hide-all-packages` and passes `-package-id` only for direct `deps`, add any directly imported boot or Hackage packages to each target's `deps` list.
+5. **List all directly imported packages in `deps`**: Because `rules_haskell` compiles with `-hide-all-packages` and passes `-package-id` only for direct `deps`, add any directly imported boot or Hackage packages to each target's `deps` list.
 
 ---
 
@@ -49,7 +49,7 @@ Before starting a migration, check [What Is Supported, Planned, and Out of Scope
 
 Each field in a `.cabal` or `package.yaml` component maps directly to an attribute in `BUILD.bazel`:
 
-| `.cabal` Stanza Field | `rules_hs` Attribute (`hs_library` / `hs_binary` / `hs_test`) |
+| `.cabal` Stanza Field | `rules_haskell` Attribute (`hs_library` / `hs_binary` / `hs_test`) |
 |---|---|
 | `exposed-modules` + `other-modules` | `srcs` (list `.hs`, `.lhs`, and `.hs-boot` files) + `hidden_modules` (for `other-modules` in [`hs_library`](../reference/rules.md#hs_library)) |
 | `main-is` + `-main-is` | Include main `.hs` file in `srcs`; set `main_module` if the entry module is not `Main` |
@@ -69,7 +69,7 @@ Each field in a `.cabal` or `package.yaml` component maps directly to an attribu
 
 ### 1. `Could not load module '...' — It is a member of the hidden package '...'`
 
-**Cause**: `rules_hs` passes `-hide-all-packages` to GHC and exposes only **direct** `deps` via `-package-id`. Your `.hs` file imports a module from a transitive dependency that is not listed in the target's own `deps`.
+**Cause**: `rules_haskell` passes `-hide-all-packages` to GHC and exposes only **direct** `deps` via `-package-id`. Your `.hs` file imports a module from a transitive dependency that is not listed in the target's own `deps`.
 
 **Fix**: Add that package to the target's `deps` list in `BUILD.bazel` (for example, `"@hs_boot//:bytestring"` or `"@hackage//:bytestring"`).
 
@@ -94,14 +94,14 @@ Also ensure `.bazelrc` mounts `/tmp` for Zig's compiler cache (`build:linux --re
 
 ---
 
-### 3. `bazel run @rules_hs//tools/lock:lock` Did Not Update `hackage.lock.json` in My Repo
+### 3. `bazel run @rules_haskell//tools/lock:lock` Did Not Update `hackage.lock.json` in My Repo
 
 **Cause**: `bazel run` executes binaries inside Bazel's temporary runfiles directory rather than your shell's current directory, so a relative `--output hackage.lock.json` writes inside the runfiles tree.
 
 **Fix**: Pass an absolute path using `$PWD`:
 
 ```bash
-bazel run @rules_hs//tools/lock:lock -- \
+bazel run @rules_haskell//tools/lock:lock -- \
   --snapshot lts-24.67 \
   --package aeson \
   --output "$PWD/hackage.lock.json"
@@ -153,7 +153,7 @@ bazel run @rules_hs//tools/lock:lock -- \
 
 ### 8. `Unsupported Cabal build-type 'Custom' for package '...' (only 'Simple' and 'Configure' are supported)`
 
-**Cause**: `rules_hs` builds Cabal `build-type: Simple` packages, autoconf `build-type: Configure` packages (`network`, `unix-time`, `old-time`), and `cabal-doctest`-only `build-type: Custom` packages (`xml-conduit`, automatically normalized to `Simple` by [`//tools/lock:lock`](../reference/lock-cli.md)). It intentionally does not compile and run arbitrary `Setup.hs` programs during builds (under 1% of Hackage; see [How Cabal `build-type` and `Setup.hs` Work](hackage.md#setup-hs-and-build-types)).
+**Cause**: `rules_haskell` builds Cabal `build-type: Simple` packages, autoconf `build-type: Configure` packages (`network`, `unix-time`, `old-time`), and `cabal-doctest`-only `build-type: Custom` packages (`xml-conduit`, automatically normalized to `Simple` by [`//tools/lock:lock`](../reference/lock-cli.md)). It intentionally does not compile and run arbitrary `Setup.hs` programs during builds (under 1% of Hackage; see [How Cabal `build-type` and `Setup.hs` Work](hackage.md#setup-hs-and-build-types)).
 
 **Fix**:
 1. Inspect the package's `Setup.hs` file in its Hackage source archive to see what custom step it performs.
@@ -172,6 +172,6 @@ bazel run @rules_hs//tools/lock:lock -- \
 
 ### 10. Custom Terminal Name (`TERM`) Fails to Initialize `terminfo`
 
-**Cause**: `rules_hs` links GHC and the `terminfo` boot package against a self-contained C11 `libtinfo` reader that searches `$TERMINFO`, `$HOME/.terminfo`, `$TERMINFO_DIRS`, and `/usr/share/terminfo` (and falls back to built-in `xterm-256color`, `xterm`, `tmux`, `screen`, `vt100`, `ansi`, `linux`, and `dumb` capability sets when no terminfo files exist on disk). If `$TERM` is set to an uncommon custom terminal name that has no compiled `term(5)` entry in those directories, `setupTermFromEnv` raises `SetupTermError`.
+**Cause**: `rules_haskell` links GHC and the `terminfo` boot package against a self-contained C11 `libtinfo` reader that searches `$TERMINFO`, `$HOME/.terminfo`, `$TERMINFO_DIRS`, and `/usr/share/terminfo` (and falls back to built-in `xterm-256color`, `xterm`, `tmux`, `screen`, `vt100`, `ansi`, `linux`, and `dumb` capability sets when no terminfo files exist on disk). If `$TERM` is set to an uncommon custom terminal name that has no compiled `term(5)` entry in those directories, `setupTermFromEnv` raises `SetupTermError`.
 
 **Fix**: Set `TERMINFO` (or `TERMINFO_DIRS`) to the directory containing your custom compiled `term(5)` file, or set `TERM=xterm-256color` when running inside minimal containers without `/usr/share/terminfo`.

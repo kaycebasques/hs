@@ -2,7 +2,7 @@
 
 load("//hs:providers.bzl", "HsToolchainInfo")
 
-TOOLCHAIN_TYPE = "@rules_hs//hs:toolchain_type"
+TOOLCHAIN_TYPE = "@rules_haskell//hs:toolchain_type"
 
 def _hs_toolchain_impl(ctx):
     staged = ctx.attr.staged_ghc[HsToolchainInfo]

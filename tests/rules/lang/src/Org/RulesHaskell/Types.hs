@@ -1,4 +1,4 @@
-module Org.RulesHs.Types
+module Org.RulesHaskell.Types
     ( Label (..)
     , defaultLabel
     ) where
@@ -10,4 +10,4 @@ newtype Label = Label { unLabel :: T.Text }
     deriving stock (Eq, Show)
 
 defaultLabel :: Label
-defaultLabel = Label "rules_hs"
+defaultLabel = Label "rules_haskell"

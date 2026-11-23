@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Dogfooded Hackage lockfile generator for @rules_hs@.
+-- | Dogfooded Hackage lockfile generator for @rules_haskell@.
 --
 -- Built exclusively with GHC boot libraries (@base@, @Cabal-syntax@,
 -- @bytestring@, @containers@, @directory@, @filepath@, @process@, @text@).
@@ -50,7 +50,7 @@ defaultOpts =
     { optSnapshot = "lts-24.67"
     , optSnapshotYaml = Nothing
     , optCabalConfig = Nothing
-    , optCacheDir = "/tmp/rules_hs_lock_cache"
+    , optCacheDir = "/tmp/rules_haskell_lock_cache"
     , optGhcVersion = Nothing
     , optPackages = []
     , optFlags = Map.empty
@@ -258,7 +258,7 @@ fetchUrlToFile url dest = do
             , "1"
             , "--retry-all-errors"
             , "-A"
-            , "rules_hs-lock/0.1"
+            , "rules_haskell-lock/0.1"
             , url
             , "-o"
             , tmpDest

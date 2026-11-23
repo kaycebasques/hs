@@ -1,4 +1,4 @@
-load("@rules_hs//hs:defs.bzl", "hs_library", "hs_repl", "hs_test")
+load("@rules_haskell//hs:defs.bzl", "hs_library", "hs_repl", "hs_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 exports_files([
@@ -81,15 +81,15 @@ sh_test(
     args = [
         "$(rootpath :terminfo_test)",
         "$(rootpath :calc_repl)",
-        "$(rootpath @rules_hs//tools/ghci)",
-        "$(rootpath @rules_hs//tools/ghci:runghc)",
+        "$(rootpath @rules_haskell//tools/ghci)",
+        "$(rootpath @rules_haskell//tools/ghci:runghc)",
         "$(rootpath :scripts/hello_script.hs)",
     ],
     data = [
         ":calc_repl",
         ":scripts/hello_script.hs",
         ":terminfo_test",
-        "@rules_hs//tools/ghci",
-        "@rules_hs//tools/ghci:runghc",
+        "@rules_haskell//tools/ghci",
+        "@rules_haskell//tools/ghci:runghc",
     ],
 )

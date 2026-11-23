@@ -9,7 +9,7 @@
  *      linker scripts or crashes on Zig's `.2.xx` glibc triple suffix.
  *   3. Rewrites `-Wl,-h` / `-Wl,-h,<soname>` -> `-Wl,-soname,<soname>` (incl. @rsp).
  *   4. Strips legacy `-fuse-ld=gold`.
- *   5. Rewrites `-fno-PIC` -> `-fPIC` when RULES_HS_FORCE_PIC=1 (Zig gnu targets).
+ *   5. Rewrites `-fno-PIC` -> `-fPIC` when RULES_HASKELL_FORCE_PIC=1 (Zig gnu targets).
  *   6. Symlinks `.dyn_o`/`.p_o` object inputs to `.o` in TMPDIR (Zig rejects non-.o).
  *   7. Injects `-Wno-unused-command-line-argument` (except on --version queries)
  *      to silence Zig's implicit `-fno-sanitize=undefined` during `-E` / `-x assembler`
@@ -452,16 +452,16 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    const char *real_cc = getenv("RULES_HS_REAL_CC");
+    const char *real_cc = getenv("RULES_HASKELL_REAL_CC");
     if (!real_cc || !*real_cc) {
-        fprintf(stderr, "ghc_cc_wrapper: RULES_HS_REAL_CC environment variable is not set\n");
+        fprintf(stderr, "ghc_cc_wrapper: RULES_HASKELL_REAL_CC environment variable is not set\n");
         return 1;
     }
 
-    const char *force_pic_env = getenv("RULES_HS_FORCE_PIC");
+    const char *force_pic_env = getenv("RULES_HASKELL_FORCE_PIC");
     bool force_pic = (force_pic_env == NULL || strcmp(force_pic_env, "0") != 0);
 
-    const char *is_gcc_env = getenv("RULES_HS_CC_IS_GCC");
+    const char *is_gcc_env = getenv("RULES_HASKELL_CC_IS_GCC");
     bool is_gcc = (is_gcc_env != NULL && strcmp(is_gcc_env, "1") == 0);
 
     bool is_version_query = false;
@@ -495,7 +495,7 @@ int main(int argc, char **argv) {
     }
 
     /* Optional newline-delimited extra flags from Bazel's cc_toolchain (e.g. --sysroot, -B). */
-    const char *extra = getenv("RULES_HS_CC_EXTRA_ARGS");
+    const char *extra = getenv("RULES_HASKELL_CC_EXTRA_ARGS");
     if (extra && *extra) {
         const char *p = extra;
         while (*p) {

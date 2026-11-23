@@ -156,8 +156,8 @@ def _ghc_bindist_repo_impl(repository_ctx):
     # Note: Keep the repository BUILD clean and expose both raw bindist files and
     # the $ORIGIN-staged GHC + hs_toolchain target.
     build_content = """\
-load("@rules_hs//hs:toolchain.bzl", "hs_toolchain")
-load("@rules_hs//hs/private:staged_ghc.bzl", "staged_ghc")
+load("@rules_haskell//hs:toolchain.bzl", "hs_toolchain")
+load("@rules_haskell//hs/private:staged_ghc.bzl", "staged_ghc")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -217,8 +217,8 @@ staged_ghc(
     boot_haddock_files = [":boot_haddock_files"],
     rts_headers = [":rts_headers"],
     gmp = "@gmp//:gmp",
-    tinfo_stub = "@rules_hs//hs/private:libtinfo.so.6",
-    tinfo_stub_static = "@rules_hs//hs/private:tinfo_stub_static",
+    tinfo_stub = "@rules_haskell//hs/private:libtinfo.so.6",
+    tinfo_stub_static = "@rules_haskell//hs/private:tinfo_stub_static",
 )
 
 hs_toolchain(
@@ -282,7 +282,7 @@ toolchain(
     exec_compatible_with = {exec_c},
     target_compatible_with = {target_c},
     toolchain = "@{repo}//:toolchain_impl",
-    toolchain_type = "@rules_hs//hs:toolchain_type",
+    toolchain_type = "@rules_haskell//hs:toolchain_type",
 )
 """.format(
             plat = plat,
@@ -306,7 +306,7 @@ def _hs_boot_repo_impl(repository_ctx):
     ver = repository_ctx.attr.ghc_version
     pkg_names = BOOT_PACKAGE_NAMES.get(ver, [])
     lines = [
-        'load("@rules_hs//hs:defs.bzl", "hs_toolchain_library")',
+        'load("@rules_haskell//hs:defs.bzl", "hs_toolchain_library")',
         "",
         'package(default_visibility = ["//visibility:public"])',
         "",

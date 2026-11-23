@@ -66,7 +66,7 @@ OUT_BIN="$(
         "$SMOKE_BIN_REPL"
 )"
 echo "$OUT_BIN"
-grep -qF "Hello, rules_hs (36)" <<< "$OUT_BIN"
+grep -qF "Hello, rules_haskell (36)" <<< "$OUT_BIN"
 grep -qF "cfg=1337/1337" <<< "$OUT_BIN"
 grep -qF "tinfo=real" <<< "$OUT_BIN"
 

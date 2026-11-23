@@ -70,7 +70,7 @@ ISERV_OUT="$(
 )"
 grep -qF "47" <<< "$ISERV_OUT"
 
-# 6. Verify standalone @rules_hs//tools/ghci and @rules_hs//tools/ghci:runghc
+# 6. Verify standalone @rules_haskell//tools/ghci and @rules_haskell//tools/ghci:runghc
 GHCI_OUT="$(
     env -i PATH="$CLEAN_PATH" RUNFILES_DIR="$RF_BASE" TMPDIR="${TEST_TMPDIR:-/tmp}" \
         "$TOOLS_GHCI" -e '(2 :: Integer) ^ (64 :: Int)'

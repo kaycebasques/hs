@@ -90,13 +90,13 @@ def _toolchain_c_include_dirs(hs_tc):
     return dirs
 
 def _cc_extra_args_shell_lines(cc_tools):
-    """Formats RULES_HS_CC_IS_GCC and RULES_HS_CC_EXTRA_ARGS lines anchored to $RUNFILES_DIR."""
+    """Formats RULES_HASKELL_CC_IS_GCC and RULES_HASKELL_CC_EXTRA_ARGS lines anchored to $RUNFILES_DIR."""
     lines = []
     if cc_tools.is_gcc:
-        lines.append("export RULES_HS_CC_IS_GCC=1")
+        lines.append("export RULES_HASKELL_CC_IS_GCC=1")
     extra_cc_args = cc_tools.extra_cc_args
     if not extra_cc_args:
-        lines.append("export RULES_HS_CC_EXTRA_ARGS=''")
+        lines.append("export RULES_HASKELL_CC_EXTRA_ARGS=''")
         return "\n".join(lines)
     exprs = []
     prev_sysroot = False
@@ -124,7 +124,7 @@ def _cc_extra_args_shell_lines(cc_tools):
     lines.append("CC_EXTRA_NL=''")
     for ex in exprs:
         lines.append('if [ -n "$CC_EXTRA_NL" ]; then CC_EXTRA_NL="${CC_EXTRA_NL}\n"%s; else CC_EXTRA_NL=%s; fi' % (ex, ex))
-    lines.append('export RULES_HS_CC_EXTRA_ARGS="$CC_EXTRA_NL"')
+    lines.append('export RULES_HASKELL_CC_EXTRA_ARGS="$CC_EXTRA_NL"')
     return "\n".join(lines)
 
 def _repl_ghc_tool_flag_exprs(hs_tc, cc_tools):
@@ -235,9 +235,9 @@ def _link_repl_cbits_so(ctx, hs_tc, cc_tools, cc_archives, cc_link_flags):
 set -euo pipefail
 unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY
 EXECROOT="$(pwd)"
-case "${RULES_HS_REAL_CC:-}" in
+case "${RULES_HASKELL_REAL_CC:-}" in
     ""|/*) ;;
-    *) export RULES_HS_REAL_CC="$EXECROOT/$RULES_HS_REAL_CC" ;;
+    *) export RULES_HASKELL_REAL_CC="$EXECROOT/$RULES_HASKELL_REAL_CC" ;;
 esac
 WRAPPER="$1"
 shift
@@ -506,8 +506,8 @@ else
 fi
 
 GHC_BIN={ghc_expr}
-export RULES_HS_REAL_CC={real_cc_expr}
-export RULES_HS_FORCE_PIC=1
+export RULES_HASKELL_REAL_CC={real_cc_expr}
+export RULES_HASKELL_FORCE_PIC=1
 {cc_extra_setup}
 
 # Handle standalone compiler query flags (--version, --numeric-version, --info, etc.) cleanly.
@@ -792,7 +792,7 @@ hs_repl = rule(
         ),
         "expose_boot_packages": attr.bool(
             default = False,
-            doc = "When True, omits -hide-all-packages so all GHC boot packages are visible without listing each in deps (used by @rules_hs//tools/ghci).",
+            doc = "When True, omits -hide-all-packages so all GHC boot packages are visible without listing each in deps (used by @rules_haskell//tools/ghci).",
         ),
         "cc_deps": attr.label_list(
             providers = [CcInfo],
@@ -870,7 +870,7 @@ hs_repl = rule(
 )
 
 # ==============================================================================
-# hs_runghc (standalone script-interpreter launcher for @rules_hs//tools/ghci:runghc)
+# hs_runghc (standalone script-interpreter launcher for @rules_haskell//tools/ghci:runghc)
 # ==============================================================================
 
 def _hs_runghc_impl(ctx):
@@ -907,8 +907,8 @@ export RUNFILES_DIR
 
 RUNGHC_BIN={runghc_expr}
 GHC_BIN={ghc_expr}
-export RULES_HS_REAL_CC={real_cc_expr}
-export RULES_HS_FORCE_PIC=1
+export RULES_HASKELL_REAL_CC={real_cc_expr}
+export RULES_HASKELL_FORCE_PIC=1
 {cc_extra_setup}
 
 for uarg in "$@"; do

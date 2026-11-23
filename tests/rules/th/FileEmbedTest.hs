@@ -12,8 +12,8 @@ embeddedExeText = $(embedStringFile "exe_embed_fixture.txt")
 
 main :: IO ()
 main = do
-    let expectedLib = "rules_hs compile-time library data fixture\n"
-        expectedExe = "rules_hs compile-time executable data fixture\n"
+    let expectedLib = "rules_haskell compile-time library data fixture\n"
+        expectedExe = "rules_haskell compile-time executable data fixture\n"
     unless (embeddedLibText == expectedLib) $ do
         putStrLn ("FAIL [embeddedLibText]: got " ++ show embeddedLibText)
         exitFailure

@@ -11,7 +11,7 @@ import TopLib (topSummary)
 
 main :: IO ()
 main = do
-    TIO.putStrLn (greetWithNative "rules_hs" 7)
+    TIO.putStrLn (greetWithNative "rules_haskell" 7)
     putStrLn ("s_ifreg=" ++ show sIfregConst)
     putStrLn ("tree=" ++ show (treeSum (Node [Leaf 10, Node [Leaf 20, Leaf 12]])))
     putStrLn ("cabal=" ++ topSummary)

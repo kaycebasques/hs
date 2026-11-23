@@ -1,1 +1,1 @@
-rules_hs compile-time executable data fixture
+rules_haskell compile-time executable data fixture

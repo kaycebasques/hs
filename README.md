@@ -1,25 +1,25 @@
-# `rules_hs`
+# `rules_haskell`
 
-[![CI](https://github.com/kaycebasques/hs/actions/workflows/ci.yml/badge.svg)](https://github.com/kaycebasques/hs/actions/workflows/ci.yml)
-[![Pages](https://github.com/kaycebasques/hs/actions/workflows/pages.yml/badge.svg)](https://github.com/kaycebasques/hs/actions/workflows/pages.yml)
-[![Documentation](https://img.shields.io/badge/docs-kaycebasques.github.io%2Fhs-blue)](https://kaycebasques.github.io/hs/)
+[![CI](https://github.com/kaycebasques/rules_haskell/actions/workflows/ci.yml/badge.svg)](https://github.com/kaycebasques/rules_haskell/actions/workflows/ci.yml)
+[![Pages](https://github.com/kaycebasques/rules_haskell/actions/workflows/pages.yml/badge.svg)](https://github.com/kaycebasques/rules_haskell/actions/workflows/pages.yml)
+[![Documentation](https://img.shields.io/badge/docs-kaycebasques.github.io%2Frules__haskell-blue)](https://kaycebasques.github.io/rules_haskell/)
 
 Bazel 9 ruleset for Haskell using Bzlmod (`bazel_compatibility = [">=9.0.0"]`).
 
-**Documentation**: [**https://kaycebasques.github.io/hs/**](https://kaycebasques.github.io/hs/) · [Haddock API (`//tools/lock`)](https://kaycebasques.github.io/hs/haddock/lock/index.html)
+**Documentation**: [**https://kaycebasques.github.io/rules_haskell/**](https://kaycebasques.github.io/rules_haskell/) · [Haddock API (`//tools/lock`)](https://kaycebasques.github.io/rules_haskell/haddock/lock/index.html)
 
-`rules_hs` compiles Haskell libraries, executables, tests, interactive `ghci` REPL targets, C/C++ bindings, Haddock API documentation, and third-party Hackage packages on Linux inside isolated Bazel sandboxes. It does not require Nix, legacy `WORKSPACE` files, Python wrapper scripts, or host installations of `ghc`, `cabal`, `stack`, `gcc`, `clang`, or system C `-dev` packages.
+`rules_haskell` compiles Haskell libraries, executables, tests, interactive `ghci` REPL targets, C/C++ bindings, Haddock API documentation, and third-party Hackage packages on Linux inside isolated Bazel sandboxes. It does not require Nix, legacy `WORKSPACE` files, Python wrapper scripts, or host installations of `ghc`, `cabal`, `stack`, `gcc`, `clang`, or system C `-dev` packages.
 
 - **Self-contained Linux GHC toolchains**: Extracts official GHC `9.10.3` and `9.12.4` binary distributions in Starlark without running host `./configure && make install`. Compiler binaries load `libgmp.so.10` (built from Bazel Central Registry `@gmp`) and a self-contained C11 `libtinfo.so.6` terminfo library via relative ELF library paths (`$ORIGIN`), without `LD_LIBRARY_PATH` or `patchelf`.
 - **Portable Linux executables with static GMP**: `hs_binary` and `hs_test` link `libgmp.a` statically so compiled executables dynamically depend only on standard Linux `glibc` libraries (`libc.so.6`, `libm.so.6`, `libdl.so.2`, `libpthread.so.0`) and run under `env -i PATH=/nonexistent`.
 - **Compiled C11 compiler wrapper**: Bridges GHC, `hsc2hs`, and Cabal `./configure` to Bazel's `cc_toolchain` through a small compiled C11 binary (`ghc_cc_wrapper`) instead of a Python wrapper script.
-- **Two-phase Hackage lockfiles**: Uses `@rules_hs//tools/lock:lock` (built by `rules_hs` itself against GHC's built-in `Cabal-syntax` library) to generate a deterministic `hackage.lock.json`, read in Starlark (`reproducible = True`) and compiled with a 5-stage `hs_cabal_library` pipeline rather than running `Setup.hs`.
+- **Two-phase Hackage lockfiles**: Uses `@rules_haskell//tools/lock:lock` (built by `rules_haskell` itself against GHC's built-in `Cabal-syntax` library) to generate a deterministic `hackage.lock.json`, read in Starlark (`reproducible = True`) and compiled with a 5-stage `hs_cabal_library` pipeline rather than running `Setup.hs`.
 - **Small non-dev `MODULE.bazel` graph**: Directly depends on four Bazel modules (`platforms`, `bazel_skylib`, `rules_cc`, and `gmp`).
 
 > **New to Bazel Rulesets or Haskell?** Our documentation assumes no prior Bazel ruleset-authoring or Haskell/GHC background:
 > - **[Bazel Ruleset Primer](docs/content/internals/bazel-rules-primer.md)** — Loading, Analysis, and Execution phases, `dev_dependency = True`, lazy Bzlmod hubs, providers and transitive sets, directory outputs, host tool vs. target configurations, and `CcInfo` C/C++ interop.
 > - **[Haskell & GHC Primer](docs/content/internals/haskell-and-ghc-primer.md)** — `GHC` vs. `Cabal` vs. `Hackage` vs. `Stackage`, GHC's 41 boot libraries, `.hi` compiler interfaces and relocatable package databases, RTS C linking, `gmp` and `libtinfo`, `hsc2hs`/Alex/Happy, Template Haskell, and Haddock.
-> - **[Dependency Decisions & `MODULE.bazel` Anatomy](docs/content/internals/dependencies.md#module-bazel-anatomy)** — Plain-English explanation of every dependency across `rules_hs`, `examples/size`, and `//docs`, why it is needed, and what would fail without it.
+> - **[Dependency Decisions & `MODULE.bazel` Anatomy](docs/content/internals/dependencies.md#module-bazel-anatomy)** — Plain-English explanation of every dependency across `rules_haskell`, `examples/size`, and `//docs`, why it is needed, and what would fail without it.
 
 ---
 
@@ -27,12 +27,12 @@ Bazel 9 ruleset for Haskell using Bzlmod (`bazel_compatibility = [">=9.0.0"]`).
 
 ### Supported Today
 
-- **Build, test, REPL, and documentation rules**: `hs_library`, `hs_binary`, `hs_test`, `hs_repl`, `hs_haddock`, `hs_toolchain_library`, and `hs_cabal_library`, plus standalone `@rules_hs//tools/ghci` and `@rules_hs//tools/ghci:runghc` targets.
+- **Build, test, REPL, and documentation rules**: `hs_library`, `hs_binary`, `hs_test`, `hs_repl`, `hs_haddock`, `hs_toolchain_library`, and `hs_cabal_library`, plus standalone `@rules_haskell//tools/ghci` and `@rules_haskell//tools/ghci:runghc` targets.
 - **Interactive interpreter execution (`ghci`, `-e`, `runghc`, and `ghc-iserv-dyn`)**: `bazel run` on an `hs_repl` target opens an interactive `ghci` session preloaded with workspace modules (supporting `:reload` against live workspace edits, `:break`/`:continue` bytecode debugging, C/C++ FFI, `CApiFFI`, Template Haskell, and `data` runfiles), `-e` expression evaluation, `.ghci` scripts, `-fexternal-interpreter`, and `terminfo` line editing (`haskeline` arrow-key history, Tab completion, and 256-color output via a self-contained C11 `libtinfo` reader with built-in `xterm-256color`/`vt100`/`dumb` fallbacks).
 - **Platforms and GHC versions**: Linux `x86_64` (tested in CI on bare Debian 12, Ubuntu 24.04, and Rocky Linux 9 containers with no host compilers installed) and Linux `arm64`, with official GHC `9.10.3` (default) and `9.12.4` binary distributions.
 - **Language and compiler features**: `Haskell98`, `Haskell2010`, `GHC2021` (default), and `GHC2024` language editions; per-target GHC extensions and flags; private library modules (`hidden_modules`); `.hs-boot` mutually recursive modules; `.lhs` literate Haskell; single-threaded and `-threaded` GHC runtime; Bazel `data` runfiles; and Template Haskell (including cross-library splices and compile-time file reading such as `file-embed`).
 - **C and C++ interoperability**: `foreign import ccall` and `CApiFFI`, inline `c_sources` (C, C++, and assembly), `cc_deps` (`cc_library` targets from your repository or the Bazel Central Registry), and compatibility with any Bazel `cc_toolchain` (`hermetic_cc_toolchain` `zig cc`, `toolchains_llvm`, GCC, or Clang).
-- **Third-party Hackage and Stackage packages**: Lockfile generation via `@rules_hs//tools/lock:lock` and lazy per-package builds via `hackage.from_lock` and `hackage.override`, supporting:
+- **Third-party Hackage and Stackage packages**: Lockfile generation via `@rules_haskell//tools/lock:lock` and lazy per-package builds via `hackage.from_lock` and `hackage.override`, supporting:
   - Cabal `build-type: Simple` (over 95% of Hackage).
   - Cabal `build-type: Configure` (autoconf `./configure` scripts, such as `network`, `unix-time`, and `old-time`).
   - Cabal `build-type: Custom` packages whose custom setup only existed for `cabal-doctest` (automatically converted to `Simple`, such as `xml-conduit`).
@@ -51,27 +51,27 @@ Bazel 9 ruleset for Haskell using Bzlmod (`bazel_compatibility = [">=9.0.0"]`).
 
 ### Out of Scope (By Design)
 
-- **Arbitrary `build-type: Custom` `Setup.hs` scripts**: Packages (under 1% of Hackage) that execute bespoke Haskell programs inside `Setup.hs` to generate code during library compilation are not run by `rules_hs`, because running `Setup.hs` collapses builds into an opaque single-action wrapper that breaks fine-grained C/`hsc2hs` caching and Bazel `CcInfo` propagation. Workaround: inspect what the script generates and supply flags or files via `hackage.override` or custom Bazel targets (see [Hackage & Lockfiles](docs/content/guide/hackage.md) and [Migration & Troubleshooting](docs/content/guide/troubleshooting-and-migration.md)).
-- **Legacy Bazel `WORKSPACE` files and Bazel `< 9.0.0`**: `rules_hs` uses Bzlmod (`MODULE.bazel`) exclusively.
-- **Nix / `rules_nixpkgs` toolchains**: `rules_hs` downloads SHA-256-pinned archives directly into Bazel's cache rather than reading `/nix/store` on the host.
-- **Bundling Python, Node.js, Java, or Protobuf rules inside `rules_hs`**: Keeping `rules_hs` free of foreign language runtimes keeps downstream `MODULE.bazel` graphs small; Protobuf or multi-language code generation belongs in separate companion rulesets.
+- **Arbitrary `build-type: Custom` `Setup.hs` scripts**: Packages (under 1% of Hackage) that execute bespoke Haskell programs inside `Setup.hs` to generate code during library compilation are not run by `rules_haskell`, because running `Setup.hs` collapses builds into an opaque single-action wrapper that breaks fine-grained C/`hsc2hs` caching and Bazel `CcInfo` propagation. Workaround: inspect what the script generates and supply flags or files via `hackage.override` or custom Bazel targets (see [Hackage & Lockfiles](docs/content/guide/hackage.md) and [Migration & Troubleshooting](docs/content/guide/troubleshooting-and-migration.md)).
+- **Legacy Bazel `WORKSPACE` files and Bazel `< 9.0.0`**: `rules_haskell` uses Bzlmod (`MODULE.bazel`) exclusively.
+- **Nix / `rules_nixpkgs` toolchains**: `rules_haskell` downloads SHA-256-pinned archives directly into Bazel's cache rather than reading `/nix/store` on the host.
+- **Bundling Python, Node.js, Java, or Protobuf rules inside `rules_haskell`**: Keeping `rules_haskell` free of foreign language runtimes keeps downstream `MODULE.bazel` graphs small; Protobuf or multi-language code generation belongs in separate companion rulesets.
 - **GHCJS and WebAssembly compiler backends**.
 
 ---
 
-## Comparison with `rules_haskell`
+## Comparison with `tweag/rules_haskell`
 
-| Dimension | `rules_hs` | `tweag/rules_haskell` |
+| Dimension | `rules_haskell` | `tweag/rules_haskell` |
 |---|---|---|
 | **Bazel and module system** | Bazel 9+ (`>=9.0.0`), Bzlmod (`MODULE.bazel`) only | Targets Bazel 7 with legacy `WORKSPACE` roots; incompatible with Bazel 8 and 9 |
 | **Direct non-dev `MODULE.bazel` deps** | 4 modules: `platforms`, `bazel_skylib`, `rules_cc`, `gmp` | Pulls `rules_java`, `protobuf`, `abseil-cpp`, `rules_proto`, `rules_nodejs`, `aspect_rules_js`, `rules_python`, `rules_sh` |
 | **Linux GHC provisioning** | Starlark archive extraction + staged `@gmp` and `libtinfo.so.6` stub; compatible with remote execution | Bindist runs host `./configure && make install` (needs host `libgmp-dev`/`libtinfo`); sandboxed mode relies on `rules_nixpkgs` (`/nix/store`) |
 | **C compiler adapter** | Compiled C11 binary (`ghc_cc_wrapper`), no Python dependency | `cc_wrapper.py.tpl`, pulling `rules_python` into compile and link actions |
 | **Third-party Hackage builds** | 5-stage `hs_cabal_library` (`Simple` and `Configure`; arbitrary `Custom` `Setup.hs` out of scope) | Single Python wrapper (`cabal_wrapper.py`) running `runghc Setup.hs` (supports `Custom` `Setup.hs`, at the cost of per-file caching) |
-| **Dependency pinning and boot libs** | `@rules_hs//tools/lock:lock` (built by `rules_hs` using GHC boot `Cabal-syntax`) + automatic `@hs_boot` and `@hackage` boot targets | External `stack` binary via `stack_snapshot` + manual `haskell_toolchain_library` declarations |
+| **Dependency pinning and boot libs** | `@rules_haskell//tools/lock:lock` (built by `rules_haskell` using GHC boot `Cabal-syntax`) + automatic `@hs_boot` and `@hackage` boot targets | External `stack` binary via `stack_snapshot` + manual `haskell_toolchain_library` declarations |
 | **Linux binary runtime deps** | Static `libgmp.a`; dynamic dependencies limited to base `glibc` (`libc`, `libm`, `libdl`, `libpthread`) | Dynamic linking with `rpath` rewriting on bindist toolchains (`fully_static_link = False`) |
 
-> See [Comparison with Other Haskell Build Rulesets](docs/content/internals/rulesets-comparison.md) for the full architectural comparison across `rules_hs`, `tweag/rules_haskell`, Buck2's `prelude/haskell` and `buck2-haskell`, Please Build, `haskell.nix`, and Cabal/Stack wrappers.
+> See [Comparison with Other Haskell Build Rulesets](docs/content/internals/rulesets-comparison.md) for the full architectural comparison across `rules_haskell`, `tweag/rules_haskell`, Buck2's `prelude/haskell` and `buck2-haskell`, Please Build, `haskell.nix`, and Cabal/Stack wrappers.
 
 ---
 
@@ -100,7 +100,7 @@ build:linux --repo_env=HERMETIC_CC_TOOLCHAIN_CACHE_PREFIX=/tmp/zig-cc-cache
 build:linux --sandbox_add_mount_pair=/tmp
 ```
 
-Create `MODULE.bazel` (until `rules_hs` is published to the Bazel Central Registry, point `git_override` at this repository or use `local_path_override`):
+Create `MODULE.bazel` (until `rules_haskell` is published to the Bazel Central Registry, point `git_override` at this repository or use `local_path_override`):
 
 ```starlark
 module(
@@ -109,10 +109,10 @@ module(
     bazel_compatibility = [">=9.0.0"],
 )
 
-bazel_dep(name = "rules_hs", version = "0.1.0")
+bazel_dep(name = "rules_haskell", version = "0.1.0")
 git_override(
-    module_name = "rules_hs",
-    remote = "https://github.com/kaycebasques/hs.git",
+    module_name = "rules_haskell",
+    remote = "https://github.com/kaycebasques/rules_haskell.git",
     commit = "<commit-sha>",
 )
 
@@ -130,7 +130,7 @@ register_toolchains(
 )
 
 # GHC toolchain + automatic @hs_boot targets for all 41 GHC boot packages.
-hs = use_extension("@rules_hs//hs:extensions.bzl", "hs")
+hs = use_extension("@rules_haskell//hs:extensions.bzl", "hs")
 hs.toolchain(ghc_version = "9.10.3")
 use_repo(hs, "hs_boot", "hs_toolchains")
 register_toolchains("@hs_toolchains//:all")
@@ -139,7 +139,7 @@ register_toolchains("@hs_toolchains//:all")
 Create `BUILD.bazel`:
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_library", "hs_test")
+load("@rules_haskell//hs:defs.bzl", "hs_binary", "hs_library", "hs_test")
 
 hs_library(
     name = "greet",
@@ -182,10 +182,10 @@ bazel run //:hello
 
 ### 2. Third-Party Hackage Project
 
-**Step 1 — Generate `hackage.lock.json`** using `@rules_hs//tools/lock:lock` (built by `rules_hs` itself using GHC's `Cabal-syntax` boot library; no host `cabal` or `stack` required):
+**Step 1 — Generate `hackage.lock.json`** using `@rules_haskell//tools/lock:lock` (built by `rules_haskell` itself using GHC's `Cabal-syntax` boot library; no host `cabal` or `stack` required):
 
 ```bash
-bazel run @rules_hs//tools/lock:lock -- \
+bazel run @rules_haskell//tools/lock:lock -- \
   --snapshot lts-24.67 \
   --package xml-conduit \
   --package http-client \
@@ -201,7 +201,7 @@ bazel run @rules_hs//tools/lock:lock -- \
 **Step 2 — Load the lockfile in `MODULE.bazel`**:
 
 ```starlark
-hackage = use_extension("@rules_hs//hs:extensions.bzl", "hackage")
+hackage = use_extension("@rules_haskell//hs:extensions.bzl", "hackage")
 hackage.from_lock(
     name = "hackage",
     lockfile = "//:hackage.lock.json",
@@ -217,7 +217,7 @@ use_repo(hackage, "hackage")
 **Step 3 — Depend on `@hackage//:...` in `BUILD.bazel`** (`@hackage` exposes both GHC boot packages and pinned Hackage packages under one namespace, downloading each Hackage archive lazily only when referenced):
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_binary")
+load("@rules_haskell//hs:defs.bzl", "hs_binary")
 
 hs_binary(
     name = "app",
@@ -239,7 +239,7 @@ hs_binary(
 
 ## API Overview
 
-### Rules (`@rules_hs//hs:defs.bzl`)
+### Rules (`@rules_haskell//hs:defs.bzl`)
 
 | Rule | Purpose | Key Attributes |
 |---|---|---|
@@ -251,15 +251,15 @@ hs_binary(
 | `hs_toolchain_library` | Exposes a GHC boot package from the active `HsToolchainInfo`. Automatically generated for every boot library in `@hs_boot` and `@hackage`. | `package_name` |
 | `hs_cabal_library` | 5-stage Cabal package builder (used by generated `@hackage__<pkg>` repos): sandboxed `./configure`, `cabal_macros.h` + `Paths_*`, per-file `hsc2hs`, `cc_common.compile` (including C-only packages like `zlib-clib`), and `ghc --make -c`. | `package_name`, `component_name`, `version`, `srcs`, `hsc_srcs`, `c_sources`, `hdrs`, `install_includes`, `include_dirs`, `exposed_modules`, `other_modules`, `reexported_modules`, `build_type`, `configure_*`, `generate_paths_module`, `deps`, `extra_cc_deps` |
 
-### Module Extensions (`@rules_hs//hs:extensions.bzl`)
+### Module Extensions (`@rules_haskell//hs:extensions.bzl`)
 
 - **`hs`**:
-  - `hs.toolchain(ghc_version = "9.10.3", platforms = [])`: Downloads official GHC binary distributions (`"9.10.3"` default or `"9.12.4"`), replaces hardcoded `/usr/bin/*` paths in `lib/settings`, parses `lib/package.conf.d/*.conf`, and creates `@hs_toolchains` and `@hs_boot` (`reproducible = True`). Root module declarations override `rules_hs`'s default version.
+  - `hs.toolchain(ghc_version = "9.10.3", platforms = [])`: Downloads official GHC binary distributions (`"9.10.3"` default or `"9.12.4"`), replaces hardcoded `/usr/bin/*` paths in `lib/settings`, parses `lib/package.conf.d/*.conf`, and creates `@hs_toolchains` and `@hs_boot` (`reproducible = True`). Root module declarations override `rules_haskell`'s default version.
 - **`hackage`**:
-  - `hackage.from_lock(name = "hackage", lockfile = "//:hackage.lock.json")`: Reads a lockfile generated by `@rules_hs//tools/lock:lock` using Starlark `json.decode` (`reproducible = True`) and creates hub repo `@<name>` plus lazy per-package `@<name>__<pkg>` repos.
+  - `hackage.from_lock(name = "hackage", lockfile = "//:hackage.lock.json")`: Reads a lockfile generated by `@rules_haskell//tools/lock:lock` using Starlark `json.decode` (`reproducible = True`) and creates hub repo `@<name>` plus lazy per-package `@<name>__<pkg>` repos.
   - `hackage.override(hub = "hackage", package = "...", extra_cc_deps = [], extra_ghc_opts = [], extra_cpp_options = [], extra_cc_options = [], configure_args = [])`: Attaches `cc_library` dependencies or compiler and `./configure` flags to any locked package.
 
-### Providers (`@rules_hs//hs:providers.bzl`)
+### Providers (`@rules_haskell//hs:providers.bzl`)
 
 - `HsPackageInfo`: Direct package metadata (`name`, `version`, `unit_id`, `pkg_db`, `exposed_modules`, `is_boot`, `hs_lib`, `hi_dir`).
 - `HsLinkInfo`: Transitive sets (`pkg_dbs`, `hs_libs`, `include_dirs`, `headers`) and merged `CcInfo`.
@@ -307,7 +307,7 @@ Sample output:
 
 ## C Toolchain Compatibility
 
-`rules_hs` works with any Bazel Linux C/C++ toolchain: every rule resolves `@bazel_tools//tools/cpp:toolchain_type` through `rules_cc` (`find_cc_toolchain` + `cc_common`) and forwards `--sysroot` and `--target` flags into `ghc_cc_wrapper`. `hermetic_cc_toolchain` is marked `dev_dependency = True` in `rules_hs`'s own `MODULE.bazel`, so downstream projects choose their own C toolchain:
+`rules_haskell` works with any Bazel Linux C/C++ toolchain: every rule resolves `@bazel_tools//tools/cpp:toolchain_type` through `rules_cc` (`find_cc_toolchain` + `cc_common`) and forwards `--sysroot` and `--target` flags into `ghc_cc_wrapper`. `hermetic_cc_toolchain` is marked `dev_dependency = True` in `rules_haskell`'s own `MODULE.bazel`, so downstream projects choose their own C toolchain:
 
 - **`hermetic_cc_toolchain` (`zig cc`)**: Register `@zig_sdk//toolchain:linux_amd64_gnu.2.32` and `@zig_sdk//toolchain:linux_arm64_gnu.2.32` ahead of `@zig_sdk//toolchain/...`. Selecting `gnu.2.32` satisfies both GHC `deb10` bindists (`glibc <= 2.28`) and BCR `m4`/`gmp` (`<sys/single_threaded.h>` requires `glibc >= 2.32` under Zig) while keeping binaries compatible with Debian 12 (2.36), Ubuntu 22.04/24.04 (2.35/2.39), and Rocky 9 (2.34).
 - **`toolchains_llvm`**: Use any Debian `>= 10` (`glibc >= 2.28`) sysroot for Clang + `lld` builds with no `/tmp` sandbox cache mount needed.
@@ -326,15 +326,15 @@ Sample output:
 | `windows_x86_64` | URL + SHA-256 cataloged | Planned (`.exe` layout and Windows `cc_wrapper`) |
 | `linux_x86_64_musl` | `alpine3_12-linux-static-int_native` cataloged | Planned opt-in flavor for `FROM scratch` static binaries |
 
-**Template Haskell**: `rules_hs` supports `TemplateHaskellQuotes`, boot-package splices, same-library cross-module splices, and cross-library / Hackage Template Haskell splices (`aeson`, `file-embed`, `skylighting`, `pandoc`, C FFI / `CApiFFI`, and `runIO` across multi-hop library chains; verified in `//tests/rules/th:th_test`, `//tests/rules/th:cross_lib_th_test`, and `//tests/rules/th:cross_lib_th_elf_test`). Libraries compile with `-dynamic-too` and isolate shared TH `.so` objects under `<name>.pkgdb/dyn` (`dynamic-library-dirs`), so `hs_binary` and `hs_test` executables still link static `.a` archives and carry dynamic dependencies only on base `glibc`.
+**Template Haskell**: `rules_haskell` supports `TemplateHaskellQuotes`, boot-package splices, same-library cross-module splices, and cross-library / Hackage Template Haskell splices (`aeson`, `file-embed`, `skylighting`, `pandoc`, C FFI / `CApiFFI`, and `runIO` across multi-hop library chains; verified in `//tests/rules/th:th_test`, `//tests/rules/th:cross_lib_th_test`, and `//tests/rules/th:cross_lib_th_elf_test`). Libraries compile with `-dynamic-too` and isolate shared TH `.so` objects under `<name>.pkgdb/dyn` (`dynamic-library-dirs`), so `hs_binary` and `hs_test` executables still link static `.a` archives and carry dynamic dependencies only on base `glibc`.
 
 ---
 
 ## Documentation
 
-**Live site**: [**https://kaycebasques.github.io/hs/**](https://kaycebasques.github.io/hs/) (built and deployed on push to `main` via [`.github/workflows/pages.yml`](.github/workflows/pages.yml), including mounted Haddock API docs at [`/haddock/lock/`](https://kaycebasques.github.io/hs/haddock/lock/index.html)).
+**Live site**: [**https://kaycebasques.github.io/rules_haskell/**](https://kaycebasques.github.io/rules_haskell/) (built and deployed on push to `main` via [`.github/workflows/pages.yml`](.github/workflows/pages.yml), including mounted Haddock API docs at [`/haddock/lock/`](https://kaycebasques.github.io/rules_haskell/haddock/lock/index.html)).
 
-The documentation site is built by `rules_hs` itself without Python or Node.js (see [`docs/README.md`](docs/README.md)):
+The documentation site is built by `rules_haskell` itself without Python or Node.js (see [`docs/README.md`](docs/README.md)):
 
 - **Hakyll + Pandoc + Skylighting** (`docs/site.hs`) rendering Markdown guides, Starlark reference pages, and architecture docs under [`docs/content/`](docs/content/index.md).
 - **GHC Haddock (`hs_haddock`)** generating Haskell library API reference pages, hyperlinked source, and QuickJump search (`//tools/lock:lock_haddock`, mounted into the site at `/haddock/lock/`).

@@ -1,4 +1,4 @@
-load("@rules_hs//hs:defs.bzl", "hs_haddock", "hs_library")
+load("@rules_haskell//hs:defs.bzl", "hs_haddock", "hs_library")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 hs_library(

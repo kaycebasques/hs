@@ -127,9 +127,9 @@ typedef struct {
 
     ExtStrCap *ext_strs;
     size_t ext_str_len;
-} RulesHsTerm;
+} RulesHaskellTerm;
 
-static RulesHsTerm *g_cur_term = NULL;
+static RulesHaskellTerm *g_cur_term = NULL;
 
 static int16_t read_le16(const uint8_t *p) {
     uint16_t u = (uint16_t)p[0] | ((uint16_t)p[1] << 8);
@@ -144,7 +144,7 @@ static int32_t read_le32(const uint8_t *p) {
     return (int32_t)u;
 }
 
-static void init_empty_term(RulesHsTerm *t, int fildes) {
+static void init_empty_term(RulesHaskellTerm *t, int fildes) {
     memset(t, 0, sizeof(*t));
     t->fildes = fildes;
     for (int i = 0; i < STD_NUM_COUNT; i++) {
@@ -152,7 +152,7 @@ static void init_empty_term(RulesHsTerm *t, int fildes) {
     }
 }
 
-static void free_term(RulesHsTerm *t) {
+static void free_term(RulesHaskellTerm *t) {
     if (!t) {
         return;
     }
@@ -171,7 +171,7 @@ static bool has_nul_within(const char *buf, size_t offset, size_t total) {
     return memchr(buf + offset, '\0', total - offset) != NULL;
 }
 
-static bool parse_terminfo_bytes(const uint8_t *data, size_t len, RulesHsTerm *t) {
+static bool parse_terminfo_bytes(const uint8_t *data, size_t len, RulesHaskellTerm *t) {
     if (len < 12) {
         return false;
     }
@@ -390,7 +390,7 @@ static bool parse_terminfo_bytes(const uint8_t *data, size_t len, RulesHsTerm *t
     return true;
 }
 
-static bool load_terminfo_file_at(const char *path, RulesHsTerm *t) {
+static bool load_terminfo_file_at(const char *path, RulesHaskellTerm *t) {
     FILE *f = fopen(path, "rb");
     if (!f) {
         return false;
@@ -421,7 +421,7 @@ static bool load_terminfo_file_at(const char *path, RulesHsTerm *t) {
     return ok;
 }
 
-static bool load_terminfo_from_dir(const char *dir, const char *term, RulesHsTerm *t) {
+static bool load_terminfo_from_dir(const char *dir, const char *term, RulesHaskellTerm *t) {
     if (!dir || !*dir) {
         return false;
     }
@@ -446,7 +446,7 @@ static bool load_terminfo_from_dir(const char *dir, const char *term, RulesHsTer
     return false;
 }
 
-static bool load_terminfo_from_disk(const char *term, RulesHsTerm *t) {
+static bool load_terminfo_from_disk(const char *term, RulesHaskellTerm *t) {
     if (!term || !*term || term[0] == '.' || strchr(term, '/') != NULL) {
         return false;
     }
@@ -516,21 +516,21 @@ static int find_name_index(const char *const *table, int count, const char *name
     return -1;
 }
 
-static void set_std_bool(RulesHsTerm *t, const char *name, int8_t val) {
+static void set_std_bool(RulesHaskellTerm *t, const char *name, int8_t val) {
     int idx = find_name_index(kBoolNames, STD_BOOL_COUNT, name);
     if (idx >= 0) {
         t->bools[idx] = val;
     }
 }
 
-static void set_std_num(RulesHsTerm *t, const char *name, int32_t val) {
+static void set_std_num(RulesHaskellTerm *t, const char *name, int32_t val) {
     int idx = find_name_index(kNumNames, STD_NUM_COUNT, name);
     if (idx >= 0) {
         t->nums[idx] = val;
     }
 }
 
-static void set_std_str(RulesHsTerm *t, const char *name, const char *val) {
+static void set_std_str(RulesHaskellTerm *t, const char *name, const char *val) {
     int idx = find_name_index(kStrNames, STD_STR_COUNT, name);
     if (idx >= 0) {
         t->strs[idx] = val;
@@ -561,7 +561,7 @@ static bool contains_substr_ci(const char *s, const char *needle) {
     return false;
 }
 
-static bool populate_builtin_fallback(const char *term, RulesHsTerm *t) {
+static bool populate_builtin_fallback(const char *term, RulesHaskellTerm *t) {
     if (strcmp(term, "dumb") == 0) {
         set_std_bool(t, "am", 1);
         set_std_num(t, "cols", 80);
@@ -731,7 +731,7 @@ static bool populate_builtin_fallback(const char *term, RulesHsTerm *t) {
     return true;
 }
 
-static void refresh_winsize(RulesHsTerm *t) {
+static void refresh_winsize(RulesHaskellTerm *t) {
     if (!t) {
         return;
     }
@@ -775,7 +775,7 @@ int setupterm(const char *term, int fildes, int *errret) {
         return -1;
     }
 
-    RulesHsTerm *t = (RulesHsTerm *)malloc(sizeof(RulesHsTerm));
+    RulesHaskellTerm *t = (RulesHaskellTerm *)malloc(sizeof(RulesHaskellTerm));
     if (!t) {
         if (errret) {
             *errret = -1;
@@ -805,7 +805,7 @@ int setupterm(const char *term, int fildes, int *errret) {
 
 void *set_curterm(void *nterm) {
     void *prev = (void *)g_cur_term;
-    g_cur_term = (RulesHsTerm *)nterm;
+    g_cur_term = (RulesHaskellTerm *)nterm;
     return prev;
 }
 
@@ -816,7 +816,7 @@ int del_curterm(void *oterm) {
     if ((void *)g_cur_term == oterm) {
         g_cur_term = NULL;
     }
-    free_term((RulesHsTerm *)oterm);
+    free_term((RulesHaskellTerm *)oterm);
     return 0;
 }
 

@@ -54,7 +54,7 @@ usage =
   unlines
     [ "Usage: serve [OPTIONS]"
     , ""
-    , "Serve the built rules_hs documentation site over HTTP."
+    , "Serve the built rules_haskell documentation site over HTTP."
     , ""
     , "Options:"
     , "  --host <addr>      Bind address (default: 127.0.0.1)"
@@ -83,7 +83,7 @@ resolveDefaultSiteDir = do
   mTestSrc <- lookupEnv "TEST_SRCDIR"
   let bases =
         [ r </> "_main" | Just r <- [mRunfiles, mTestSrc] ]
-          ++ [ r </> "rules_hs" | Just r <- [mRunfiles, mTestSrc] ]
+          ++ [ r </> "rules_haskell" | Just r <- [mRunfiles, mTestSrc] ]
           ++ ["."]
       candidates = [b </> "docs" </> "site" | b <- bases] ++ ["bazel-bin/docs/site"]
   findFirstDir candidates
@@ -130,7 +130,7 @@ main = do
   bracket (openListenSocket addr) close $ \srvSock -> do
     actualPort <- socketPort srvSock
     putStrLn
-      ( "Serving rules_hs docs from "
+      ( "Serving rules_haskell docs from "
           ++ siteDir
           ++ " at http://"
           ++ soHost opts

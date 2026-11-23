@@ -9,7 +9,7 @@ import System.Exit (exitFailure)
 main :: IO ()
 main = do
   let actual = greetingFor "  Haskell  "
-      expected = "Hello, Haskell, from rules_hs."
+      expected = "Hello, Haskell, from rules_haskell."
   unless (actual == expected) $ do
     putStrLn ("Expected: " <> show expected <> ", got: " <> show actual)
     exitFailure

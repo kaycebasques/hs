@@ -17,7 +17,7 @@ OUT="$(
 echo "$OUT"
 grep -qF "Right (UrlSet [" <<< "$OUT"
 
-echo "=== 2. Invoking external @rules_hs//tools/ghci from downstream consumer module ==="
+echo "=== 2. Invoking external @rules_haskell//tools/ghci from downstream consumer module ==="
 EXT_OUT="$(
     env -i PATH="$CLEAN_PATH" RUNFILES_DIR="${RUNFILES_DIR:-}" TEST_SRCDIR="${TEST_SRCDIR:-}" TMPDIR="${TEST_TMPDIR:-/tmp}" \
         "$TOOLS_GHCI" -e '(2 :: Integer) ^ (100 :: Int)'

@@ -1,4 +1,4 @@
-# Root package for rules_hs (Bzlmod-only Bazel 9 Haskell ruleset).
+# Root package for rules_haskell (Bzlmod-only Bazel 9 Haskell ruleset).
 package(default_visibility = ["//visibility:public"])
 
 exports_files([

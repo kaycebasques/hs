@@ -23,6 +23,6 @@ tripleViaC x = fromIntegral (c_triple (fromIntegral x))
 -- and runIO + libc FFI across library boundaries.
 mkCrossLibTripledExp :: Int -> Q Exp
 mkCrossLibTripledExp n = do
-    tagLen <- runIO $ withCString "rules_hs" (fmap fromIntegral . c_strlen)
-    let computed = tripleViaC n + (tagLen - 8)
+    tagLen <- runIO $ withCString "rules_haskell" (fmap fromIntegral . c_strlen)
+    let computed = tripleViaC n + (tagLen - 13)
     litE (integerL (fromIntegral computed))

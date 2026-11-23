@@ -6,7 +6,7 @@ nav_title: "Extensions & Providers"
 order: 20
 ---
 
-`rules_hs` exposes two Bzlmod module extensions in `@rules_hs//hs:extensions.bzl` (used in `MODULE.bazel` to provision GHC and third-party Hackage packages), five public Starlark providers in `@rules_hs//hs:providers.bzl` (used when writing custom Bazel rules or aspects that inspect Haskell targets), and one Bazel toolchain type `@rules_hs//hs:toolchain_type`.
+`rules_haskell` exposes two Bzlmod module extensions in `@rules_haskell//hs:extensions.bzl` (used in `MODULE.bazel` to provision GHC and third-party Hackage packages), five public Starlark providers in `@rules_haskell//hs:providers.bzl` (used when writing custom Bazel rules or aspects that inspect Haskell targets), and one Bazel toolchain type `@rules_haskell//hs:toolchain_type`.
 
 ---
 
@@ -16,15 +16,15 @@ Use the `hs` module extension in your `MODULE.bazel` file to download an officia
 
 During repository setup, `hs` extracts the official GHC tarball in Starlark, clears hardcoded build-machine paths from `lib/settings`, parses `lib/package.conf.d/*.conf` boot metadata, and generates the `@hs_toolchains` and `@hs_boot` repositories. It returns `module_ctx.extension_metadata(reproducible = True)` so `MODULE.bazel.lock` stays identical across developer machines and CI.
 
-- **Load from**: `@rules_hs//hs:extensions.bzl`
+- **Load from**: `@rules_haskell//hs:extensions.bzl`
 - **Repositories created**:
   - `hs_toolchains`: Contains Bazel `toolchain()` targets for all configured platforms; activate them in `MODULE.bazel` with `register_toolchains("@hs_toolchains//:all")`.
   - `hs_boot`: Contains one [`hs_toolchain_library`](rules.md#hs_toolchain_library) target per GHC boot library (`@hs_boot//:base`, `@hs_boot//:bytestring`, `@hs_boot//:text`, `@hs_boot//:Cabal-syntax`, etc.) for projects that either do not use Hackage or want to distinguish boot deps from `@hackage` deps.
   - `ghc_<ver>_<platform>`: Internal per-platform compiler repositories (such as `ghc_9_10_3_linux_x86_64` and `ghc_9_10_3_linux_arm64`), downloaded lazily by Bazel only for the active execution platform.
-- **Root-module precedence**: If both your root application `MODULE.bazel` and a dependency (including `rules_hs` itself) call `hs.toolchain(...)`, **your root module's first `hs.toolchain` tag always wins**.
+- **Root-module precedence**: If both your root application `MODULE.bazel` and a dependency (including `rules_haskell` itself) call `hs.toolchain(...)`, **your root module's first `hs.toolchain` tag always wins**.
 
 ```starlark
-hs = use_extension("@rules_hs//hs:extensions.bzl", "hs")
+hs = use_extension("@rules_haskell//hs:extensions.bzl", "hs")
 hs.toolchain(ghc_version = "9.10.3")
 use_repo(hs, "hs_boot", "hs_toolchains")
 
@@ -48,14 +48,14 @@ Use the `hackage` module extension in `MODULE.bazel` whenever your project impor
 
 `hackage` reads a committed `hackage.lock.json` lockfile (generated at development time by [`//tools/lock:lock`](lock-cli.md)) using Starlark's built-in `json.decode` — making **zero network requests and running zero external tools** during `bazel mod` evaluation (`reproducible = True`). From that JSON file, it creates one lightweight hub repository (conventionally `@hackage`) so `BUILD.bazel` files can write uniform `@hackage//:<pkg>` labels for both GHC boot libraries and Hackage packages, backed by lazy per-package repositories that Bazel downloads only when a build target actually depends on them.
 
-- **Load from**: `@rules_hs//hs:extensions.bzl` (implemented in `hs/private/hackage.bzl`)
+- **Load from**: `@rules_haskell//hs:extensions.bzl` (implemented in `hs/private/hackage.bzl`)
 - **Repositories created per `from_lock` hub `<name>`**:
   - `<name>` (default `"hackage"`): Unified hub repository exposing [`hs_toolchain_library`](rules.md#hs_toolchain_library) targets for non-overridden GHC boot packages (`@<name>//:base`), `alias()` targets for every locked Hackage package (`@<name>//:<pkg>`), and `alias()` targets for Cabal sublibraries (`@<name>//:<pkg>__<sublib>`).
   - `<name>__<sanitized_pkg>`: Lazy per-package source repository (with `-` and `.` mapped to `_`, such as `hackage__http_client_tls`) containing the generated [`hs_cabal_library`](rules.md#hs_cabal_library) `BUILD.bazel` file; fetched from Hackage only if reachable from your build targets.
 - **Root-module precedence & multiple hubs**: If both the root module and a dependency register `hackage.from_lock` with the same `name`, the root module's lockfile wins. Large monorepos can also register multiple independent hubs with distinct names (for example, `name = "hackage"` for production code and `name = "tools_hackage"` for developer tooling).
 
 ```starlark
-hackage = use_extension("@rules_hs//hs:extensions.bzl", "hackage")
+hackage = use_extension("@rules_haskell//hs:extensions.bzl", "hackage")
 hackage.from_lock(
     name = "hackage",
     lockfile = "//:hackage.lock.json",
@@ -75,7 +75,7 @@ Registers a hub repository backed by a committed `hackage.lock.json` file (`sche
 | Attribute | Type | Default | Required | Description |
 |---|---|---|---|---|
 | `name` | `str` | `"hackage"` | No | Repository name for the generated hub, imported via `use_repo(hackage, "<name>")` so `BUILD.bazel` targets can depend on `@<name>//:<pkg>`. Keep `"hackage"` for single-lockfile projects; set a custom name (such as `"docs_hackage"`) only when maintaining multiple separate lockfiles in one workspace. |
-| `lockfile` | `Label` | — | **Yes** | Label of the committed `hackage.lock.json` file produced by `@rules_hs//tools/lock:lock` (for example, `"//:hackage.lock.json"`). |
+| `lockfile` | `Label` | — | **Yes** | Label of the committed `hackage.lock.json` file produced by `@rules_haskell//tools/lock:lock` (for example, `"//:hackage.lock.json"`). |
 
 ### `hackage.override` {#hackage-override}
 
@@ -95,11 +95,11 @@ Use `hackage.override` when a specific third-party Hackage package in your lockf
 
 ## Public Starlark Providers
 
-If you are only writing `BUILD.bazel` and `MODULE.bazel` files, you never need to import providers directly. Load `@rules_hs//hs:providers.bzl` when authoring **custom Starlark rules, macros, or IDE/linter aspects** (such as a custom code generator, packaging rule, or static-site bundler like `docs/app/site.bzl`) that inspect or consume Haskell targets:
+If you are only writing `BUILD.bazel` and `MODULE.bazel` files, you never need to import providers directly. Load `@rules_haskell//hs:providers.bzl` when authoring **custom Starlark rules, macros, or IDE/linter aspects** (such as a custom code generator, packaging rule, or static-site bundler like `docs/app/site.bzl`) that inspect or consume Haskell targets:
 
 ```starlark
 load(
-    "@rules_hs//hs:providers.bzl",
+    "@rules_haskell//hs:providers.bzl",
     "HsHaddockInfo",
     "HsLinkInfo",
     "HsPackageInfo",
@@ -116,7 +116,7 @@ load(
 
 ## `HsPackageInfo` {#hspackageinfo}
 
-Carries **single-library (non-transitive) metadata** for one compiled Haskell library, GHC boot library, or C-only Cabal package. `rules_hs` intentionally keeps `HsPackageInfo` separate from transitive [`HsLinkInfo`](extensions-and-providers.md#hslinkinfo) so `collect_deps` (`hs/private/actions.bzl`) can pass `-package-id` **only** for direct `deps` (enforcing strict direct-dependency imports) and emit exact `VERSION_<pkg>` / `MIN_VERSION_<pkg>` macros into `cabal_macros.h`.
+Carries **single-library (non-transitive) metadata** for one compiled Haskell library, GHC boot library, or C-only Cabal package. `rules_haskell` intentionally keeps `HsPackageInfo` separate from transitive [`HsLinkInfo`](extensions-and-providers.md#hslinkinfo) so `collect_deps` (`hs/private/actions.bzl`) can pass `-package-id` **only** for direct `deps` (enforcing strict direct-dependency imports) and emit exact `VERSION_<pkg>` / `MIN_VERSION_<pkg>` macros into `cabal_macros.h`.
 
 | Field | Type | Description |
 |---|---|---|
@@ -182,7 +182,7 @@ Provides the resolved GHC compiler and interpreter binaries, `$ORIGIN`-staged ru
 | `ghc_pkg` | `File` | `$ORIGIN`-staged `ghc-pkg` package database registration tool (`<prefix>/bin/ghc-pkg-<ver>`), used to validate `.conf` files and write `package.cache`. |
 | `hsc2hs` | `File` | `$ORIGIN`-staged `hsc2hs` C-FFI preprocessor executable (`<prefix>/bin/hsc2hs-ghc-<ver>`) for compiling `.hsc` templates into `.hs` files. |
 | `haddock` | `File` | `$ORIGIN`-staged `haddock` documentation generator executable (`<prefix>/bin/haddock-ghc-<ver>`). |
-| `runghc` | `File` | `$ORIGIN`-staged `runghc` standalone script-interpreter executable (`<prefix>/bin/runghc-<ver>`), used by `@rules_hs//tools/ghci:runghc`. |
+| `runghc` | `File` | `$ORIGIN`-staged `runghc` standalone script-interpreter executable (`<prefix>/bin/runghc-<ver>`), used by `@rules_haskell//tools/ghci:runghc`. |
 | `ghc_iserv` | `File \| None` | Optional staged out-of-process interpreter executable (`<prefix>/bin/ghc-iserv-dyn-ghc-<ver>`, also staged at `<prefix>/bin/ghc-iserv-dyn` so `-fexternal-interpreter` locates it automatically under `$topdir/../bin`); `None` if the bindist omits an external interpreter. |
 | `libdir` | `File` | Dereferenced staged GHC `lib/` directory `TreeArtifact` (passed to `ghc -B` and `haddock -B -l`) containing `settings`, global `package.conf.d/`, `html/` (Haddock CSS/JS themes), boot `.a`/`.so`/`.hi` files, `libgmp.so.10`, and `libtinfo.so.6`. |
 | `template_hsc_h` | `File` | GHC's `template-hsc.h` C macro header required by `hsc2hs` (`--template=<path>`). |
@@ -202,14 +202,14 @@ Provides the resolved GHC compiler and interpreter binaries, `$ORIGIN`-staged ru
 
 ---
 
-## Toolchain Type (`@rules_hs//hs:toolchain_type`) {#toolchain_type}
+## Toolchain Type (`@rules_haskell//hs:toolchain_type`) {#toolchain_type}
 
-Every Haskell rule resolves the active GHC compiler through the Bazel toolchain type `@rules_hs//hs:toolchain_type` (exported as the constant `TOOLCHAIN_TYPE` in `@rules_hs//hs:toolchain.bzl`).
+Every Haskell rule resolves the active GHC compiler through the Bazel toolchain type `@rules_haskell//hs:toolchain_type` (exported as the constant `TOOLCHAIN_TYPE` in `@rules_haskell//hs:toolchain.bzl`).
 
 When writing a custom Starlark rule that needs GHC, declare `toolchains = [TOOLCHAIN_TYPE]` on `rule(...)` and read [`HsToolchainInfo`](extensions-and-providers.md#hstoolchaininfo) from `ctx.toolchains[TOOLCHAIN_TYPE].hs`:
 
 ```starlark
-load("@rules_hs//hs:toolchain.bzl", "TOOLCHAIN_TYPE")
+load("@rules_haskell//hs:toolchain.bzl", "TOOLCHAIN_TYPE")
 
 def _my_custom_hs_rule_impl(ctx):
     hs_tc = ctx.toolchains[TOOLCHAIN_TYPE].hs

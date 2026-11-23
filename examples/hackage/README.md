@@ -1,6 +1,6 @@
 # `examples/hackage` — Hackage Lockfiles, `hackage.override` & Cabal Features
 
-Minimal standalone Bazel 9 workspace exercising `@rules_hs//tools/lock:lock`, `hackage.from_lock`, `hackage.override`, and all supported Cabal package features:
+Minimal standalone Bazel 9 workspace exercising `@rules_haskell//tools/lock:lock`, `hackage.from_lock`, `hackage.override`, and all supported Cabal package features:
 
 - **`hackage.override` (`MODULE.bazel`)**: Attaches BCR `@zlib//:zlib` (`extra_cc_deps`), `extra_cc_options`, `extra_cpp_options`, and `extra_ghc_opts` to `zlib` (`bundled-c-zlib=false`), plus `configure_args` to `network`
 - **Cabal build types**: `Simple` (`split`), `Configure` (`network`, `unix-time`), and `Custom` `cabal-doctest` normalized to `Simple` (`xml-conduit`)
@@ -9,7 +9,7 @@ Minimal standalone Bazel 9 workspace exercising `@rules_hs//tools/lock:lock`, `h
 ## Regenerate Lockfile, Run & Test
 
 ```bash
-bazel run @rules_hs//tools/lock:lock -- \
+bazel run @rules_haskell//tools/lock:lock -- \
   --snapshot lts-24.67 \
   --package split --package network --package unix-time \
   --package xml-conduit --package libyaml --package zlib \

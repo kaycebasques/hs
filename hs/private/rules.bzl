@@ -350,7 +350,7 @@ def _hs_executable_impl(ctx):
     pkg_root = resolve_package_dir(ctx, ".")
     exe_env = dict(ghc_base_env(cc_tools))
     if ctx.files.data and pkg_root != ".":
-        exe_env["RULES_HS_PKG_ROOT"] = pkg_root
+        exe_env["RULES_HASKELL_PKG_ROOT"] = pkg_root
 
     ctx.actions.run_shell(
         mnemonic = "HsLinkExecutable",
@@ -374,9 +374,9 @@ unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY
 GHC="$1"
 shift
 EXECROOT="$(pwd)"
-case "${RULES_HS_REAL_CC:-}" in
+case "${RULES_HASKELL_REAL_CC:-}" in
     ""|/*) ;;
-    *) export RULES_HS_REAL_CC="$EXECROOT/$RULES_HS_REAL_CC" ;;
+    *) export RULES_HASKELL_REAL_CC="$EXECROOT/$RULES_HASKELL_REAL_CC" ;;
 esac
 case "$GHC" in
     /*) GHC_ABS="$GHC" ;;
@@ -388,14 +388,14 @@ WORKDIR="$WORK_ROOT/objs"
 export TMPDIR="$WORK_ROOT/tmp"
 mkdir -p "$WORKDIR" "$TMPDIR"
 GHC_CWD="$EXECROOT"
-if [ -n "${RULES_HS_PKG_ROOT:-}" ] && [ -d "$EXECROOT/$RULES_HS_PKG_ROOT" ]; then
+if [ -n "${RULES_HASKELL_PKG_ROOT:-}" ] && [ -d "$EXECROOT/$RULES_HASKELL_PKG_ROOT" ]; then
     GHC_CWD="$WORK_ROOT/pkg_cwd"
     mkdir -p "$GHC_CWD"
     for top in "$EXECROOT"/*; do
         [ -e "$top" ] || [ -L "$top" ] || continue
         ln -s "$top" "$GHC_CWD/$(basename "$top")"
     done
-    for item in "$EXECROOT/$RULES_HS_PKG_ROOT"/* "$EXECROOT/$RULES_HS_PKG_ROOT"/.*; do
+    for item in "$EXECROOT/$RULES_HASKELL_PKG_ROOT"/* "$EXECROOT/$RULES_HASKELL_PKG_ROOT"/.*; do
         [ -e "$item" ] || [ -L "$item" ] || continue
         iname="$(basename "$item")"
         [ "$iname" = "." ] || [ "$iname" = ".." ] && continue

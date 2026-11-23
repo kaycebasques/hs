@@ -1,4 +1,4 @@
-"""Public providers for rules_hs."""
+"""Public providers for rules_haskell."""
 
 HsPackageInfo = provider(
     doc = "Direct metadata for a compiled Haskell package (or C-only Cabal package).",

@@ -1,5 +1,5 @@
 /* ==========================================================================
-   rules_hs Vanilla Hakyll UI Helpers
+   rules_haskell Vanilla Hakyll UI Helpers
    - Light / dark theme toggle
    - Mobile sidebar drawer toggle
    - Copy-code button on code blocks
@@ -19,7 +19,7 @@
       var next = cur === "dark" ? "light" : "dark";
       rootEl.setAttribute("data-theme", next);
       try {
-        localStorage.setItem("rules_hs_theme", next);
+        localStorage.setItem("rules_haskell_theme", next);
       } catch (_) {}
     });
   }

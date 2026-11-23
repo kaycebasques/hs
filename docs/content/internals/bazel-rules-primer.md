@@ -6,9 +6,9 @@ nav_title: "Bazel Ruleset Primer"
 order: 5
 ---
 
-If you have used Bazel on an application team — writing `cc_binary` or `go_library` targets in `BUILD.bazel` and adding `bazel_dep(...)` lines to `MODULE.bazel` — you already know Bazel as an **end user**. Writing and shipping a **language ruleset** such as `rules_hs` moves you to the other side of that boundary: instead of calling pre-built rules, you write the code that teaches Bazel how to download a compiler, pass dependency information from library to library, run build commands inside isolated sandboxes, connect with C and C++ libraries, and publish a module that other repositories can depend on.
+If you have used Bazel on an application team — writing `cc_binary` or `go_library` targets in `BUILD.bazel` and adding `bazel_dep(...)` lines to `MODULE.bazel` — you already know Bazel as an **end user**. Writing and shipping a **language ruleset** such as `rules_haskell` moves you to the other side of that boundary: instead of calling pre-built rules, you write the code that teaches Bazel how to download a compiler, pass dependency information from library to library, run build commands inside isolated sandboxes, connect with C and C++ libraries, and publish a module that other repositories can depend on.
 
-Bazel rules and configuration files are written in **Starlark**, a small, deterministic subset of Python designed specifically for build configuration (no arbitrary file I/O, no network sockets, no mutable global state after a file finishes loading). This primer explains every Bazel ruleset concept used in `rules_hs` from the ground up. It assumes **no prior experience writing Starlark rules** and **no prior experience with Haskell or GHC**.
+Bazel rules and configuration files are written in **Starlark**, a small, deterministic subset of Python designed specifically for build configuration (no arbitrary file I/O, no network sockets, no mutable global state after a file finishes loading). This primer explains every Bazel ruleset concept used in `rules_haskell` from the ground up. It assumes **no prior experience writing Starlark rules** and **no prior experience with Haskell or GHC**.
 
 > **Tip — Companion Haskell & GHC Primer:** Whenever this guide mentions a Haskell compiler file — such as a compiled `.a` library archive, a `.hi` module summary file, or a `.pkgdb` package metadata folder — you can treat it simply as a file produced by a compiler. For a plain-English guide to Haskell, GHC, Cabal, Hackage, `libgmp`, and Template Haskell, read [Haskell & GHC Primer](haskell-and-ghc-primer.md) next.
 
@@ -21,7 +21,7 @@ Bazel rules and configuration files are written in **Starlark**, a small, determ
 An **end-user (consumer) repository** — such as `examples/size/` in this repo or an application service repository — wants a short, declarative build file. In `BUILD.bazel`, an application engineer writes a few lines:
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_binary")
+load("@rules_haskell//hs:defs.bzl", "hs_binary")
 
 hs_binary(
     name = "app",
@@ -30,11 +30,11 @@ hs_binary(
 )
 ```
 
-Behind that single `hs_binary` call, the **ruleset repository** (`rules_hs`) is responsible for six distinct layers of build machinery:
+Behind that single `hs_binary` call, the **ruleset repository** (`rules_haskell`) is responsible for six distinct layers of build machinery:
 
-| Layer | End User Writes | What `rules_hs` Does Under the Hood |
+| Layer | End User Writes | What `rules_haskell` Does Under the Hood |
 |---|---|---|
-| **Module dependencies** | `bazel_dep(name = "rules_hs", version = "0.1.0")` | Declares `MODULE.bazel` and marks `rules_hs`'s own test and documentation dependencies as development-only (`dev_dependency = True`) so they are not imposed on downstream users. |
+| **Module dependencies** | `bazel_dep(name = "rules_haskell", version = "0.1.0")` | Declares `MODULE.bazel` and marks `rules_haskell`'s own test and documentation dependencies as development-only (`dev_dependency = True`) so they are not imposed on downstream users. |
 | **Downloading compilers & packages** | `hs.toolchain(ghc_version = "9.10.3")` & `hackage.from_lock(...)` | Defines extension hooks (`hs/extensions.bzl`) and on-demand download recipes (`hs/private/ghc_bindist.bzl`, `hs/private/hackage.bzl`) that download the GHC compiler and third-party package archives only when a build target actually uses them. |
 | **Matching the build machine's OS & CPU** | `register_toolchains("@hs_toolchains//:all")` | Inspects the machine's operating system and CPU architecture (such as Linux `x86_64` vs. Linux `arm64`), selects the matching GHC download, and prepares its bundled shared libraries inside Bazel's output tree so the compiler runs without relying on packages installed on the host OS. |
 | **Passing metadata between targets** | `deps = [":greet", "@hs_boot//:base"]` | Attaches typed Starlark metadata records (`hs/providers.bzl`) to each library target so downstream targets know which libraries are direct dependencies versus indirect (transitive) dependencies without copying large file lists at every step. |
@@ -49,18 +49,18 @@ Modern Bazel manages external dependencies with **Bzlmod**, configured in a root
 
 A Bazel ruleset repository always operates in **two different modes**, controlled by a boolean flag in `MODULE.bazel` called `dev_dependency = True`:
 
-1. **Root-Module Mode (Developing & Testing `rules_hs` Itself)**: When you clone `rules_hs` and run `bazel test //...` or `bazel build //docs:site` from the `rules_hs` directory, `rules_hs` **is the root module** of the build. Bazel evaluates *every* entry in `MODULE.bazel`, including entries marked `dev_dependency = True`:
-   - `hermetic_cc_toolchain@4.3.0` (`@zig_sdk`), which downloads a self-contained `zig cc` C/C++ compiler so `rules_hs`'s own test suite runs on minimal CI containers that do not have `gcc` or `clang` installed.
+1. **Root-Module Mode (Developing & Testing `rules_haskell` Itself)**: When you clone `rules_haskell` and run `bazel test //...` or `bazel build //docs:site` from the `rules_haskell` directory, `rules_haskell` **is the root module** of the build. Bazel evaluates *every* entry in `MODULE.bazel`, including entries marked `dev_dependency = True`:
+   - `hermetic_cc_toolchain@4.3.0` (`@zig_sdk`), which downloads a self-contained `zig cc` C/C++ compiler so `rules_haskell`'s own test suite runs on minimal CI containers that do not have `gcc` or `clang` installed.
    - `rules_shell@0.6.1`, which provides `sh_test` for shell-based verification scripts.
-   - `register_toolchains("@hs_toolchains//:all", dev_dependency = True)`, which activates the default GHC compiler for `rules_hs`'s own tests and documentation generator.
+   - `register_toolchains("@hs_toolchains//:all", dev_dependency = True)`, which activates the default GHC compiler for `rules_haskell`'s own tests and documentation generator.
    - `hackage = use_extension("//hs:extensions.bzl", "hackage", dev_dependency = True)` loading `//docs:hackage.lock.json` (the 182 third-party Haskell packages used to build this documentation site).
-2. **Consumer Dependency Mode (`bazel_dep` in Downstream Workspaces)**: When an application repository writes `bazel_dep(name = "rules_hs", version = "0.1.0")` in its own `MODULE.bazel`, that application is the root module and `rules_hs` is a **non-root dependency**. During dependency resolution, **Bazel ignores and drops every `bazel_dep`, `use_extension`, and `register_toolchains` statement marked `dev_dependency = True` in non-root modules**.
+2. **Consumer Dependency Mode (`bazel_dep` in Downstream Workspaces)**: When an application repository writes `bazel_dep(name = "rules_haskell", version = "0.1.0")` in its own `MODULE.bazel`, that application is the root module and `rules_haskell` is a **non-root dependency**. During dependency resolution, **Bazel ignores and drops every `bazel_dep`, `use_extension`, and `register_toolchains` statement marked `dev_dependency = True` in non-root modules**.
 
-Here is `rules_hs`'s `MODULE.bazel` showing that split:
+Here is `rules_haskell`'s `MODULE.bazel` showing that split:
 
 ```starlark
 module(
-    name = "rules_hs",
+    name = "rules_haskell",
     version = "0.1.0",
     bazel_compatibility = [">=9.0.0"],
 )
@@ -71,29 +71,29 @@ bazel_dep(name = "bazel_skylib", version = "1.9.2")
 bazel_dep(name = "rules_cc", version = "0.2.28")
 bazel_dep(name = "gmp", version = "6.3.0.bcr.5")
 
-# Non-dev so `bazel run @rules_hs//tools/lock:lock` can resolve @hs_boot
+# Non-dev so `bazel run @rules_haskell//tools/lock:lock` can resolve @hs_boot
 # in consumer workspaces; root module tags override ghc_version cleanly.
 hs = use_extension("//hs:extensions.bzl", "hs")
 hs.toolchain(ghc_version = "9.10.3")
 use_repo(hs, "hs_boot", "hs_toolchains")
 
-# --- IGNORED AUTOMATICALLY WHEN rules_hs IS A NON-ROOT bazel_dep ---
+# --- IGNORED AUTOMATICALLY WHEN rules_haskell IS A NON-ROOT bazel_dep ---
 bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0", dev_dependency = True)
 bazel_dep(name = "rules_shell", version = "0.6.1", dev_dependency = True)
 # ... @zig_sdk toolchains, @hs_toolchains registration, and //docs @hackage ...
 ```
 
-Omitting `dev_dependency = True` on internal test dependencies is a frequent source of version conflicts in Bazel rulesets: if a ruleset forgets that flag on a test toolchain or documentation dependency, every downstream consumer is forced to resolve those extra modules too. In `rules_hs`, `//tests/rules:bzlmod_hygiene_test` parses `MODULE.bazel` on every test run and fails the build if any `bazel_dep` outside `platforms`, `bazel_skylib`, `rules_cc`, and `gmp` is missing `dev_dependency = True`.
+Omitting `dev_dependency = True` on internal test dependencies is a frequent source of version conflicts in Bazel rulesets: if a ruleset forgets that flag on a test toolchain or documentation dependency, every downstream consumer is forced to resolve those extra modules too. In `rules_haskell`, `//tests/rules:bzlmod_hygiene_test` parses `MODULE.bazel` on every test run and fails the build if any `bazel_dep` outside `platforms`, `bazel_skylib`, `rules_cc`, and `gmp` is missing `dev_dependency = True`.
 
 ### Public `hs/` vs. Private `hs/private/` Layout and `bzl_library`
 
 In `BUILD.bazel` files, `visibility = ["//visibility:private"]` restricts who can depend on a compiled target. For Starlark `.bzl` files, standard Bazel ruleset convention (`rules_cc`, `rules_go`, `rules_rust`, `bazel_skylib`) separates public entrypoints from internal implementation files by directory layout:
 
 - **`hs/` (Public API Surface)**: Contains small, stable entrypoint files that downstream users load from:
-  - `@rules_hs//hs:defs.bzl` — re-exports [`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), [`hs_test`](../reference/rules.md#hs_test), [`hs_repl`](../reference/rules.md#hs_repl), [`hs_cabal_library`](../reference/rules.md#hs_cabal_library), [`hs_toolchain_library`](../reference/rules.md#hs_toolchain_library), and [`hs_haddock`](../reference/rules.md#hs_haddock). In Starlark, any top-level variable whose name does **not** start with `_` is automatically exported to callers, so `defs.bzl` imports internal symbols under a leading underscore (`load("//hs/private:rules.bzl", _hs_library = "hs_library")`) and explicitly assigns `hs_library = _hs_library` so internal helpers do not leak into public exports.
-  - `@rules_hs//hs:extensions.bzl` — exposes the [`hs`](../reference/extensions-and-providers.md#hs) and [`hackage`](../reference/extensions-and-providers.md#hackage) Bzlmod extensions.
-  - `@rules_hs//hs:providers.bzl` — exposes [`HsPackageInfo`](../reference/extensions-and-providers.md#hspackageinfo), [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo), [`HsToolchainInfo`](../reference/extensions-and-providers.md#hstoolchaininfo), [`HsHaddockInfo`](../reference/extensions-and-providers.md#hshaddockinfo), and [`HsReplInfo`](../reference/extensions-and-providers.md#hsreplinfo) for custom Starlark rules.
-  - `@rules_hs//hs:toolchain.bzl` — exposes `TOOLCHAIN_TYPE` and [`hs_toolchain`](../reference/rules.md#hs_toolchain).
+  - `@rules_haskell//hs:defs.bzl` — re-exports [`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), [`hs_test`](../reference/rules.md#hs_test), [`hs_repl`](../reference/rules.md#hs_repl), [`hs_cabal_library`](../reference/rules.md#hs_cabal_library), [`hs_toolchain_library`](../reference/rules.md#hs_toolchain_library), and [`hs_haddock`](../reference/rules.md#hs_haddock). In Starlark, any top-level variable whose name does **not** start with `_` is automatically exported to callers, so `defs.bzl` imports internal symbols under a leading underscore (`load("//hs/private:rules.bzl", _hs_library = "hs_library")`) and explicitly assigns `hs_library = _hs_library` so internal helpers do not leak into public exports.
+  - `@rules_haskell//hs:extensions.bzl` — exposes the [`hs`](../reference/extensions-and-providers.md#hs) and [`hackage`](../reference/extensions-and-providers.md#hackage) Bzlmod extensions.
+  - `@rules_haskell//hs:providers.bzl` — exposes [`HsPackageInfo`](../reference/extensions-and-providers.md#hspackageinfo), [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo), [`HsToolchainInfo`](../reference/extensions-and-providers.md#hstoolchaininfo), [`HsHaddockInfo`](../reference/extensions-and-providers.md#hshaddockinfo), and [`HsReplInfo`](../reference/extensions-and-providers.md#hsreplinfo) for custom Starlark rules.
+  - `@rules_haskell//hs:toolchain.bzl` — exposes `TOOLCHAIN_TYPE` and [`hs_toolchain`](../reference/rules.md#hs_toolchain).
 - **`hs/private/` (Internal Implementation)**: Holds repository download rules (`ghc_bindist.bzl`, `hackage.bzl`), compiler staging (`staged_ghc.bzl`), shared command builders (`actions.bzl`), rule implementations (`rules.bzl`, `cabal_library.bzl`, `haddock.bzl`, `repl.bzl`), and small C helpers (`cc_wrapper.c`, `tinfo_stub.c`, `rt_shims.c`). Reorganizing helpers inside `hs/private/` does not break downstream `load()` statements.
 - **`bzl_library` (`@bazel_skylib//:bzl_library.bzl`)**: In `hs/BUILD.bazel` and `hs/private/BUILD.bazel`, each `.bzl` file has a matching `bzl_library(name = ..., srcs = [...], deps = [...])` target mirroring its `load()` imports. `bzl_library` bundles a `.bzl` file together with every `.bzl` file it transitively loads so Starlark unit tests and linters receive a complete set of `.bzl` files inside their test sandboxes.
 
@@ -180,7 +180,7 @@ Copying gigabytes of source files and compiler binaries into a fresh directory f
 ├── src/
 │   └── Greet.hs -> /home/dev/app/src/Greet.hs               # Symlink to declared src file (undeclared files are absent)
 ├── external/
-│   └── rules_hs++hs+ghc_9_10_3_linux_x86_64/                # Symlinked GHC compiler files declared in `tools` / `inputs`
+│   └── rules_haskell++hs+ghc_9_10_3_linux_x86_64/                # Symlinked GHC compiler files declared in `tools` / `inputs`
 └── bazel-out/
     ├── k8-opt-exec-ST-.../bin/.../ghc_cc_wrapper -> ...     # Symlink to compiled C compiler wrapper tool
     └── k8-fastbuild/bin/                                    # Empty writable output folder created for this action
@@ -214,7 +214,7 @@ A Bzlmod extension (`hs/extensions.bzl` and `hs/private/hackage.bzl`) has two bu
 1. **`tag_class(attrs = {...})`**: Declares the configuration methods users call in `MODULE.bazel` — such as `hs.toolchain(ghc_version = "9.12.4")` or `hackage.from_lock(name = "hackage", lockfile = "//:hackage.lock.json")`.
 2. **`module_extension(implementation = ..., tag_classes = {...})`**: Runs **once** across the entire dependency graph, receiving `module_ctx.modules` — the list of every Bazel module in the build that called tags on that extension.
 
-Both `rules_hs`'s own `MODULE.bazel` (`ghc_version = "9.10.3"`) and a downstream consumer's `MODULE.bazel` (`ghc_version = "9.12.4"`) may call `hs.toolchain(...)`. To make sure the consumer's version wins rather than causing a conflict, `_hs_extension_impl` (`hs/extensions.bzl`) checks `mod.is_root`:
+Both `rules_haskell`'s own `MODULE.bazel` (`ghc_version = "9.10.3"`) and a downstream consumer's `MODULE.bazel` (`ghc_version = "9.12.4"`) may call `hs.toolchain(...)`. To make sure the consumer's version wins rather than causing a conflict, `_hs_extension_impl` (`hs/extensions.bzl`) checks `mod.is_root`:
 
 ```starlark
 def _hs_extension_impl(module_ctx):
@@ -225,7 +225,7 @@ def _hs_extension_impl(module_ctx):
             if mod.is_root:
                 root_tags.append(tag)   # Consumer's root MODULE.bazel
             else:
-                other_tags.append(tag)  # Default in rules_hs's own MODULE.bazel
+                other_tags.append(tag)  # Default in rules_haskell's own MODULE.bazel
 
     chosen = root_tags[0] if root_tags else (other_tags[0] if other_tags else None)
     selected_version = chosen.ghc_version if chosen else DEFAULT_GHC_VERSION
@@ -233,13 +233,13 @@ def _hs_extension_impl(module_ctx):
     return module_ctx.extension_metadata(reproducible = True)
 ```
 
-When you run tests inside the `rules_hs` repository itself, `rules_hs` has `mod.is_root == True` and uses `9.10.3`. When a downstream application depends on `rules_hs` and writes `hs.toolchain(ghc_version = "9.12.4")`, the application has `mod.is_root == True`, overriding `rules_hs`'s fallback version across the whole build.
+When you run tests inside the `rules_haskell` repository itself, `rules_haskell` has `mod.is_root == True` and uses `9.10.3`. When a downstream application depends on `rules_haskell` and writes `hs.toolchain(ghc_version = "9.12.4")`, the application has `mod.is_root == True`, overriding `rules_haskell`'s fallback version across the whole build.
 
 ### What `extension_metadata(reproducible = True)` Does for `MODULE.bazel.lock`
 
 By default, Bazel assumes a `module_extension` might inspect host environment variables or query a live web API whose answer could change tomorrow. To guard against drift, Bazel records every repository generated by non-reproducible extensions inside the consumer's `MODULE.bazel.lock` file — often producing thousands of lines of JSON diffs when Bazel versions or operating systems differ across a team.
 
-In `rules_hs`, neither `hs` nor `hackage` touches the network or host OS during extension evaluation:
+In `rules_haskell`, neither `hs` nor `hackage` touches the network or host OS during extension evaluation:
 - `hs` looks up SHA-256-pinned compiler URLs from a static Starlark dictionary (`GHC_BINDISTS` in `hs/private/ghc_versions.bzl`).
 - `hackage` reads the user's committed `hackage.lock.json` file using `json.decode(module_ctx.read(lock_label))` in pure Starlark.
 
@@ -310,7 +310,7 @@ Four parts of `rule(...)` validate inputs automatically before `_hs_library_impl
 - **Typed `attrs` & provider contracts**: Setting `providers = [[HsPackageInfo], [CcInfo]]` on `deps` tells Bazel to check during Analysis that every target listed in `deps` returns *either* `HsPackageInfo` (a Haskell library) *or* `CcInfo` (a C/C++ `cc_library`). Passing an unrelated target such as a `py_library` fails immediately with a type error.
 - **Private implicit attributes (`_`-prefixed)**: Attributes whose names start with `_` (such as `"_rt_shims"`) cannot be set by users in `BUILD.bazel`. Rules use them to attach internal helper targets (`//hs/private:rt_shims`) to every instance of the rule automatically.
 - **`executable = True` vs. `test = True`**: Setting `executable = True` (on `hs_binary`) enables `bazel run`. Setting `test = True` (on `hs_test`) enables both `bazel run` and `bazel test`, and automatically adds Bazel's standard `size`, `timeout`, `flaky`, and `shard_count` test attributes.
-- **`toolchains` and `fragments`**: Declares which toolchain types (`@rules_hs//hs:toolchain_type` for Haskell and `@bazel_tools//tools/cpp:toolchain_type` for C/C++) Bazel should resolve for this target.
+- **`toolchains` and `fragments`**: Declares which toolchain types (`@rules_haskell//hs:toolchain_type` for Haskell and `@bazel_tools//tools/cpp:toolchain_type` for C/C++) Bazel should resolve for this target.
 
 ### Regular `File`s (`declare_file`) vs. `TreeArtifact`s (`declare_directory`)
 
@@ -318,7 +318,7 @@ During Phase 2 Analysis, Bazel builds the action graph **without reading `.hs` s
 
 Bazel provides two output declaration methods on `ctx.actions`:
 
-| Output Kind | Starlark Call | When to Use | Examples in `rules_hs` |
+| Output Kind | Starlark Call | When to Use | Examples in `rules_haskell` |
 |---|---|---|---|
 | **Regular `File`** | `ctx.actions.declare_file("libHS" + unit_id + ".a")` | You know the exact output filename during Phase 2 Analysis. | `libHS<unit_id>.a`, executable binary, `cabal_macros.h`, `Paths_<pkg>.hs`, per-file `.hsc` -> `.hs` outputs, `<name>.haddock`. |
 | **`TreeArtifact` (directory output)** | `ctx.actions.declare_directory(name + ".pkgdb")` | The action writes an **entire directory tree** whose internal file names are only known after the command runs in Phase 3. | `staged_ghc/lib` (hundreds of compiler files), `<name>.pkgdb` (`hi/*.hi`, `dyn/*.so`, `package.cache`), and `hs_haddock` HTML folders (`index.html`, `<Mod>.html`, `src/*.html`). |
@@ -327,7 +327,7 @@ Bazel calls a directory declared via `declare_directory` a **`TreeArtifact`** (`
 
 > **Warning — Bazel's Non-Overlapping Output Path Rule:** Bazel forbids declaring a standalone `File` at a path inside (or overlapping) another action's `TreeArtifact` directory. Doing so aborts Analysis with an artifact-prefix conflict error (a recurring issue in `tweag/rules_haskell`, e.g., issues #2496 and #2499).
 >
-> `rules_hs` avoids path overlaps by declaring each library's static archive (`libHS<unit_id>.a`) and package metadata directory (`<name>.pkgdb`) as **side-by-side siblings** in the same parent folder `bazel-out/<cfg>/bin/<pkg>/` (see [Relocatable `${pkgroot}` Package Databases](providers-and-actions.md#relocatable-pkgdb)).
+> `rules_haskell` avoids path overlaps by declaring each library's static archive (`libHS<unit_id>.a`) and package metadata directory (`<name>.pkgdb`) as **side-by-side siblings** in the same parent folder `bazel-out/<cfg>/bin/<pkg>/` (see [Relocatable `${pkgroot}` Package Databases](providers-and-actions.md#relocatable-pkgdb)).
 
 ### `DefaultInfo`, `OutputGroupInfo`, and `.runfiles` Symlink Forests
 
@@ -361,7 +361,7 @@ bazel-out/k8-fastbuild/bin/tests/
 
 If Library A declares `data = ["certs/ca.pem"]`, Library B depends on A, and `app_test` depends on B, merging `runfiles` across `deps` automatically places `certs/ca.pem` inside `app_test.runfiles/_main/certs/ca.pem` at test time.
 
-> **Note — Why `rules_hs` Clears `RUNFILES_*` Variables During Compilation:** Because `.bazelrc` sets `common --enable_runfiles`, Bazel also populates `RUNFILES_DIR` when invoking build tools during compilation. Subprocesses spawned inside a compile step (such as `ghc`, `hsc2hs`, or `./configure`) can misbehave if they inherit an outer tool's `RUNFILES_*` environment variables. Every compile and link command in `rules_hs` — as well as `ghc_cc_wrapper` — explicitly unsets `RUNFILES_DIR`, `RUNFILES_MANIFEST_FILE`, and `RUNFILES_MANIFEST_ONLY` so runfiles remain purely a runtime (`bazel run` / `bazel test`) mechanism.
+> **Note — Why `rules_haskell` Clears `RUNFILES_*` Variables During Compilation:** Because `.bazelrc` sets `common --enable_runfiles`, Bazel also populates `RUNFILES_DIR` when invoking build tools during compilation. Subprocesses spawned inside a compile step (such as `ghc`, `hsc2hs`, or `./configure`) can misbehave if they inherit an outer tool's `RUNFILES_*` environment variables. Every compile and link command in `rules_haskell` — as well as `ghc_cc_wrapper` — explicitly unsets `RUNFILES_DIR`, `RUNFILES_MANIFEST_FILE`, and `RUNFILES_MANIFEST_ONLY` so runfiles remain purely a runtime (`bazel run` / `bazel test`) mechanism.
 
 ---
 
@@ -373,7 +373,7 @@ In Bazel, targets are encapsulated from one another. When `hs_binary(name = "hel
 
 `hs/providers.bzl` defines typed provider schemas using `provider(doc = ..., fields = {...})`:
 
-- **[`HsPackageInfo`](../reference/extensions-and-providers.md#hspackageinfo) (Direct dependency metadata only)**: Describes **one single package** (`name`, `version`, `unit_id`, `pkg_db`, `hs_lib`, `is_boot`). `rules_hs` reads `HsPackageInfo` *only* from immediate `ctx.attr.deps` so it can pass `-package-id <unit_id>` for direct dependencies only and reject accidental `import` statements of indirect dependencies (`-hide-all-packages`).
+- **[`HsPackageInfo`](../reference/extensions-and-providers.md#hspackageinfo) (Direct dependency metadata only)**: Describes **one single package** (`name`, `version`, `unit_id`, `pkg_db`, `hs_lib`, `is_boot`). `rules_haskell` reads `HsPackageInfo` *only* from immediate `ctx.attr.deps` so it can pass `-package-id <unit_id>` for direct dependencies only and reject accidental `import` statements of indirect dependencies (`-hide-all-packages`).
 - **[`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo) (Transitive dependency closure)**: Carries `depset`s accumulated across **all direct and indirect dependencies** (`pkg_dbs`, `hs_libs`, `include_dirs`, `headers`, plus merged `cc_info`) so GHC can read transitive `.hi` type summaries during compilation and link every upstream `libHS*.a` static archive into a final executable.
 
 ### Why `depset` Exists (And Why Starlark Lists Exhaust Memory)
@@ -420,7 +420,7 @@ When you create a `depset(direct, transitive = [...], order = "...")`, the `orde
 
 **Why order matters for static `.a` libraries at link time:** Traditional Unix linkers (`ld`) scan static `.a` archives in a **single left-to-right pass**. If `app.o` calls a C function `crc32()` defined inside `libcrc.a`, `app.o` must appear **to the left of** `libcrc.a` on the linker command line: seeing `app.o` first records `crc32` as an unresolved symbol, so when the linker reaches `libcrc.a` on the right, it pulls in the `.o` member defining `crc32`. If `libcrc.a` were placed *before* `app.o` (as a `"postorder"` list would do), the linker would inspect `libcrc.a` while no symbols were needed yet, skip `libcrc.a` completely, and then fail with `undefined reference to 'crc32'` upon reaching `app.o`.
 
-That is why static linkers expect dependents before dependencies (`"topological"` order) — and why, when linking multiple C static `.a` archives that may even call functions in *each other*, `rules_hs` wraps all C `.a` archives inside `-Wl,--start-group ... -Wl,--end-group` *after* GHC's Haskell libraries so the linker rescans those C archives in a loop until every cross-archive symbol reference is satisfied (see [Executable Linking](providers-and-actions.md#executable-linking)).
+That is why static linkers expect dependents before dependencies (`"topological"` order) — and why, when linking multiple C static `.a` archives that may even call functions in *each other*, `rules_haskell` wraps all C `.a` archives inside `-Wl,--start-group ... -Wl,--end-group` *after* GHC's Haskell libraries so the linker rescans those C archives in a loop until every cross-archive symbol reference is satisfied (see [Executable Linking](providers-and-actions.md#executable-linking)).
 
 ---
 
@@ -434,12 +434,12 @@ Instead, Bazel separates **rules** from **platform-specific compiler binaries** 
 
 ```mermaid
 flowchart LR
-    RULE["hs_library / hs_binary (toolchains = ['@rules_hs//hs:toolchain_type'])"] -->|"1. Requests abstract type"| TYPE["toolchain_type: @rules_hs//hs:toolchain_type"]
+    RULE["hs_library / hs_binary (toolchains = ['@rules_haskell//hs:toolchain_type'])"] -->|"1. Requests abstract type"| TYPE["toolchain_type: @rules_haskell//hs:toolchain_type"]
     TYPE -->|"2. Matches OS & CPU constraints"| REG["toolchain() in @hs_toolchains (linux + x86_64)"]
     REG -->|"3. Downloads matching GHC archive only"| IMPL["hs_toolchain(): @ghc_9_10_3_linux_x86_64//:toolchain_impl"]
 ```
 
-1. **`toolchain_type` (`hs/BUILD.bazel`)**: Declares `@rules_hs//hs:toolchain_type`, a plain identifier label with no files attached.
+1. **`toolchain_type` (`hs/BUILD.bazel`)**: Declares `@rules_haskell//hs:toolchain_type`, a plain identifier label with no files attached.
 2. **`hs_toolchain` (`hs/toolchain.bzl`)**: Packages the staged GHC installation, `ghc_cc_wrapper`, and boot library metadata inside Bazel's `platform_common.ToolchainInfo(hs = toolchain_info)`. Inside `_hs_library_impl(ctx)`, rules read `ctx.toolchains[TOOLCHAIN_TYPE].hs` without hardcoding any OS or CPU repository name.
 3. **`toolchain(...)` (`@hs_toolchains/BUILD.bazel`)**: Connects `exec_compatible_with` (the OS and CPU where the compiler *runs*) and `target_compatible_with` (the OS and CPU the compiler *generates code for*) to a lazy `toolchain = "@ghc_9_10_3_linux_x86_64//:toolchain_impl"` label. Because that label is only followed after constraints match, registering `@hs_toolchains//:all` on `linux_x86_64` **never downloads `@ghc_9_10_3_linux_arm64`** (and vice versa).
 
@@ -452,8 +452,8 @@ If you look inside `bazel-out/` after running `bazel build //:hello`, you will s
 ```text
 bazel-out/
 ├── k8-opt-exec-ST-.../bin/          # <-- cfg = "exec" (tools that RUN on the build machine during compilation)
-│   ├── external/rules_hs+/hs/private/ghc_cc_wrapper
-│   └── external/rules_hs++hs+ghc_9_10_3_linux_x86_64/
+│   ├── external/rules_haskell+/hs/private/ghc_cc_wrapper
+│   └── external/rules_haskell++hs+ghc_9_10_3_linux_x86_64/
 │       └── staged_ghc/{bin/ghc-9.10.3, lib/..., gmp_static/libgmp.a}
 └── k8-fastbuild/bin/                # <-- cfg = "target" (your libraries & binaries built FOR deployment)
     ├── libHSu__S_S_Cgreet-0.0.0.a
@@ -461,7 +461,7 @@ bazel-out/
     └── hello
 ```
 
-In `hs/toolchain.bzl`, `rules_hs` requests `cfg = "exec"` on build-time compiler tools:
+In `hs/toolchain.bzl`, `rules_haskell` requests `cfg = "exec"` on build-time compiler tools:
 
 ```starlark
 "staged_ghc": attr.label(
@@ -487,9 +487,9 @@ Putting build-time helper tools (`staged_ghc`, `ghc_cc_wrapper`, and bootstrappe
 
 ## Interoperating with C/C++ via rules_cc and CcInfo {#cc-interop}
 
-Haskell programs frequently call C functions via Haskell's Foreign Function Interface (FFI), run `hsc2hs` to read C struct layouts and `#define` constants from `.h` headers, and use a C compiler and system linker under the hood to produce binaries (see [Why GHC Needs a C Toolchain](haskell-and-ghc-primer.md#c-toolchain-and-rts)). If `rules_hs` hardcoded `/usr/bin/gcc` inside its shell commands, builds would fail on clean containers using `hermetic_cc_toolchain` (`zig cc`), `toolchains_llvm`, or custom enterprise C/C++ toolchains.
+Haskell programs frequently call C functions via Haskell's Foreign Function Interface (FFI), run `hsc2hs` to read C struct layouts and `#define` constants from `.h` headers, and use a C compiler and system linker under the hood to produce binaries (see [Why GHC Needs a C Toolchain](haskell-and-ghc-primer.md#c-toolchain-and-rts)). If `rules_haskell` hardcoded `/usr/bin/gcc` inside its shell commands, builds would fail on clean containers using `hermetic_cc_toolchain` (`zig cc`), `toolchains_llvm`, or custom enterprise C/C++ toolchains.
 
-Instead, `rules_hs` integrates with **`@rules_cc`**, Bazel's standard C/C++ ruleset, through two Starlark APIs: the **`CcInfo`** provider and the **`cc_common`** helper module (`hs/private/actions.bzl`).
+Instead, `rules_haskell` integrates with **`@rules_cc`**, Bazel's standard C/C++ ruleset, through two Starlark APIs: the **`CcInfo`** provider and the **`cc_common`** helper module (`hs/private/actions.bzl`).
 
 ### What Is Inside `CcInfo`?
 
@@ -515,7 +515,7 @@ Bazel compiles `crc32.c` into `libfast_crc.a` (and position-independent `libfast
 2. **`CcInfo.linking_context` ("everything needed to link this library's compiled code")**:
    - **`linker_inputs`** (`depset[LinkerInput]`): Each entry carries `libraries` (`LibraryToLink` records pointing to the compiled `libfast_crc.a` / `libfast_crc.pic.a` static archives and/or `.so` shared libraries) plus `user_link_flags` (extra linker flags such as `-lm` to link the C math library or `-lstdc++` for the C++ standard library).
 
-### How `rules_hs` Connects to `cc_common` and `CcInfo` in Four Steps
+### How `rules_haskell` Connects to `cc_common` and `CcInfo` in Four Steps
 
 If you have never called `cc_common` in Starlark before, here is how `hs/private/actions.bzl` wires C and Haskell together step by step:
 
@@ -528,8 +528,8 @@ If you have never called `cc_common` in Starlark before, here is how `hs/private
    fragments = ["cpp"],
    ```
    This tells Bazel to resolve whichever C/C++ toolchain the workspace registered (`zig cc`, Clang, or GCC) alongside the GHC toolchain.
-2. **Ask `cc_common` for exact tool paths and sysroot flags (`resolve_cc_tools`)**: Inside rule analysis, `find_cc_toolchain(ctx)` and `cc_common.configure_features(...)` look up the active C toolchain. `rules_hs` calls `cc_common.get_tool_for_action(..., action_name = ACTION_NAMES.c_compile)` to get the C compiler path, `ACTION_NAMES.cpp_link_static_library` to get `ar`, `cc_toolchain.ld_executable` to get `ld`, and `cc_common.create_compile_variables` to extract any `--sysroot` or `--target` flags (which C toolchains like `zig cc` and `toolchains_llvm` require to locate standard C headers like `stdio.h`). Those exact paths and flags are passed to `ghc_cc_wrapper`.
-3. **Compile inline `c_sources` via `cc_common.compile`**: When an `hs_library` or `hs_cabal_library` includes `.c` or `.cc` files directly in `c_sources`, `rules_hs` does not write ad-hoc shell scripts to compile them. Instead, `compile_c_sources` calls `cc_common.compile(...)` and `cc_common.create_linking_context_from_compilation_outputs(..., disallow_dynamic_library = True)`. Bazel spawns parallel per-file `CppCompile` actions with automatic `.h` header dependency tracking and archives the `.o` files into a static `.a` library.
+2. **Ask `cc_common` for exact tool paths and sysroot flags (`resolve_cc_tools`)**: Inside rule analysis, `find_cc_toolchain(ctx)` and `cc_common.configure_features(...)` look up the active C toolchain. `rules_haskell` calls `cc_common.get_tool_for_action(..., action_name = ACTION_NAMES.c_compile)` to get the C compiler path, `ACTION_NAMES.cpp_link_static_library` to get `ar`, `cc_toolchain.ld_executable` to get `ld`, and `cc_common.create_compile_variables` to extract any `--sysroot` or `--target` flags (which C toolchains like `zig cc` and `toolchains_llvm` require to locate standard C headers like `stdio.h`). Those exact paths and flags are passed to `ghc_cc_wrapper`.
+3. **Compile inline `c_sources` via `cc_common.compile`**: When an `hs_library` or `hs_cabal_library` includes `.c` or `.cc` files directly in `c_sources`, `rules_haskell` does not write ad-hoc shell scripts to compile them. Instead, `compile_c_sources` calls `cc_common.compile(...)` and `cc_common.create_linking_context_from_compilation_outputs(..., disallow_dynamic_library = True)`. Bazel spawns parallel per-file `CppCompile` actions with automatic `.h` header dependency tracking and archives the `.o` files into a static `.a` library.
 4. **Merge and forward `CcInfo` in both directions (`cc_common.merge_cc_infos`)**:
    - **C -> Haskell**: `collect_deps` merges `CcInfo` from all `deps` and `cc_deps` via `cc_common.merge_cc_infos`, passing `compilation_context` header files and `-I` directories to GHC, `hsc2hs`, and `./configure`, and passing `linking_context` `.a` archives and `user_link_flags` (`-lm`, `-lstdc++`) to the final executable link.
    - **Haskell -> Haskell -> Binary**: Because `hs_library` and `hs_cabal_library` also **return** that merged `CcInfo`, C headers and `.a` archives flow through multi-hop chains (`cc_library -> hs_library -> hs_cabal_library -> hs_binary`) without requiring downstream targets to repeat `cc_deps`.
@@ -538,16 +538,16 @@ If you have never called `cc_common` in Starlark before, here is how `hs/private
 
 ## Testing a Bazel Ruleset {#testing-rulesets}
 
-Testing a Bazel ruleset involves more than checking whether a sample binary prints `Hello World`. Subtle ruleset bugs can hide in Starlark provider fields, accidentally exposed transitive imports, unintended shared-library dependencies in ELF headers, or missing `dev_dependency = True` flags that only show up when an external repository depends on `rules_hs`.
+Testing a Bazel ruleset involves more than checking whether a sample binary prints `Hello World`. Subtle ruleset bugs can hide in Starlark provider fields, accidentally exposed transitive imports, unintended shared-library dependencies in ELF headers, or missing `dev_dependency = True` flags that only show up when an external repository depends on `rules_haskell`.
 
-`rules_hs` tests every change across **four layers**:
+`rules_haskell` tests every change across **four layers**:
 
 | Layer | Mechanism & Location | Typical Speed | What Bugs It Catches |
 |---|---|---|---|
 | **1. Starlark Analysis Tests** | `analysistest` (`@bazel_skylib//lib:unittest.bzl`) in `tests/starlark/rules_analysis_test.bzl` | **~10–50 ms** (runs Phase 2 only; never invokes `ghc`) | Provider fields, `depset` propagation, `-hide-all-packages` / `-package-id` strict import visibility, `cabal_macros.h` file content, C-only Cabal short-circuiting, `-optl-L.../gmp_static`, `--start-group` flag order, `HsHaddock` flags. |
 | **2. Rule Functional Tests** | `hs_test` targets across `tests/basic/` & `tests/rules/` | Seconds (cached per action) | Multi-library dependency graphs, `.hs-boot` mutual recursion, `Configure` + `hsc2hs`, C & C++ FFI, `Haskell98`/`Haskell2010`/`GHC2021` language editions, threaded vs. single-threaded runtime, 2-hop `.runfiles`, same-library & cross-library Template Haskell, Haddock HTML/QuickJump output. |
 | **3. Binary & Bzlmod Hygiene Audits** | `sh_test` scripts (`tests/basic/elf_hermeticity_test.sh`, `tests/rules/bzlmod_hygiene_test.sh`, `docs/test/site_test.sh`) | Sub-second | `readelf -d` shared-library allowlists (rejecting `libgmp.so`, `libtinfo.so`, `libffi.so`, `libHS*.so`), running binaries under `env -i PATH=/nonexistent`, verifying zero `WORKSPACE` files, enforcing the 4-module `MODULE.bazel` allowlist. |
-| **4. Consumer Workspace & Clean-Container Matrix** | `examples/size/` + `.github/workflows/ci.yml` (`debian:bookworm-slim`, `ubuntu:24.04`, `rockylinux:9`) | CI matrix | Verifies `rules_hs` as a **non-root `bazel_dep`** (with all `dev_dependency = True` modules dropped) across 69 Hackage packages inside minimal Linux containers where `ghc`, `cabal`, `stack`, `gcc`, `clang`, `nix`, and `/usr/include/{gmp,zlib,ncurses}.h` are confirmed absent. |
+| **4. Consumer Workspace & Clean-Container Matrix** | `examples/size/` + `.github/workflows/ci.yml` (`debian:bookworm-slim`, `ubuntu:24.04`, `rockylinux:9`) | CI matrix | Verifies `rules_haskell` as a **non-root `bazel_dep`** (with all `dev_dependency = True` modules dropped) across 69 Hackage packages inside minimal Linux containers where `ghc`, `cabal`, `stack`, `gcc`, `clang`, `nix`, and `/usr/include/{gmp,zlib,ncurses}.h` are confirmed absent. |
 
 ### How Phase-2 `analysistest` Works Without Running Compilers
 

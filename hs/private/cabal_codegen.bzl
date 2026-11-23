@@ -2,7 +2,7 @@
 
 Both Alex and Happy ship pre-bootstrapped Haskell parser/scanner sources in their
 official Hackage release tarballs and depend strictly on GHC boot libraries
-(@hs_boot), so rules_hs builds them lazily from source with zero host tools and
+(@hs_boot), so rules_haskell builds them lazily from source with zero host tools and
 zero extra non-dev Bzlmod dependencies.
 """
 
@@ -99,7 +99,7 @@ getDataDir = fmap (fromMaybe "data") (lookupEnv "alex_datadir")
     repository_ctx.file(
         "BUILD.bazel",
         """\
-load("@rules_hs//hs:defs.bzl", "hs_binary")
+load("@rules_haskell//hs:defs.bzl", "hs_binary")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -172,7 +172,7 @@ getDataDir = fmap (fromMaybe "happy-lib/data") (lookupEnv "happy_datadir")
     repository_ctx.file(
         "BUILD.bazel",
         """\
-load("@rules_hs//hs:defs.bzl", "hs_binary")
+load("@rules_haskell//hs:defs.bzl", "hs_binary")
 
 package(default_visibility = ["//visibility:public"])
 

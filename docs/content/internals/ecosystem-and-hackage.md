@@ -1,6 +1,6 @@
 ---
 title: "Hackage Lockfile Resolution & 5-Stage Cabal Pipeline"
-description: "How rules_hs resolves Hackage dependencies offline with Cabal-syntax (//tools/lock), synthesizes lazy @hackage repositories in Starlark, and builds packages in hs_cabal_library."
+description: "How rules_haskell resolves Hackage dependencies offline with Cabal-syntax (//tools/lock), synthesizes lazy @hackage repositories in Starlark, and builds packages in hs_cabal_library."
 section: internals
 nav_title: "Hackage & Cabal Pipeline"
 order: 40
@@ -10,7 +10,7 @@ order: 40
 
 Building third-party Hackage packages inside Bazel involves several moving parts: `.cabal` files use indentation-sensitive conditionals (`if os(...)`, `if arch(...)`, `if impl(ghc >= ...)`, `if flag(...)`), internal and public sublibraries, `hsc2hs` C-binding preprocessors, `alex` and `happy` grammar generators, autoconf `./configure` scripts, C-only helper packages (`zlib-clib`), C files textually `#include`d into other C files (`crypton`), generated `Paths_<pkg>` modules, and legacy `cabal-doctest` `Custom` setups (`xml-conduit`).
 
-Rather than writing a partial `.cabal` parser in Starlark or running an opaque `Setup.hs` build script inside a single Bazel action, `rules_hs` divides Hackage integration into **an offline lockfile step** and **a Starlark repository step**, backed by a **5-stage Bazel build rule** ([`hs_cabal_library`](../reference/rules.md#hs_cabal_library)):
+Rather than writing a partial `.cabal` parser in Starlark or running an opaque `Setup.hs` build script inside a single Bazel action, `rules_haskell` divides Hackage integration into **an offline lockfile step** and **a Starlark repository step**, backed by a **5-stage Bazel build rule** ([`hs_cabal_library`](../reference/rules.md#hs_cabal_library)):
 
 ```mermaid
 flowchart TD
@@ -42,7 +42,7 @@ flowchart TD
 
 ## Phase 1: Self-Hosted `Cabal-syntax` Lock Generator (`//tools/lock`) {#phase-1-lock-generator}
 
-[`//tools/lock:lock`](../reference/lock-cli.md) (`tools/lock/BUILD.bazel`, `Main.hs`, `CabalExtract.hs`, `LockJson.hs` — also exposed as library `//tools/lock:lock_lib` with Haddock API docs at `//tools/lock:lock_haddock`) is an ~1,400-line Haskell command-line tool compiled by `rules_hs` itself using **only GHC's bundled boot libraries** (`base`, `Cabal-syntax`, `bytestring`, `containers`, `directory`, `filepath`, `process`, `text`). It requires no external Hackage libraries and no `cabal` or `stack` installation on the host. Because it calls GHC's own `Cabal-syntax` library directly, it parses the full `.cabal` file specification.
+[`//tools/lock:lock`](../reference/lock-cli.md) (`tools/lock/BUILD.bazel`, `Main.hs`, `CabalExtract.hs`, `LockJson.hs` — also exposed as library `//tools/lock:lock_lib` with Haddock API docs at `//tools/lock:lock_haddock`) is an ~1,400-line Haskell command-line tool compiled by `rules_haskell` itself using **only GHC's bundled boot libraries** (`base`, `Cabal-syntax`, `bytestring`, `containers`, `directory`, `filepath`, `process`, `text`). It requires no external Hackage libraries and no `cabal` or `stack` installation on the host. Because it calls GHC's own `Cabal-syntax` library directly, it parses the full `.cabal` file specification.
 
 ### 1. Loading the Stackage Snapshot and Boot Package Versions (`Main.hs`, `CabalExtract.hs`)
 
@@ -54,7 +54,7 @@ flowchart TD
 
 Starting from the root `--package` arguments passed on the command line, `resolveQueue` walks all non-boot dependencies using breadth-first search (`collectComponentDeps` skips GHC boot packages, self-references, and the Windows-only `Win32` package):
 
-- Downloads `<pkg>.cabal` and `<pkg>-<ver>.tar.gz` from `https://hackage.haskell.org/package/...` into `--cache-dir` (default `/tmp/rules_hs_lock_cache`). When the Stackage snapshot pins a `.cabal` SHA-256 digest (`spCabalSha256`), `fetchVerifiedCabal` checks the downloaded `.cabal` file against that SHA-256 (caching it under `<pkg>-<ver>-<sha256>.cabal`). If Hackage's mutable `<pkg>.cabal` endpoint has moved on to a newer metadata `x-revision`, `fetchVerifiedCabal` steps backwards through `revision/<r>.cabal` until the digest matches.
+- Downloads `<pkg>.cabal` and `<pkg>-<ver>.tar.gz` from `https://hackage.haskell.org/package/...` into `--cache-dir` (default `/tmp/rules_haskell_lock_cache`). When the Stackage snapshot pins a `.cabal` SHA-256 digest (`spCabalSha256`), `fetchVerifiedCabal` checks the downloaded `.cabal` file against that SHA-256 (caching it under `<pkg>-<ver>-<sha256>.cabal`). If Hackage's mutable `<pkg>.cabal` endpoint has moved on to a newer metadata `x-revision`, `fetchVerifiedCabal` steps backwards through `revision/<r>.cabal` until the digest matches.
 - Computes the `.tar.gz` SHA-256 digest via `computeSha256` (`sha256sum`, falling back to `shasum -a 256` on macOS).
 - Parses the `.cabal` file with `Distribution.PackageDescription.Parsec.parseGenericPackageDescription` (`parseCabalBytes`) and reads the `x-revision` integer (`extractRevision`).
 
@@ -150,7 +150,7 @@ flowchart LR
 Runs **only** when `build_type == "Configure"`. `run_configure_action` (`hs/private/actions.bzl`):
 
 - Creates a temporary writable directory `WORK="$(mktemp -d "${TMPDIR:-/tmp}/hs_cfg.XXXXXX")"` (`trap 'rm -rf "$WORK"' EXIT`) and copies `configure_script` and `configure_srcs` into `$WORK` at their package-relative paths, so `./configure` never modifies the Bazel execroot or leaves untracked `config.log` files behind.
-- Converts relative `--sysroot` paths in `RULES_HS_CC_EXTRA_ARGS` into absolute paths under `$EXECROOT/` before `cd "$WORK"`.
+- Converts relative `--sysroot` paths in `RULES_HASKELL_CC_EXTRA_ARGS` into absolute paths under `$EXECROOT/` before `cd "$WORK"`.
 - Sets `CC` and `CXX` to `ghc_cc_wrapper`, `AR` and `LD` from `cc_tools`, `CFLAGS="-fPIC -I<rts_include_dir> <dep_include_dirs>"`, `LDFLAGS="-Wno-unused-command-line-argument"`, and `CONFIG_SHELL="/bin/sh"`.
 - Runs `(cd "$WORK" && /bin/sh "./<configure_script>" <configure_args>)` and copies declared `configure_outputs` to `bazel-out/.../<name>_configure/<rel_out>`, adding both output parent directories and `<configure_root>/<inc_dir>` to C include paths.
 
@@ -268,7 +268,7 @@ When [`//tools/lock:lock`](../reference/lock-cli.md) processes `acme-net`:
 When a Bazel target depends on `@hackage//:acme-net`, `_hackage_package_repo_impl` (`hs/private/hackage.bzl`) extracts the tarball, marks `configure` executable, and runs `_find_module_files` — finding `src/Acme/Net.hs` (`srcs`) and `src/Acme/Net/Consts.hsc` (`hsc_srcs`):
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_cabal_library")
+load("@rules_haskell//hs:defs.bzl", "hs_cabal_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -309,7 +309,7 @@ hs_cabal_library(
 
 ### 4. Execution Across the 5 `hs_cabal_library` Stages (on `linux_x86_64`)
 
-| Stage | Bazel Action Mnemonic | Inputs Consumed | Outputs Produced Under `bazel-out/.../external/rules_hs++hackage+hackage__acme_net/` |
+| Stage | Bazel Action Mnemonic | Inputs Consumed | Outputs Produced Under `bazel-out/.../external/rules_haskell++hackage+hackage__acme_net/` |
 |---|---|---|---|
 | **Stage 1** | `HsConfigure` | `configure`, `include/AcmeConfig.h.in`, `ghc_cc_wrapper` | `acme-net_configure/include/AcmeConfig.h` |
 | **Stage 2** | `FileWrite` (in-process) | Direct `HsPackageInfo` (`base-4.20.2.0`, `bytestring-0.12.2.0`) | `acme-net_autogen/cabal_macros.h`, `acme-net_autogen/Paths_acme_net.hs` |

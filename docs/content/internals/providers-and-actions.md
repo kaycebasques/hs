@@ -6,9 +6,9 @@ nav_title: "Providers & Action Graph"
 order: 30
 ---
 
-Every rule in `rules_hs` ([`hs_toolchain_library`](../reference/rules.md#hs_toolchain_library), [`hs_library`](../reference/rules.md#hs_library), [`hs_cabal_library`](../reference/rules.md#hs_cabal_library), [`hs_binary`](../reference/rules.md#hs_binary), [`hs_test`](../reference/rules.md#hs_test), [`hs_repl`](../reference/rules.md#hs_repl), and [`hs_haddock`](../reference/rules.md#hs_haddock)) is built from a small set of Starlark providers and action helpers across `hs/providers.bzl`, `hs/toolchain.bzl`, `hs/private/actions.bzl`, `hs/private/rules.bzl`, `hs/private/repl.bzl`, and `hs/private/haddock.bzl`.
+Every rule in `rules_haskell` ([`hs_toolchain_library`](../reference/rules.md#hs_toolchain_library), [`hs_library`](../reference/rules.md#hs_library), [`hs_cabal_library`](../reference/rules.md#hs_cabal_library), [`hs_binary`](../reference/rules.md#hs_binary), [`hs_test`](../reference/rules.md#hs_test), [`hs_repl`](../reference/rules.md#hs_repl), and [`hs_haddock`](../reference/rules.md#hs_haddock)) is built from a small set of Starlark providers and action helpers across `hs/providers.bzl`, `hs/toolchain.bzl`, `hs/private/actions.bzl`, `hs/private/rules.bzl`, `hs/private/repl.bzl`, and `hs/private/haddock.bzl`.
 
-Following the same separation used in Buck2's Haskell rules (`facebook/buck2/prelude/haskell`), `rules_hs` keeps **direct dependency identity** separate from **indirect (transitive) compilation and link inputs**:
+Following the same separation used in Buck2's Haskell rules (`facebook/buck2/prelude/haskell`), `rules_haskell` keeps **direct dependency identity** separate from **indirect (transitive) compilation and link inputs**:
 
 - **Direct dependency identity** tells GHC which libraries a target listed directly in its own `deps`, so GHC allows `import` statements *only* from direct dependencies.
 - **Transitive compilation and link inputs** collect all upstream package databases, static `.a` archives, and C/C++ headers using Bazel `depset`s (nested sets that combine dependency graphs in constant time without copying lists at every step) and `rules_cc`'s `CcInfo` provider.
@@ -132,17 +132,17 @@ Its 22 fields group cleanly into four roles:
 
 Both [`hs_library`](../reference/rules.md#hs_library) and [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) return a merged `CcInfo` provider alongside `HsPackageInfo` and `HsLinkInfo`, and both accept C/C++ `cc_library` targets in `deps` as well as in `cc_deps` / `extra_cc_deps`.
 
-In `collect_deps(deps, cc_deps)` (`hs/private/actions.bzl`), `rules_hs` merges all upstream `CcInfo` providers via `cc_common.merge_cc_infos` and copies `merged_cc.compilation_context.includes`, `quote_includes`, `system_includes`, and `headers` into `dep_info.include_dirs` and `dep_info.headers`. Any `cc_library` (such as BCR `@zlib//:zlib` or `//tests/rules/ffi:vec_cc`) automatically exposes its `.h` files to GHC `CApiFFI`, `CPP`, `hsc2hs`, and Cabal `./configure` without manual `include_dirs` attributes.
+In `collect_deps(deps, cc_deps)` (`hs/private/actions.bzl`), `rules_haskell` merges all upstream `CcInfo` providers via `cc_common.merge_cc_infos` and copies `merged_cc.compilation_context.includes`, `quote_includes`, `system_includes`, and `headers` into `dep_info.include_dirs` and `dep_info.headers`. Any `cc_library` (such as BCR `@zlib//:zlib` or `//tests/rules/ffi:vec_cc`) automatically exposes its `.h` files to GHC `CApiFFI`, `CPP`, `hsc2hs`, and Cabal `./configure` without manual `include_dirs` attributes.
 
 ---
 
 ## End-to-End Trace: What Happens When Bazel Builds an `hs_binary` {#end-to-end-trace}
 
-To see how providers, configurations, and sandboxed commands fit together on a real build, trace what Bazel and `rules_hs` do when you run `bazel build //:hello` on a two-target project:
+To see how providers, configurations, and sandboxed commands fit together on a real build, trace what Bazel and `rules_haskell` do when you run `bazel build //:hello` on a two-target project:
 
 ```starlark
 # BUILD.bazel
-load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_library")
+load("@rules_haskell//hs:defs.bzl", "hs_binary", "hs_library")
 
 hs_library(
     name = "greet",
@@ -215,8 +215,8 @@ flowchart TD
 ```text
 bazel-out/
 ├── k8-opt-exec-ST-.../bin/                                  # Exec configuration (build tools)
-│   ├── external/rules_hs+/hs/private/ghc_cc_wrapper         # Compiled C11 compiler/linker adapter
-│   └── external/rules_hs++hs+ghc_9_10_3_linux_x86_64/
+│   ├── external/rules_haskell+/hs/private/ghc_cc_wrapper         # Compiled C11 compiler/linker adapter
+│   └── external/rules_haskell++hs+ghc_9_10_3_linux_x86_64/
 │       └── staged_ghc/
 │           ├── bin/{ghc-9.10.3, ghc-pkg-9.10.3, hsc2hs-ghc-9.10.3, haddock-ghc-9.10.3, ...}
 │           ├── lib/{settings, package.conf.d/..., x86_64-linux-ghc-9.10.3/libgmp.so.10, ...}
@@ -235,7 +235,7 @@ bazel-out/
 
 ## Strict Direct-Dependency Visibility {#strict-visibility}
 
-Why does `rules_hs` pass **both** transitive `-package-db` flags *and* direct-only `-package-id` flags instead of passing `-package-db` only for direct dependencies?
+Why does `rules_haskell` pass **both** transitive `-package-db` flags *and* direct-only `-package-id` flags instead of passing `-package-db` only for direct dependencies?
 
 Suppose you have a three-library chain `lib_c -> lib_b -> lib_a`:
 - `lib_a` defines `data UserId = UserId Int`.
@@ -319,7 +319,7 @@ Look at what each path field in that `.conf` file points to once `${pkgroot}` ex
 
 ### Why One `ghc --make -c` Action Per Library?
 
-A recurring design choice in Haskell build rules is whether to spawn a separate `ghc -c Foo.hs` process per `.hs` file or one `ghc --make -c` command per library target (`HsCompileLibrary`). `rules_hs` runs **one `ghc --make -c` action per library or sublibrary** for three practical reasons:
+A recurring design choice in Haskell build rules is whether to spawn a separate `ghc -c Foo.hs` process per `.hs` file or one `ghc --make -c` command per library target (`HsCompileLibrary`). `rules_haskell` runs **one `ghc --make -c` action per library or sublibrary** for three practical reasons:
 
 1. **Built-in `.hs-boot` mutual recursion**: Several Hackage libraries (`cborg`, `tls`, and user code tested in `//tests/basic:boot_cycle_lib`) have mutually recursive modules (`A` imports `B` and `B` imports `A`, broken by an `A.hs-boot` declaration file; see [Haskell Build Mechanisms](haskell-and-ghc-primer.md#build-mechanisms)). Separate per-module Bazel actions would form a cycle in Bazel's action graph unless users annotated boot edges by hand; `ghc --make -c` compiles `.hs-boot` cycles automatically.
 2. **Automatic `CApiFFI` C wrapper compilation**: When a module uses `{-# LANGUAGE CApiFFI #-}`, GHC generates temporary C wrapper source files (`-stubdir "$ODIR"`), compiles them through `-pgmc` (`ghc_cc_wrapper`), and writes the resulting `.o` files into `$ODIR` during `--make`.
@@ -350,8 +350,8 @@ Sorting with `sort` keeps archive member order identical across filesystems, and
 
 ### Explicit `-X<default_language>` Defaults (`GHC2021` vs. `Haskell98`)
 
-- **Why `hs_library`, `hs_binary`, and `hs_test` default to `"GHC2021"`**: Although GHC `9.10` and `9.12` support the newer `"GHC2024"` language edition, upstream GHC itself still defaults to **`GHC2021`** when invoked without `-X...` because `GHC2024` enables `MonoLocalBinds`, which alters type inference for local `let` and `where` bindings and rejects some polymorphic local helpers valid in `Haskell2010` and `GHC2021`. `rules_hs` matches GHC's own default (`"GHC2021"`), and you can set `default_language = "GHC2024"`, `"Haskell2010"`, or `"Haskell98"` on any target (tested by `//tests/rules/lang:lang_test`).
-- **Why `hs_cabal_library` defaults to `"Haskell98"`**: Under the `.cabal` file specification, older Hackage packages that omit the `default-language:` field must be compiled as `Haskell98` (several fail to compile if `GHC2021` extensions are enabled implicitly). `rules_hs` passes `-X<default_language>` explicitly on every compile command (tested by `//tests/starlark:hs_cabal_library_h98_test` and `//tests/starlark:hs_cabal_library_h2010_test`).
+- **Why `hs_library`, `hs_binary`, and `hs_test` default to `"GHC2021"`**: Although GHC `9.10` and `9.12` support the newer `"GHC2024"` language edition, upstream GHC itself still defaults to **`GHC2021`** when invoked without `-X...` because `GHC2024` enables `MonoLocalBinds`, which alters type inference for local `let` and `where` bindings and rejects some polymorphic local helpers valid in `Haskell2010` and `GHC2021`. `rules_haskell` matches GHC's own default (`"GHC2021"`), and you can set `default_language = "GHC2024"`, `"Haskell2010"`, or `"Haskell98"` on any target (tested by `//tests/rules/lang:lang_test`).
+- **Why `hs_cabal_library` defaults to `"Haskell98"`**: Under the `.cabal` file specification, older Hackage packages that omit the `default-language:` field must be compiled as `Haskell98` (several fail to compile if `GHC2021` extensions are enabled implicitly). `rules_haskell` passes `-X<default_language>` explicitly on every compile command (tested by `//tests/starlark:hs_cabal_library_h98_test` and `//tests/starlark:hs_cabal_library_h2010_test`).
 
 ---
 
@@ -369,7 +369,7 @@ In GHC, **`-optl<flag>`** means "forward `<flag>` to the C compiler driver when 
 
 Modern Linux C toolchains (`clang`/`lld`, `zig cc`, and recent `gcc`) default to building **Position-Independent Executables (PIE)** — executables whose machine code uses only relative memory offsets so the OS kernel can load the program at a random memory address on each run. Building a PIE requires *every* `.o` object file inside *every* static `.a` library linked into the binary to have been compiled with `-fPIC` (position-independent code).
 
-While `rules_hs` compiles all user and Hackage code with `-fPIC`, official upstream GHC Linux binary distributions compile their pre-built static boot archives (`libHSbase-*.a`, `libHSghc-prim-*.a`, `libHSrts-*.a`) **without `-fPIC`**, using fixed 32-bit symbol relocations (`R_X86_64_32` / `R_X86_64_32S`). Strict linkers such as LLVM's `lld` (used by `zig cc` and `toolchains_llvm`) refuse to link non-PIC `.a` archives into a PIE, failing with `relocation R_X86_64_32S cannot be used against local symbol; recompile with -fPIC`. Passing **`-optl-no-pie`** instructs the linker to emit a standard fixed-address Linux ELF executable, which links upstream GHC static boot archives cleanly across GNU `ld`, LLVM `lld`, and `zig cc`.
+While `rules_haskell` compiles all user and Hackage code with `-fPIC`, official upstream GHC Linux binary distributions compile their pre-built static boot archives (`libHSbase-*.a`, `libHSghc-prim-*.a`, `libHSrts-*.a`) **without `-fPIC`**, using fixed 32-bit symbol relocations (`R_X86_64_32` / `R_X86_64_32S`). Strict linkers such as LLVM's `lld` (used by `zig cc` and `toolchains_llvm`) refuse to link non-PIC `.a` archives into a PIE, failing with `relocation R_X86_64_32S cannot be used against local symbol; recompile with -fPIC`. Passing **`-optl-no-pie`** instructs the linker to emit a standard fixed-address Linux ELF executable, which links upstream GHC static boot archives cleanly across GNU `ld`, LLVM `lld`, and `zig cc`.
 
 ### 2. Why `-optl-L<gmp_static_dir>` Guarantees Static GMP
 
@@ -390,7 +390,7 @@ Traditional Unix/GNU `ld` (and LLVM/Zig linkers when emulating GNU archive rules
 
 ## Data Dependencies & Runfiles Propagation {#runfiles}
 
-Every rule in `rules_hs` merges `data` runtime files across `deps`, `cc_deps` / `extra_cc_deps`, and `data`:
+Every rule in `rules_haskell` merges `data` runtime files across `deps`, `cc_deps` / `extra_cc_deps`, and `data`:
 
 ```starlark
 runfiles = ctx.runfiles(files = ctx.files.data).merge_all([
@@ -425,7 +425,7 @@ When a module enables `{-# LANGUAGE TemplateHaskell #-}` and evaluates `$( ... )
 
 Widely used Hackage packages such as `file-embed`, `aeson`, `skylighting`, and `pandoc` (used to build `//docs`) define Template Haskell helper functions in library `A` and run `$(embedFile ...)` or `$(deriveJSON ...)` while compiling downstream library `B`.
 
-If `libHSA.a` already holds compiled machine code for library `A`, why does `rules_hs` also link `A.pkgdb/dyn/libHSA-ghc9.10.3.so`?
+If `libHSA.a` already holds compiled machine code for library `A`, why does `rules_haskell` also link `A.pkgdb/dyn/libHSA-ghc9.10.3.so`?
 
 - **Why compile-time TH requires a `.so` shared library**: On standard Linux GHC distributions, the `ghc-9.10.3` compiler binary (and `ghc-iserv-dyn`) is a **dynamically linked ELF process** running against GHC's dynamic runtime (`libHSrts-1.0.2-ghc9.10.3.so`). To load and call compiled functions from library `A` inside that live process at compile time, GHC calls the OS dynamic loader (`dlopen`). `dlopen` can only map position-independent ELF shared libraries (`.so`) linked against the dynamic runtime ABI — it cannot load raw static `ar` archives (`libHS*.a`, which are compiled against the static runtime ABI without dynamic relocation tables).
 - **Why final `hs_binary` linking ignores `.so` and uses `.a`**: When `HsLinkExecutable` links a standalone binary (`hs_binary` or `hs_test` without `-dynamic`), GHC calls the system linker in **static package mode**, reading `library-dirs-static: ${pkgroot}` (`libHS*.a`) and `gmp_static/libgmp.a` while ignoring `dynamic-library-dirs`.
@@ -437,7 +437,7 @@ Whenever `HsToolchainInfo.is_dynamic_ghc` is `True`, `HsCompileLibrary` (`hs/pri
    `HsCompileLibrary` invokes `ghc -shared -dynamic -fPIC -no-auto-link-packages` on the library's `.dyn_o` files with two important linker flags:
    - **`-optl-Wl,-Bsymbolic`**: On Linux, ELF shared libraries normally allow *global symbol interposition* — if `libHSA.so` defines a function `helper` and calls `helper` internally, by default the call routes through a global lookup table so an earlier-loaded library in the same process can override `helper`. Because `libHSA.so` is loaded via `dlopen` *inside the running `ghc` compiler process* (which already has dozens of its own GHC and C libraries loaded in memory), global symbol lookup risks binding `libHSA.so`'s internal calls to a different library version already inside `ghc` (and adds indirection across thousands of Haskell symbols). Passing **`-Wl,-Bsymbolic`** tells the linker: *"whenever code inside `libHSA.so` calls a function or reads a variable that is also defined inside `libHSA.so`, bind that reference directly to `libHSA.so`'s own definition at link time."* This matches GHC's own package `.so` linking convention.
    - **`-optl-Wl,--whole-archive <cc_archives> -optl-Wl,--no-whole-archive`**: If library `A` compiles C helper code (`c_sources` or `cc_deps`), a normal static archive scan while linking `libHSA.so` might drop a C `.o` file if `A`'s Haskell wrapper around that C function was small enough to be inlined into downstream callers rather than called inside `A` itself — causing `dlopen` to fail with `undefined symbol` when downstream library `B` runs a TH macro. Wrapping `cc_archives` in `--whole-archive ... --no-whole-archive` forces the linker to include **every `.o` object file** from those C archives inside `libHSA.so` (followed by `//hs/private:rt_shims` outside `--whole-archive` so weak `__cpu_model` shims are pulled in only if needed).
-3. **Staging compile-time `data` files in `pkg_cwd` for `file-embed`**: Hackage libraries that call `$(embedFile "data/table.bin")` expect `"data/table.bin"` to be relative to that package's own root directory rather than Bazel's workspace `execroot` (`external/rules_hs++hackage+.../data/table.bin`). When `data` is non-empty on an external package, `HsCompileLibrary` creates a temporary symlink directory (`$WORK_ROOT/pkg_cwd`) containing symlinks both to top-level `execroot` entries (`bazel-out/`, `external/`) and to the package's own files, and runs `ghc` from `pkg_cwd` so both Bazel paths and package-relative `embedFile` paths resolve inside `linux-sandbox`.
+3. **Staging compile-time `data` files in `pkg_cwd` for `file-embed`**: Hackage libraries that call `$(embedFile "data/table.bin")` expect `"data/table.bin"` to be relative to that package's own root directory rather than Bazel's workspace `execroot` (`external/rules_haskell++hackage+.../data/table.bin`). When `data` is non-empty on an external package, `HsCompileLibrary` creates a temporary symlink directory (`$WORK_ROOT/pkg_cwd`) containing symlinks both to top-level `execroot` entries (`bazel-out/`, `external/`) and to the package's own files, and runs `ghc` from `pkg_cwd` so both Bazel paths and package-relative `embedFile` paths resolve inside `linux-sandbox`.
 4. **Static isolation for final executables**: Because `<name>.pkgdb/dyn/` is separate from `${pkgroot}`, `HsLinkExecutable` links only static `libHS<unit_id>.a` and `gmp_static/libgmp.a`. Compiled executables (`//docs:docs_gen` and `//tests/rules/th:cross_lib_th_elf_test`) contain **no** `libHS*.so` or `libgmp.so.10` entries in `DT_NEEDED`.
 
 ---
@@ -471,5 +471,5 @@ Because Haddock works by running GHC's parser and typechecker front-end over `.h
 
 1. **Bytecode vs. precompiled dependency split**: When `interpret_deps = True` (the default), `_hs_repl_impl` collects `HsDocSourceInfo` from in-workspace targets in `deps` (excluding `compiled_deps`), omits those targets' `.pkgdb` directories and `unit_id`s from `-package-db` / `-package-id`, and promotes their direct compiled dependencies (`@hs_boot`, `@hackage`, `compiled_deps`) to `-package-id`. Main-workspace source paths resolve via `$BUILD_WORKSPACE_DIRECTORY` under `bazel run` (falling back to `$RUNFILES_DIR/_main` inside `bazel test`), so `:reload` picks up live edits on disk without re-running Bazel.
 2. **Startup `*Module` scope (`session.ghci`)**: Because GHC executes `-ghci-script` files *before* positional `.hs` arguments, passing multiple `.hs` files positionally leaves only the last module in scope. Instead, the launcher extracts each `.hs` / `.lhs` file's module header with an `awk` scanner (handling comments, `#ifdef` lines, and literate Bird/LaTeX blocks) and writes `:load "<f1>" "<f2>" ...` followed by `:module + *Mod1 *Mod2 ...`, `ghci_commands`, and `ghci_script` into a temporary per-session `$SESSION_GHCI` file.
-3. **Shared C/C++ FFI library (`HsLinkReplCbits`)**: Because Linux `ghc` is dynamically linked, interpreted FFI bytecode cannot load raw static C `.a` archives directly when C++ or circular symbol dependencies are present. Whenever `merged_cc_info` contains native C/C++ archives, `_link_repl_cbits_so` runs `HsLinkReplCbits` (`ghc_cc_wrapper -shared -fPIC -Wl,-Bsymbolic -Wl,--whole-archive <cc_archives> -Wl,--no-whole-archive <rt_shims>`) to build `<name>_repl_cbits/lib<safe_id>_cbits.so` and passes `-L... -l<safe_id>_cbits` to GHCi, while `CApiFFI` C wrapper stubs compile on the fly through `-pgmc <ghc_cc_wrapper>` (`RULES_HS_REAL_CC`).
+3. **Shared C/C++ FFI library (`HsLinkReplCbits`)**: Because Linux `ghc` is dynamically linked, interpreted FFI bytecode cannot load raw static C `.a` archives directly when C++ or circular symbol dependencies are present. Whenever `merged_cc_info` contains native C/C++ archives, `_link_repl_cbits_so` runs `HsLinkReplCbits` (`ghc_cc_wrapper -shared -fPIC -Wl,-Bsymbolic -Wl,--whole-archive <cc_archives> -Wl,--no-whole-archive <rt_shims>`) to build `<name>_repl_cbits/lib<safe_id>_cbits.so` and passes `-L... -l<safe_id>_cbits` to GHCi, while `CApiFFI` C wrapper stubs compile on the fly through `-pgmc <ghc_cc_wrapper>` (`RULES_HASKELL_REAL_CC`).
 4. **External interpreter (`-fexternal-interpreter`) & `SIGINT` handling**: On dynamic Linux GHC (`is_dynamic_ghc = True`), GHC searches `$topdir/../bin/ghc-iserv-dyn` only when `-dynamic` is active; `staged_ghc` stages `bin/ghc-iserv-dyn` and the launcher automatically adds `-dynamic` whenever `-fexternal-interpreter` is present. The launcher traps `EXIT` (without trapping `INT`) so pressing `Ctrl-C` at the `ghci>` prompt delivers `SIGINT` directly to GHC's runtime handler (`Interrupted.`) without terminating the session. Tested end-to-end (including a real Linux pseudo-TTY harness driving `haskeline`) by `//tests/rules/repl:pty_repl_test`, `//tests/rules/repl:repl_modes_test`, and `examples/size//:size_repl_test`.

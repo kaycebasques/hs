@@ -23,7 +23,7 @@ chmod +x "$FAKE_CC"
 # 1. @cxx.rsp containing a .cpp source MUST NOT receive -nostdinc++.
 CXX_RSP="$WORK/cxx.rsp"
 printf '"%s"\n"%s"\n' "-c" "src/widget.cpp" > "$CXX_RSP"
-CXX_OUT="$(RULES_HS_REAL_CC="$FAKE_CC" TMPDIR="$WORK/tmp1" "$WRAPPER" "@$CXX_RSP")"
+CXX_OUT="$(RULES_HASKELL_REAL_CC="$FAKE_CC" TMPDIR="$WORK/tmp1" "$WRAPPER" "@$CXX_RSP")"
 if printf '%s\n' "$CXX_OUT" | grep -qxF -- "-nostdinc++"; then
     echo "FAIL: ghc_cc_wrapper injected -nostdinc++ for @cxx.rsp C++ compilation:" >&2
     echo "$CXX_OUT" >&2
@@ -34,7 +34,7 @@ echo "OK: @cxx.rsp detected as C++ (no -nostdinc++)"
 # 2. @c.rsp containing a .c source MUST still receive -nostdinc++.
 C_RSP="$WORK/c.rsp"
 printf '"%s"\n"%s"\n' "-c" "src/widget.c" > "$C_RSP"
-C_OUT="$(RULES_HS_REAL_CC="$FAKE_CC" TMPDIR="$WORK/tmp1" "$WRAPPER" "@$C_RSP")"
+C_OUT="$(RULES_HASKELL_REAL_CC="$FAKE_CC" TMPDIR="$WORK/tmp1" "$WRAPPER" "@$C_RSP")"
 if ! printf '%s\n' "$C_OUT" | grep -qxF -- "-nostdinc++"; then
     echo "FAIL: ghc_cc_wrapper omitted -nostdinc++ for @c.rsp C compilation:" >&2
     echo "$C_OUT" >&2
@@ -72,7 +72,7 @@ fi
 EOF
 chmod +x "$CHECK_CC"
 
-RULES_HS_REAL_CC="$CHECK_CC" TMPDIR="$SESSION_TMP" "$WRAPPER" "$DYN_O"
+RULES_HASKELL_REAL_CC="$CHECK_CC" TMPDIR="$SESSION_TMP" "$WRAPPER" "$DYN_O"
 
 LEFTOVERS="$(ls -A "$SESSION_TMP")"
 if [ -n "$LEFTOVERS" ]; then

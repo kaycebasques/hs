@@ -1,12 +1,12 @@
 ---
 title: "Showcase: examples/size"
-description: "Walkthrough of examples/size, a standalone 69-package HTTPS XML and gzip sitemap crawler built with rules_hs."
+description: "Walkthrough of examples/size, a standalone 69-package HTTPS XML and gzip sitemap crawler built with rules_haskell."
 section: guide
 nav_title: "Showcase: examples/size"
 order: 50
 ---
 
-`examples/size` is a standalone Bazel 9 workspace included in the `rules_hs` repository. It builds a concurrent command-line tool (`//:size`) that crawls XML `<urlset>`, nested `<sitemapindex>`, and gzipped `.xml.gz` documentation sitemaps over HTTP and HTTPS to count unique pages.
+`examples/size` is a standalone Bazel 9 workspace included in the `rules_haskell` repository. It builds a concurrent command-line tool (`//:size`) that crawls XML `<urlset>`, nested `<sitemapindex>`, and gzipped `.xml.gz` documentation sitemaps over HTTP and HTTPS to count unique pages.
 
 `examples/size` also serves as an end-to-end integration example compiling **69 pinned Hackage packages** (plus 41 GHC `9.10.3` boot libraries) without Nix or host installations of GHC, Cabal, Stack, OpenSSL, or `zlib`.
 
@@ -34,7 +34,7 @@ flowchart TD
 
 Building `examples/size` exercises several common Hackage packaging patterns in one workspace:
 
-| Ecosystem Feature | Packages Exercising It in `examples/size` | How `rules_hs` Builds It |
+| Ecosystem Feature | Packages Exercising It in `examples/size` | How `rules_haskell` Builds It |
 |---|---|---|
 | **C-only Cabal package + transitive `install-includes`** | `zlib-clib` -> `zlib` -> `streaming-commons` | Stage 4 `cc_common.compile` compiles 11 `.c` files and exports `<zlib.h>` via `CcInfo` and [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo) without invoking GHC |
 | **Autoconf `build-type: Configure` + `hsc2hs`** | `network`, `unix-time`, `old-time` | Stage 1 runs sandboxed `./configure` via `ghc_cc_wrapper`, feeding `HsNetworkConfig.h` into Stage 3 `hsc2hs` actions |
@@ -57,9 +57,9 @@ module(
     bazel_compatibility = [">=9.0.0"],
 )
 
-bazel_dep(name = "rules_hs", version = "0.1.0")
+bazel_dep(name = "rules_haskell", version = "0.1.0")
 local_path_override(
-    module_name = "rules_hs",
+    module_name = "rules_haskell",
     path = "../..",
 )
 
@@ -78,13 +78,13 @@ register_toolchains(
 )
 
 # GHC toolchain
-hs = use_extension("@rules_hs//hs:extensions.bzl", "hs")
+hs = use_extension("@rules_haskell//hs:extensions.bzl", "hs")
 hs.toolchain(ghc_version = "9.10.3")
 use_repo(hs, "hs_toolchains")
 register_toolchains("@hs_toolchains//:all")
 
 # Pinned third-party Hackage packages (69 packages, no host cabal/stack at build time)
-hackage = use_extension("@rules_hs//hs:extensions.bzl", "hackage")
+hackage = use_extension("@rules_haskell//hs:extensions.bzl", "hackage")
 hackage.from_lock(
     name = "hackage",
     lockfile = "//:hackage.lock.json",
@@ -95,7 +95,7 @@ use_repo(hackage, "hackage")
 `examples/size/hackage.lock.json` was generated with `zlib:bundled-c-zlib=true` and `zlib:pkg-config=false` so `zlib` compiles its vendored C sources through Bazel's `cc_toolchain`:
 
 ```bash
-bazel run @rules_hs//tools/lock:lock -- \
+bazel run @rules_haskell//tools/lock:lock -- \
   --snapshot lts-24.67 \
   --package async \
   --package http-client \
@@ -116,7 +116,7 @@ bazel run @rules_hs//tools/lock:lock -- \
 The project splits its code into a pure XML/sitemap parsing library (`:sitemap`), an HTTP/TLS client library (`:fetch`), a small CLI entry point (`:size`), a combined [`hs_haddock`](../reference/rules.md#hs_haddock) API documentation target (`:size_haddock`), an interactive [`hs_repl`](../reference/rules.md#hs_repl) target (`:size_repl`), and four test targets:
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_haddock", "hs_library", "hs_repl", "hs_test")
+load("@rules_haskell//hs:defs.bzl", "hs_binary", "hs_haddock", "hs_library", "hs_repl", "hs_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 hs_library(
@@ -258,7 +258,7 @@ bazel run //:size_repl
 What `bazel test //...` checks:
 1. **`//:sitemap_test`** ([`hs_test`](../reference/rules.md#hs_test) with `data = ["//testdata:sitemaps"]`): Tests `<urlset>`, `<sitemapindex>`, `.xml.gz`, invalid HTML root rejection, UTF-8 BOM stripping, cyclic `<sitemapindex>` graphs (verifying each URL is fetched once), case-insensitive tags, and corrupt gzip error reporting.
 2. **`//:http_e2e_test`** ([`hs_test`](../reference/rules.md#hs_test)): Binds an ephemeral `127.0.0.1:0` loopback TCP socket via `@hackage//:network`, serves XML and `.xml.gz` fixtures, HTTP `302 Found` redirects, and `404 Not Found` errors, and tests `Fetch.httpFetcher` inside the Bazel test sandbox with no external network access.
-3. **`//:size_repl_test`** (`sh_test`): Evaluates `.xml.gz` decompression and XML parsing inside `//:size_repl` and verifies `@rules_hs//tools/ghci` from an external consumer workspace.
+3. **`//:size_repl_test`** (`sh_test`): Evaluates `.xml.gz` decompression and XML parsing inside `//:size_repl` and verifies `@rules_haskell//tools/ghci` from an external consumer workspace.
 4. **`//:elf_hermeticity_test`** (`sh_test`): Runs `readelf -d` on `//:size` to verify that ELF `NEEDED` entries list only base `glibc` shared libraries — no `libgmp`, `libtinfo`, `libffi`, `libz`, `libssl`, `libcrypto`, or `libHS*.so` — and runs `//:size` under `env -i PATH=/nonexistent`.
 
 To run `//:size` live over HTTPS against a public documentation site:

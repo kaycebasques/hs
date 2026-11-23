@@ -46,9 +46,9 @@ hs_library(
 hs_library(
     name = "ext_hier_lib",
     srcs = [
-        "src/Org/RulesHs/Eval/Engine.hs",
-        "src/Org/RulesHs/Internal/Secret.hs",
-        "src/Org/RulesHs/Types.hs",
+        "src/Org/RulesHaskell/Eval/Engine.hs",
+        "src/Org/RulesHaskell/Internal/Secret.hs",
+        "src/Org/RulesHaskell/Types.hs",
     ],
     default_extensions = [
         "OverloadedStrings",
@@ -61,7 +61,7 @@ hs_library(
         "-Werror",
         "-O2",
     ],
-    hidden_modules = ["Org.RulesHs.Internal.Secret"],
+    hidden_modules = ["Org.RulesHaskell.Internal.Secret"],
     hs_source_dirs = ["src"],
     deps = [
         "@hs_boot//:base",

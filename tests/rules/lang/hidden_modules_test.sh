@@ -19,12 +19,12 @@ if [ -z "$CONF_FILE" ] || [ ! -f "$CONF_FILE" ]; then
     exit 1
 fi
 
-grep -qE '^exposed-modules:.*Org\.RulesHs\.Eval\.Engine' "$CONF_FILE"
-grep -qE '^exposed-modules:.*Org\.RulesHs\.Types' "$CONF_FILE"
-grep -qE '^hidden-modules:.*Org\.RulesHs\.Internal\.Secret' "$CONF_FILE"
+grep -qE '^exposed-modules:.*Org\.RulesHaskell\.Eval\.Engine' "$CONF_FILE"
+grep -qE '^exposed-modules:.*Org\.RulesHaskell\.Types' "$CONF_FILE"
+grep -qE '^hidden-modules:.*Org\.RulesHaskell\.Internal\.Secret' "$CONF_FILE"
 
-if grep -qE '^exposed-modules:.*Org\.RulesHs\.Internal\.Secret' "$CONF_FILE"; then
-    echo "FAIL: hidden module Org.RulesHs.Internal.Secret leaked into exposed-modules!" >&2
+if grep -qE '^exposed-modules:.*Org\.RulesHaskell\.Internal\.Secret' "$CONF_FILE"; then
+    echo "FAIL: hidden module Org.RulesHaskell.Internal.Secret leaked into exposed-modules!" >&2
     cat "$CONF_FILE" >&2
     exit 1
 fi

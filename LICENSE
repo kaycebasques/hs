@@ -175,7 +175,7 @@
       include a file or class name and a brief description of the
       copyright notice.
 
-   Copyright 2026 rules_hs contributors
+   Copyright 2026 rules_haskell contributors
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.

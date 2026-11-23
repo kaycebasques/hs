@@ -6,7 +6,7 @@ nav_title: "Language, RTS, Runfiles & TH"
 order: 40
 ---
 
-This guide covers day-to-day Haskell language settings, interactive `ghci` interpreter sessions ([`hs_repl`](../reference/rules.md#hs_repl) and `@rules_hs//tools/ghci`), module visibility, `.hs-boot` mutually recursive modules, GHC runtime system (RTS) threading, Bazel `data` runfiles, Template Haskell, and Haddock API documentation ([`hs_haddock`](../reference/rules.md#hs_haddock)), based on the test suites under `tests/rules/` and `tests/basic/`.
+This guide covers day-to-day Haskell language settings, interactive `ghci` interpreter sessions ([`hs_repl`](../reference/rules.md#hs_repl) and `@rules_haskell//tools/ghci`), module visibility, `.hs-boot` mutually recursive modules, GHC runtime system (RTS) threading, Bazel `data` runfiles, Template Haskell, and Haddock API documentation ([`hs_haddock`](../reference/rules.md#hs_haddock)), based on the test suites under `tests/rules/` and `tests/basic/`.
 
 ## Language Editions (`GHC2021` vs. `GHC2024`) & Extensions
 
@@ -19,7 +19,7 @@ In Haskell, a **language edition** (`Haskell98`, `Haskell2010`, `GHC2021`, or `G
 - **User rules (`hs_library`, `hs_binary`, `hs_test`)** default to **`"GHC2021"`**.
 - **Third-party Cabal packages (`hs_cabal_library`)** default to **`"Haskell98"`** when an older `.cabal` manifest omits `default-language:`, matching the Cabal specification.
 
-Why does `rules_hs` default user targets to `"GHC2021"` rather than `"GHC2024"` even on GHC `9.10.3` and `9.12.4`?
+Why does `rules_haskell` default user targets to `"GHC2021"` rather than `"GHC2024"` even on GHC `9.10.3` and `9.12.4`?
 
 1. **Upstream GHC compatibility**: GHC `9.10` and `9.12` themselves still use `GHC2021` as the compiler's built-in default when invoked without an explicit language edition flag.
 2. **`MonoLocalBinds` in `GHC2024`**: `GHC2024` adds several useful extensions on top of `GHC2021` — including `LambdaCase`, `DerivingStrategies`, `GADTs`, `DataKinds`, `DisambiguateRecordFields`, `ExplicitNamespaces`, and `RoleAnnotations` — **and** it also turns on `MonoLocalBinds`. With `MonoLocalBinds` enabled, GHC stops automatically inferring polymorphic (generic) types for local helper functions inside `let` and `where` blocks when certain type features are in scope. Existing `Haskell2010` and `GHC2021` modules that rely on polymorphic local helpers can fail typechecking under `GHC2024` until explicit type signatures are added to those `let`/`where` bindings.
@@ -46,7 +46,7 @@ describeStatus = \case
 ```
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_library")
+load("@rules_haskell//hs:defs.bzl", "hs_library")
 
 hs_library(
     name = "status_lib",
@@ -61,14 +61,14 @@ hs_library(
 You can also stay on `"GHC2021"` and add specific target-wide extensions via `default_extensions` (from `tests/rules/lang/BUILD.bazel`):
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_library")
+load("@rules_haskell//hs:defs.bzl", "hs_library")
 
 hs_library(
     name = "domain_lib",
     srcs = [
-        "src/Org/RulesHs/Eval/Engine.hs",
-        "src/Org/RulesHs/Internal/Secret.hs",
-        "src/Org/RulesHs/Types.hs",
+        "src/Org/RulesHaskell/Eval/Engine.hs",
+        "src/Org/RulesHaskell/Internal/Secret.hs",
+        "src/Org/RulesHaskell/Types.hs",
     ],
     default_extensions = [
         "OverloadedStrings",
@@ -81,7 +81,7 @@ hs_library(
         "-Werror",
         "-O2",
     ],
-    hidden_modules = ["Org.RulesHs.Internal.Secret"],
+    hidden_modules = ["Org.RulesHaskell.Internal.Secret"],
     hs_source_dirs = ["src"],
     deps = [
         "@hs_boot//:base",
@@ -94,14 +94,14 @@ hs_library(
 
 ## Interactive `ghci` REPL & Interpreter Modes (`hs_repl` and `//tools/ghci`) {#interactive-ghci-repl}
 
-`rules_hs` supports GHC's interactive and non-interactive interpreter execution modes alongside batch compilation:
+`rules_haskell` supports GHC's interactive and non-interactive interpreter execution modes alongside batch compilation:
 
 ### 1. Project REPL Targets (`hs_repl`)
 
 Declare an [`hs_repl`](../reference/rules.md#hs_repl) target in `BUILD.bazel` pointing at one or more [`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), or [`hs_test`](../reference/rules.md#hs_test) targets:
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_library", "hs_repl")
+load("@rules_haskell//hs:defs.bzl", "hs_library", "hs_repl")
 
 hs_library(
     name = "math_lib",
@@ -130,7 +130,7 @@ Inside the session:
 
 - **Bytecode scope (`*Module`)**: Workspace targets in `deps` are loaded from source into GHCi bytecode (`interpret_deps = True` by default), placing all target modules (including `hidden_modules` and unexported top-level helpers) in scope at the `ghci>` prompt. External `@hs_boot` and `@hackage` packages (plus any targets listed in `compiled_deps`) load from precompiled `.so` shared libraries.
 - **Live `:reload` without re-running Bazel**: When launched via `bazel run`, workspace source files and `-i` search paths resolve against `$BUILD_WORKSPACE_DIRECTORY`. Edit any loaded `.hs` file in your editor and run `:reload` (`:r`) at the `ghci>` prompt to recompile in place.
-- **Line editing, completion, `Ctrl-C`, and `:break` debugging**: GHC's `haskeline` prompt runs against `rules_hs`'s C11 `libtinfo.so.6` implementation (supporting arrow-key history, Tab identifier completion, `Ctrl-C` evaluation interruption, and GHCi's `:break` / `:step` / `:continue` bytecode debugger).
+- **Line editing, completion, `Ctrl-C`, and `:break` debugging**: GHC's `haskeline` prompt runs against `rules_haskell`'s C11 `libtinfo.so.6` implementation (supporting arrow-key history, Tab identifier completion, `Ctrl-C` evaluation interruption, and GHCi's `:break` / `:step` / `:continue` bytecode debugger).
 - **C/C++ FFI, `CApiFFI`, Template Haskell, and `data` runfiles**: Native C and C++ archives in `c_sources` and `cc_deps` are linked automatically into a shared helper library (`HsLinkReplCbits`), `ghc_cc_wrapper` compiles `CApiFFI` stubs on demand, cross-library Template Haskell splices run in-process (or out-of-process when passing `-- -fexternal-interpreter`), and `RUNFILES_DIR` remains exported for `data` files.
 
 ### 2. One-Shot Expression Evaluation (`-e`) and Standalone `//tools/ghci`
@@ -141,17 +141,17 @@ Pass `-e '<expr>'` after `--` to evaluate an expression in the loaded module con
 bazel run //:math_repl -- -e 'computeValue 5'
 ```
 
-To open a standalone `ghci` prompt or run a single `.hs` script via `runghc` without declaring a rule in `BUILD.bazel`, use `@rules_hs//tools/ghci`:
+To open a standalone `ghci` prompt or run a single `.hs` script via `runghc` without declaring a rule in `BUILD.bazel`, use `@rules_haskell//tools/ghci`:
 
 ```bash
 # Standalone ghci prompt with GHC's boot packages visible:
-bazel run @rules_hs//tools/ghci
+bazel run @rules_haskell//tools/ghci
 
 # Evaluate an expression directly:
-bazel run @rules_hs//tools/ghci -- -e '2 ^ 64 :: Integer'
+bazel run @rules_haskell//tools/ghci -- -e '2 ^ 64 :: Integer'
 
 # Execute a standalone Haskell script via staged runghc:
-bazel run @rules_hs//tools/ghci:runghc -- ./script.hs arg1 arg2
+bazel run @rules_haskell//tools/ghci:runghc -- ./script.hs arg1 arg2
 ```
 
 ---
@@ -221,7 +221,7 @@ hs_library(
 )
 ```
 
-`rules_hs` stages `.hs-boot` files in the compile sandbox while passing only `.hs` and `.lhs` files as command-line entry points to GHC, letting GHC resolve `{-# SOURCE #-}` imports automatically through its `-i` source search paths.
+`rules_haskell` stages `.hs-boot` files in the compile sandbox while passing only `.hs` and `.lhs` files as command-line entry points to GHC, letting GHC resolve `{-# SOURCE #-}` imports automatically through its `-i` source search paths.
 
 ---
 
@@ -239,7 +239,7 @@ GHC ships two variants of the RTS library, controlled by the `threaded` attribut
 | `threaded = False` | `False` | Runs all Haskell green threads (`forkIO` + `MVar`/`STM`) cooperatively on a single OS thread; calling `forkOS` raises a runtime error, and a blocking C call pauses all green threads until it returns | Single-threaded benchmarks or tools that never need multi-core parallelism |
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_test")
+load("@rules_haskell//hs:defs.bzl", "hs_binary", "hs_test")
 
 hs_binary(
     name = "worker_service",
@@ -346,7 +346,7 @@ hs_test(
 
 **Template Haskell (TH)** is GHC's built-in compile-time code generation system (comparable to procedural macros in Rust). While compiling a module, GHC can evaluate Haskell expressions wrapped in `$( ... )` (called **splices**) and insert the generated declarations, types, or expressions directly into the module being compiled. Common Hackage libraries use Template Haskell to generate boilerplate JSON encoders (`aeson`) or embed static files into binaries at compile time (`file-embed`).
 
-`rules_hs` supports Template Haskell with no extra rule attributes required:
+`rules_haskell` supports Template Haskell with no extra rule attributes required:
 
 - **`TemplateHaskellQuotes`**: Constructing syntax trees (`[| ... |]`, `''MyType`, `'myFunc`) via `@hs_boot//:template-haskell` without running splices in the current module.
 - **Boot-package and same-library splices** (`//tests/rules/th:th_test`).
@@ -389,7 +389,7 @@ crossLibAnswer = $(mkAnswerExp 21)
 ```
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_library", "hs_test")
+load("@rules_haskell//hs:defs.bzl", "hs_library", "hs_test")
 
 hs_library(
     name = "th_helper_lib",
@@ -454,13 +454,13 @@ import Data.Text qualified as T
 
 -- | Format a trimmed greeting message for @who@.
 greetingFor :: Text -> Text
-greetingFor who = "Hello, " <> T.strip who <> ", from rules_hs."
+greetingFor who = "Hello, " <> T.strip who <> ", from rules_haskell."
 ```
 
 Declare an [`hs_haddock`](../reference/rules.md#hs_haddock) target in `BUILD.bazel` listing one or more [`hs_library`](../reference/rules.md#hs_library) (or [`hs_cabal_library`](../reference/rules.md#hs_cabal_library)) targets in `deps`:
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_haddock", "hs_library")
+load("@rules_haskell//hs:defs.bzl", "hs_haddock", "hs_library")
 
 hs_library(
     name = "greet",

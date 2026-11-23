@@ -1,22 +1,22 @@
 ---
 title: "Hakyll & GHC Haddock Documentation Engine"
-description: "How rules_hs builds its documentation site with Hakyll, Pandoc, and Skylighting for Markdown prose and bundled GHC Haddock (hs_haddock) for Haskell API docs."
+description: "How rules_haskell builds its documentation site with Hakyll, Pandoc, and Skylighting for Markdown prose and bundled GHC Haddock (hs_haddock) for Haskell API docs."
 section: internals
 nav_title: "Hakyll & Haddock Docs"
 order: 60
 ---
 
-`rules_hs` builds its own documentation site (`//docs:site`), Haskell API reference ([`//tools/lock` Haddock API](../haddock/lock/index.html)), and local preview server (`//docs:serve`) in Haskell under Bazel 9 — using **Hakyll + Pandoc + Skylighting** for Markdown prose and **GHC Haddock** ([`hs_haddock`](../reference/rules.md)) for Haskell library APIs, with zero Python, zero Node.js, zero Nix, and zero custom Markdown syntax extensions.
+`rules_haskell` builds its own documentation site (`//docs:site`), Haskell API reference ([`//tools/lock` Haddock API](../haddock/lock/index.html)), and local preview server (`//docs:serve`) in Haskell under Bazel 9 — using **Hakyll + Pandoc + Skylighting** for Markdown prose and **GHC Haddock** ([`hs_haddock`](../reference/rules.md)) for Haskell library APIs, with zero Python, zero Node.js, zero Nix, and zero custom Markdown syntax extensions.
 
-> **Important — Zero Downstream Bzlmod Footprint:** In `MODULE.bazel`, the `@hackage` hub backing `//docs/...` is loaded with `dev_dependency = True` (enforced by `//tests/rules:bzlmod_hygiene_test`). Downstream consumers of `rules_hs` never fetch or evaluate `docs/hackage.lock.json` and inherit only `rules_hs`'s 4 non-dev dependencies (`platforms`, `bazel_skylib`, `rules_cc`, `gmp`). If you are new to Bazel ruleset authoring or Haskell, see [Bazel Ruleset Primer](bazel-rules-primer.md) and [Haskell & GHC Primer](haskell-and-ghc-primer.md).
+> **Important — Zero Downstream Bzlmod Footprint:** In `MODULE.bazel`, the `@hackage` hub backing `//docs/...` is loaded with `dev_dependency = True` (enforced by `//tests/rules:bzlmod_hygiene_test`). Downstream consumers of `rules_haskell` never fetch or evaluate `docs/hackage.lock.json` and inherit only `rules_haskell`'s 4 non-dev dependencies (`platforms`, `bazel_skylib`, `rules_cc`, `gmp`). If you are new to Bazel ruleset authoring or Haskell, see [Bazel Ruleset Primer](bazel-rules-primer.md) and [Haskell & GHC Primer](haskell-and-ghc-primer.md).
 
 ## Why Vanilla Hakyll + GHC Haddock?
 
-Rather than adding a separate language runtime (`rules_python` + Sphinx/MkDocs or `aspect_rules_js` + Docusaurus) or inventing custom Sphinx-like inline roles and fenced-div directives on top of Pandoc, `rules_hs` pairs the two standard documentation tools in the Haskell ecosystem for their intended jobs:
+Rather than adding a separate language runtime (`rules_python` + Sphinx/MkDocs or `aspect_rules_js` + Docusaurus) or inventing custom Sphinx-like inline roles and fenced-div directives on top of Pandoc, `rules_haskell` pairs the two standard documentation tools in the Haskell ecosystem for their intended jobs:
 
 1. **Hakyll + Pandoc + Skylighting (`docs/site.hs`)** compiles standard GitHub-flavored Markdown guides, Starlark rule and provider tables, and architecture chapters. Authors write ordinary relative Markdown links (`[Quickstart](../guide/quickstart.md)`), standard `>` blockquotes, and fenced code blocks — readable directly in any Git web viewer or text editor without custom preprocessors.
 2. **Bundled GHC Haddock (`hs/private/haddock.bzl`)** extracts module headers, type signatures, QuickJump `doc-index.json` search indices, and syntax-highlighted hyperlinked source (`src/*.html`) directly from `-- |` Haddock comments in Haskell libraries such as `//tools/lock:lock_lib` and `examples/size//:size_haddock`.
-3. **End-to-end integration test for `rules_hs` itself**: Building `//docs:docs_gen` with [`hs_binary`](../reference/rules.md#hs_binary) and [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) compiles **182 Hackage packages + 41 GHC boot packages** (`hakyll-4.16.8.0`, `pandoc-3.7.0.2`, `skylighting-0.14.7`, `citeproc-0.9.0.1`, `typst-0.8.0.2`, `aeson-2.2.5.1`, `yaml-0.11.11.2`, `libyaml-clib-0.2.5`, `zlib-clib-1.3.2`, `digest-0.0.2.1`), exercising:
+3. **End-to-end integration test for `rules_haskell` itself**: Building `//docs:docs_gen` with [`hs_binary`](../reference/rules.md#hs_binary) and [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) compiles **182 Hackage packages + 41 GHC boot packages** (`hakyll-4.16.8.0`, `pandoc-3.7.0.2`, `skylighting-0.14.7`, `citeproc-0.9.0.1`, `typst-0.8.0.2`, `aeson-2.2.5.1`, `yaml-0.11.11.2`, `libyaml-clib-0.2.5`, `zlib-clib-1.3.2`, `digest-0.0.2.1`), exercising:
    - **Cross-library Template Haskell (`-dynamic-too`)**: `aeson`, `th-lift`, `file-embed`, `unicode-collation`, `citeproc`, and `pandoc` run compile-time code-generation splices via relocatable `<name>.pkgdb/dyn/libHS*.so` shared libraries while keeping the final `//docs:docs_gen` executable statically linked (dynamic `DT_NEEDED` entries limited strictly to base `glibc`).
    - **Compile-time data embedding in Bazel sandboxes**: `pandoc` (`--flag pandoc:embed_data_files=true`), `citeproc`, and `unicode-collation` read and embed data files into the binary at compile time via `file-embed` inside sandbox-staged package working directories.
    - **Source-bootstrapped `alex` & `happy` lexer/parser generators** (`pretty-show`, `toml-parser`) and **mixed C / C++11 / `hsc2hs` / `./configure` packages** (`libyaml-clib`, `zlib-clib`, `digest`, `network`).
@@ -27,7 +27,7 @@ Rather than adding a separate language runtime (`rules_python` + Sphinx/MkDocs o
 
 ## SSG & API Documentation Ecosystem Evaluation
 
-Six documentation architectures were evaluated against `rules_hs`'s hermeticity requirements, Stackage `lts-24.67` availability, and standard Markdown compatibility (see [Dependency Decisions](dependencies.md) for full catalyst records):
+Six documentation architectures were evaluated against `rules_haskell`'s hermeticity requirements, Stackage `lts-24.67` availability, and standard Markdown compatibility (see [Dependency Decisions](dependencies.md) for full catalyst records):
 
 | Tool | Role & Ecosystem | Stackage `lts-24.67` | Fit & Tradeoffs | Decision |
 |---|---|---|---|---|
@@ -211,7 +211,7 @@ In Hakyll, a `Context String` is a template lookup dictionary that tells `templa
 
 While `examples/size/hackage.lock.json` locks **69** Hackage packages, `docs/hackage.lock.json` locks **182** Hackage packages (plus GHC `9.10.3`'s 41 boot packages). Nearly the entire difference comes from **`pandoc`**, which is a multi-format document converter supporting dozens of markup, math, citation, and archive formats in a single library:
 
-| Functional Sub-Tree | Root Target(s) in `docs/BUILD.bazel` | Representative Packages in `docs/hackage.lock.json` | Approximate Share & `rules_hs` Features Exercised |
+| Functional Sub-Tree | Root Target(s) in `docs/BUILD.bazel` | Representative Packages in `docs/hackage.lock.json` | Approximate Share & `rules_haskell` Features Exercised |
 |---|---|---|---|
 | **1. Pandoc Document AST, Readers & Writers** | `//docs:docs_gen` (`site.hs`) | `pandoc` (`3.7.0.2`), `pandoc-types` (`1.23.1.2`), `commonmark*`, `djot`, `jira-wiki-markup`, `haddock-library`, `ipynb`, `gridtables`, `texmath`, `typst` (`0.8.0.2`), `typst-symbols`, `doctemplates`, `doclayout`, `JuicyPixels`, `zip-archive`, `emojis` | ~90 packages — large multi-module libraries, cross-library TH (`embed_data_files=true`), `alex`/`happy` grammar codegen (`pretty-show`, `toml-parser`). |
 | **2. Citations, Unicode Collation & Compile-Time Data** | Transitive under `pandoc` | `citeproc` (`0.9.0.1`), `unicode-collation` (`0.1.3.7`), `unicode-data`, `unicode-transforms`, `file-embed` (`0.0.16.0`), `xml-conduit`, `conduit` | ~20 packages — compile-time `file-embed` TH splices reading binary collation and CSL files from sandboxed package `data` directories via `<name>.pkgdb/dyn/libHS*.so`. |

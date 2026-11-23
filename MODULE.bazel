@@ -1,5 +1,5 @@
 module(
-    name = "rules_hs",
+    name = "rules_haskell",
     version = "0.1.0",
     bazel_compatibility = [">=9.0.0"],
 )
@@ -35,7 +35,7 @@ register_toolchains(
 )
 
 # Default GHC toolchain & boot packages.
-# Non-dev so @rules_hs//tools/lock can resolve @hs_boot even when invoked by a
+# Non-dev so @rules_haskell//tools/lock can resolve @hs_boot even when invoked by a
 # downstream consumer; a root module's hs.toolchain(...) overrides the version.
 hs = use_extension("//hs:extensions.bzl", "hs")
 hs.toolchain(ghc_version = "9.10.3")

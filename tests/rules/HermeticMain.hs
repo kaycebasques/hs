@@ -6,5 +6,5 @@ import qualified Data.Text.IO as TIO
 
 main :: IO ()
 main = do
-    TIO.putStrLn (T.intercalate ":" ["rules_hs", "hermetic", "ok"])
+    TIO.putStrLn (T.intercalate ":" ["rules_haskell", "hermetic", "ok"])
     putStrLn ("pow2_256=" ++ show ((2 :: Integer) ^ (256 :: Int)))

@@ -81,11 +81,12 @@ le32 n =
     , fromIntegral ((n `shiftR` 24) .&. 0xFF)
     ]
 
--- | Builds a classic 0432 (16-bit numbers) binary term(5) entry for "ruleshs16".
+-- | Builds a classic 0432 (16-bit numbers) binary term(5) entry for "ruleshaskell16".
 buildClassicTerminfo :: BS.ByteString
 buildClassicTerminfo =
-    let names = map (fromIntegral . fromEnum) ("ruleshs16|classic 16-bit test\0" :: String)
+    let names = map (fromIntegral . fromEnum) ("ruleshaskell16|classic 16-bit test\0" :: String)
         bools = [0, 1]
+        numPad = [0 | odd (length names + length bools)]
         nums = concatMap le16 [132, 4, 43]
         sBel = "\a\0"
         sClear = "\ESC[2J\0"
@@ -119,13 +120,14 @@ buildClassicTerminfo =
                 , 11
                 , length strTable
                 ]
-     in BS.pack (hdr ++ names ++ bools ++ nums ++ offs ++ strTable)
+     in BS.pack (hdr ++ names ++ bools ++ numPad ++ nums ++ offs ++ strTable)
 
--- | Builds an ncurses6 01036 (32-bit numbers + extended caps) binary term(5) entry for "ruleshs32".
+-- | Builds an ncurses6 01036 (32-bit numbers + extended caps) binary term(5) entry for "ruleshaskell32".
 buildExtendedTerminfo :: BS.ByteString
 buildExtendedTerminfo =
-    let names = map (fromIntegral . fromEnum) ("ruleshs32|32-bit extended\0" :: String)
+    let names = map (fromIntegral . fromEnum) ("ruleshaskell32|32-bit extended\0" :: String)
         bools = [0, 1]
+        numPad = [0 | odd (length names + length bools)]
         numVals = [100, 8, 50] ++ replicate 10 (-1) ++ [16777216, 65536]
         nums = concatMap le32 numVals
         sBel = "\a\0"
@@ -141,7 +143,7 @@ buildExtendedTerminfo =
                 , 2
                 , length strTable
                 ]
-        baseBytes = hdr ++ names ++ bools ++ nums ++ offs ++ strTable
+        baseBytes = hdr ++ names ++ bools ++ numPad ++ nums ++ offs ++ strTable
         alignPad = [0 | odd (length baseBytes)]
         extBools = [1, 0]
         extNums = le32 99999
@@ -183,9 +185,9 @@ main = do
     unsetEnv "TERM"
     unsetEnv "COLUMNS"
     unsetEnv "LINES"
-    setEnv "TERMINFO" "/nonexistent_rules_hs_ti"
-    setEnv "TERMINFO_DIRS" "/nonexistent_rules_hs_ti"
-    setEnv "HOME" "/nonexistent_rules_hs_home"
+    setEnv "TERMINFO" "/nonexistent_rules_haskell_ti"
+    setEnv "TERMINFO_DIRS" "/nonexistent_rules_haskell_ti"
+    setEnv "HOME" "/nonexistent_rules_haskell_home"
 
     alloca $ \errPtr -> do
         rcNull <- c_setupterm nullPtr (-1) errPtr
@@ -271,30 +273,30 @@ main = do
 
     -- 5. Real compiled binary term(5) files on disk: classic 0432 (16-bit) & extended 01036 (32-bit).
     tmpBase <- maybe "/tmp" id <$> lookupEnv "TEST_TMPDIR"
-    let tiDir = tmpBase </> "rules_hs_ti_db"
+    let tiDir = tmpBase </> "rules_haskell_ti_db"
     createDirectoryIfMissing True (tiDir </> "r")
-    BS.writeFile (tiDir </> "r" </> "ruleshs16") buildClassicTerminfo
-    BS.writeFile (tiDir </> "r" </> "ruleshs32") buildExtendedTerminfo
+    BS.writeFile (tiDir </> "r" </> "ruleshaskell16") buildClassicTerminfo
+    BS.writeFile (tiDir </> "r" </> "ruleshaskell32") buildExtendedTerminfo
     setEnv "TERMINFO" tiDir
 
-    t16 <- setupTerm "ruleshs16"
-    assertEq "ruleshs16 am" (Just True) (getCapability t16 autoRightMargin)
-    assertEq "ruleshs16 cols" (Just 132) (getCapability t16 termColumns)
+    t16 <- setupTerm "ruleshaskell16"
+    assertEq "ruleshaskell16 am" (Just True) (getCapability t16 autoRightMargin)
+    assertEq "ruleshaskell16 cols" (Just 132) (getCapability t16 termColumns)
 
     alloca $ \errPtr -> do
-        rc32 <- withCString "ruleshs32" $ \cTerm -> c_setupterm cTerm (-1) errPtr
-        assertEq "ruleshs32 setupterm rc" 0 rc32
+        rc32 <- withCString "ruleshaskell32" $ \cTerm -> c_setupterm cTerm (-1) errPtr
+        assertEq "ruleshaskell32 setupterm rc" 0 rc32
         cols32 <- withCString "cols" c_tigetnum
         colors32 <- withCString "colors" c_tigetnum
         extTc <- withCString "Tc" c_tigetflag
         extCo <- withCString "CO" c_tigetnum
         extSsPtr <- withCString "Ss" c_tigetstr
         extSsFormatted <- c_tparm2 extSsPtr 6 0 >>= peekCString
-        assertEq "ruleshs32 cols" 100 cols32
-        assertEq "ruleshs32 32-bit colors" 16777216 colors32
-        assertEq "ruleshs32 ext bool Tc" 1 extTc
-        assertEq "ruleshs32 ext num CO" 99999 extCo
-        assertEq "ruleshs32 ext str Ss" "\ESC[6 q" extSsFormatted
+        assertEq "ruleshaskell32 cols" 100 cols32
+        assertEq "ruleshaskell32 32-bit colors" 16777216 colors32
+        assertEq "ruleshaskell32 ext bool Tc" 1 extTc
+        assertEq "ruleshaskell32 ext num CO" 99999 extCo
+        assertEq "ruleshaskell32 ext str Ss" "\ESC[6 q" extSsFormatted
         curPtr <- c_set_curterm nullPtr
         _ <- c_del_curterm curPtr
         pure ()

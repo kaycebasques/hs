@@ -6,11 +6,11 @@ nav_title: "Rules Reference"
 order: 10
 ---
 
-Public user-facing build rules are loaded from `@rules_hs//hs:defs.bzl`:
+Public user-facing build rules are loaded from `@rules_haskell//hs:defs.bzl`:
 
 ```starlark
 load(
-    "@rules_hs//hs:defs.bzl",
+    "@rules_haskell//hs:defs.bzl",
     "hs_binary",
     "hs_cabal_library",
     "hs_haddock",
@@ -21,14 +21,14 @@ load(
 )
 ```
 
-Toolchain definition rules (used only if you are registering a custom GHC distribution rather than using `@hs_toolchains`) are loaded from `@rules_hs//hs:toolchain.bzl`:
+Toolchain definition rules (used only if you are registering a custom GHC distribution rather than using `@hs_toolchains`) are loaded from `@rules_haskell//hs:toolchain.bzl`:
 
 ```starlark
-load("@rules_hs//hs:toolchain.bzl", "TOOLCHAIN_TYPE", "hs_toolchain")
+load("@rules_haskell//hs:toolchain.bzl", "TOOLCHAIN_TYPE", "hs_toolchain")
 ```
 
 > **Note — Which Rule Do I Need?**
-> - Writing in-repo Haskell code? Use [`hs_library`](rules.md#hs_library) for reusable modules, [`hs_binary`](rules.md#hs_binary) for executables, [`hs_test`](rules.md#hs_test) for automated tests, [`hs_repl`](rules.md#hs_repl) for interactive `ghci` REPL sessions (or `@rules_hs//tools/ghci` and `@rules_hs//tools/ghci:runghc` for ad-hoc boot-package sessions and scripts), and [`hs_haddock`](rules.md#hs_haddock) for HTML API documentation.
+> - Writing in-repo Haskell code? Use [`hs_library`](rules.md#hs_library) for reusable modules, [`hs_binary`](rules.md#hs_binary) for executables, [`hs_test`](rules.md#hs_test) for automated tests, [`hs_repl`](rules.md#hs_repl) for interactive `ghci` REPL sessions (or `@rules_haskell//tools/ghci` and `@rules_haskell//tools/ghci:runghc` for ad-hoc boot-package sessions and scripts), and [`hs_haddock`](rules.md#hs_haddock) for HTML API documentation.
 > - Depending on GHC's built-in standard libraries (`base`, `text`, `bytestring`, `containers`) or third-party Hackage packages? Reference `@hs_boot//:<pkg>` or `@hackage//:<pkg>` in `deps` — those repositories already instantiate [`hs_toolchain_library`](rules.md#hs_toolchain_library) and [`hs_cabal_library`](rules.md#hs_cabal_library) for you automatically.
 > - All rules also accept Bazel's built-in common attributes (`name`, `visibility`, `tags`, `testonly`, `features`, `compatible_with`, `target_compatible_with`, `exec_compatible_with`), and [`hs_test`](rules.md#hs_test) accepts Bazel's built-in test attributes (`size`, `timeout`, `flaky`, `local`, `shard_count`, `args`, `env`, `env_inherit`).
 
@@ -40,8 +40,8 @@ Use `hs_library` whenever you want to compile one or more `.hs` modules in your 
 
 Under the hood, `hs_library` enforces **strict direct-dependency visibility**: it passes `-hide-all-packages` to GHC and unlocks only the packages listed directly in `deps` via `-package-id` (so you cannot accidentally `import` a transitive dependency you forgot to declare). Each `hs_library` outputs a static code archive (`libHS<unit_id>.a`) and a self-contained `ghc-pkg` package database directory (`<name>.pkgdb`) holding `.hi` type-interface files under `<name>.pkgdb/hi/` plus (on dynamic GHC toolchains) `.so` shared libraries under `<name>.pkgdb/dyn/` used when downstream targets run compile-time Template Haskell code. Any attached C files (`c_sources` and `hdrs`) are compiled via Bazel's C toolchain (`cc_common.compile`) and forwarded automatically through `CcInfo`.
 
-- **Load from**: `@rules_hs//hs:defs.bzl` (implemented in `hs/private/rules.bzl`)
-- **Toolchains**: `@rules_hs//hs:toolchain_type`, `@bazel_tools//tools/cpp:toolchain_type`
+- **Load from**: `@rules_haskell//hs:defs.bzl` (implemented in `hs/private/rules.bzl`)
+- **Toolchains**: `@rules_haskell//hs:toolchain_type`, `@bazel_tools//tools/cpp:toolchain_type`
 - **Provides**: `DefaultInfo`, [`HsPackageInfo`](extensions-and-providers.md#hspackageinfo), [`HsLinkInfo`](extensions-and-providers.md#hslinkinfo), `CcInfo`
 
 ### Signature
@@ -89,7 +89,7 @@ hs_library(
 ### Example
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_library")
+load("@rules_haskell//hs:defs.bzl", "hs_library")
 
 hs_library(
     name = "engine",
@@ -120,8 +120,8 @@ Use `hs_binary` to compile and link a standalone Haskell executable (`bazel buil
 
 `hs_binary` links GHC's runtime system, your Haskell dependencies, `libgmp.a` (`-optl-L<gmp_static_dir>`, `-optl-no-pie`), and all transitive native `CcInfo` C archives (wrapped inside `-Wl,--start-group ... -Wl,--end-group` so archive order never causes undefined-symbol errors) into a single executable. On Linux, the produced binary carries no dynamic `libgmp.so` or `libffi.so` runtime dependencies — its ELF `DT_NEEDED` list contains only base `glibc` (`libc.so.6`, `libm.so.6`, `libdl.so.2`, `libpthread.so.0`).
 
-- **Load from**: `@rules_hs//hs:defs.bzl` (implemented in `hs/private/rules.bzl`)
-- **Toolchains**: `@rules_hs//hs:toolchain_type`, `@bazel_tools//tools/cpp:toolchain_type`
+- **Load from**: `@rules_haskell//hs:defs.bzl` (implemented in `hs/private/rules.bzl`)
+- **Toolchains**: `@rules_haskell//hs:toolchain_type`, `@bazel_tools//tools/cpp:toolchain_type`
 - **Provides**: `DefaultInfo` (`executable` + transitive `runfiles`), [`HsLinkInfo`](extensions-and-providers.md#hslinkinfo) (allowing [`hs_repl`](rules.md#hs_repl) to load executable modules via `deps`)
 
 ### Signature
@@ -171,7 +171,7 @@ hs_binary(
 ### Example
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_binary")
+load("@rules_haskell//hs:defs.bzl", "hs_binary")
 
 hs_binary(
     name = "cli",
@@ -195,8 +195,8 @@ Use `hs_test` for unit, property, golden, or integration test suites run via `ba
 
 `hs_test` shares the exact same compilation and static-linking implementation as [`hs_binary`](rules.md#hs_binary) (static `libgmp.a`, strict direct-dependency visibility, transitive `CcInfo` linking, and transitive `data` runfiles exposed under `$TEST_SRCDIR` at test runtime).
 
-- **Load from**: `@rules_hs//hs:defs.bzl` (implemented in `hs/private/rules.bzl`)
-- **Toolchains**: `@rules_hs//hs:toolchain_type`, `@bazel_tools//tools/cpp:toolchain_type`
+- **Load from**: `@rules_haskell//hs:defs.bzl` (implemented in `hs/private/rules.bzl`)
+- **Toolchains**: `@rules_haskell//hs:toolchain_type`, `@bazel_tools//tools/cpp:toolchain_type`
 - **Provides**: `DefaultInfo` (`executable` + transitive `runfiles`), [`HsLinkInfo`](extensions-and-providers.md#hslinkinfo) (allowing [`hs_repl`](rules.md#hs_repl) to load executable modules via `deps`)
 
 ### Signature
@@ -230,7 +230,7 @@ hs_test(
 ### Example
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_test")
+load("@rules_haskell//hs:defs.bzl", "hs_test")
 
 hs_test(
     name = "engine_test",
@@ -255,8 +255,8 @@ Use `hs_repl` to launch a hermetic interactive `ghci` session (`bazel run //pkg:
 
 By default (`interpret_deps = True`), `hs_repl` loads in-workspace targets in `deps` ([`hs_library`](rules.md#hs_library), [`hs_binary`](rules.md#hs_binary), and [`hs_test`](rules.md#hs_test)) **from source into GHCi bytecode**, resolving source files via `BUILD_WORKSPACE_DIRECTORY` under `bazel run` so editing `.hs` files in your editor and typing `:reload` (`:r`) reloads them without re-invoking Bazel. At startup, a generated session `.ghci` script loads all interpreted modules in topological order and runs `:module + *Mod1 *Mod2 ...` so top-level and internal bindings, `:break` / `:continue` bytecode breakpoints, and `:main` work immediately. External `@hs_boot` and `@hackage` packages (plus any targets listed in `compiled_deps`, or all `hs_library` deps when `interpret_deps = False`) load as precompiled packages via `-package-db` and `-package-id`, and any native C/C++ archives in `c_sources` or `cc_deps` are linked into a shared helper library (`HsLinkReplCbits`) for interactive FFI calls.
 
-- **Load from**: `@rules_hs//hs:defs.bzl` (implemented in `hs/private/repl.bzl`)
-- **Toolchains**: `@rules_hs//hs:toolchain_type`, `@bazel_tools//tools/cpp:toolchain_type`
+- **Load from**: `@rules_haskell//hs:defs.bzl` (implemented in `hs/private/repl.bzl`)
+- **Toolchains**: `@rules_haskell//hs:toolchain_type`, `@bazel_tools//tools/cpp:toolchain_type`
 - **Provides**: `DefaultInfo` (`executable` launcher + transitive `runfiles`), [`HsReplInfo`](extensions-and-providers.md#hsreplinfo)
 
 ### Signature
@@ -296,7 +296,7 @@ hs_repl(
 | `deps` | `list[Label]` | `[]` | No | Haskell libraries ([`hs_library`](rules.md#hs_library)), executables/tests ([`hs_binary`](rules.md#hs_binary), [`hs_test`](rules.md#hs_test)), boot/Hackage packages (`@hs_boot//:<pkg>`, `@hackage//:<pkg>`), or `CcInfo` targets available in the session. |
 | `compiled_deps` | `list[Label]` | `[]` | No | [`hs_library`](rules.md#hs_library) (or boot/Hackage) targets that should always be loaded as precompiled native packages (`-package-id`) rather than interpreted from source, even when `interpret_deps = True`. Useful when a large foundational workspace library rarely changes during interactive iteration. |
 | `interpret_deps` | `bool` | `True` | No | When `True`, in-workspace targets in `deps` are loaded from source into GHCi bytecode (`*Module` scope, `:reload`, `:break`, internal bindings). When `False`, in-workspace [`hs_library`](rules.md#hs_library) targets load as precompiled packages from `.pkgdb` (enforcing `hidden_modules`). External `@hs_boot` and `@hackage` packages always load precompiled. |
-| `expose_boot_packages` | `bool` | `False` | No | When `False` (default), passes `-hide-all-packages` so only packages declared in `deps` and `compiled_deps` (or `base` when both are empty) are visible. When `True`, omits `-hide-all-packages` so all 41+ GHC boot packages can be imported without listing each one (used by `@rules_hs//tools/ghci`). |
+| `expose_boot_packages` | `bool` | `False` | No | When `False` (default), passes `-hide-all-packages` so only packages declared in `deps` and `compiled_deps` (or `base` when both are empty) are visible. When `True`, omits `-hide-all-packages` so all 41+ GHC boot packages can be imported without listing each one (used by `@rules_haskell//tools/ghci`). |
 | `cc_deps` | `list[Label]` | `[]` | No | Native C/C++ `cc_library` (`CcInfo`) targets linked into the REPL's shared C/C++ helper library (`HsLinkReplCbits`) for interactive FFI calls. Transitive `CcInfo` archives from `deps` and `compiled_deps` are included automatically. |
 | `c_sources` | `list[Label]` | `[]` | No | Inline C, C++, or assembly files (`.c`, `.cc`, `.cpp`, `.S`, `.s`) compiled with `-fPIC` and linked into the REPL's shared C/C++ helper library. |
 | `hdrs` | `list[Label]` | `[]` | No | C/C++ header files visible to `c_sources`, `-XCPP`, and `CApiFFI` stubs inside GHCi. |
@@ -317,15 +317,15 @@ hs_repl(
 
 Every `hs_repl` launcher inspects arguments passed after `--`:
 
-- **Interactive terminal mode** (`bazel run //pkg:my_repl`): Passes `--interactive`, enables `haskeline` arrow-key history, Tab completion, `Ctrl-C` evaluation interrupt (`Interrupted.`), and ANSI colors via `rules_hs`'s C11 `libtinfo.so.6` reader.
+- **Interactive terminal mode** (`bazel run //pkg:my_repl`): Passes `--interactive`, enables `haskeline` arrow-key history, Tab completion, `Ctrl-C` evaluation interrupt (`Interrupted.`), and ANSI colors via `rules_haskell`'s C11 `libtinfo.so.6` reader.
 - **Expression evaluation mode** (`bazel run //pkg:my_repl -- -v0 -e 'myFn 42'`): Detects `-e` or `--run`, omits `--interactive`, loads the session's modules and `.ghci` commands, prints the result, and exits.
 - **External interpreter mode** (`bazel run //pkg:my_repl -- -fexternal-interpreter`): Automatically pairs `-dynamic` on dynamic Linux GHC toolchains and spawns staged `bin/ghc-iserv-dyn` (`HsToolchainInfo.ghc_iserv`) to evaluate bytecode and Template Haskell out-of-process.
-- **Standalone `@rules_hs//tools/ghci` and `@rules_hs//tools/ghci:runghc`**: Pre-defined public targets for launching `ghci` with all GHC boot packages exposed (`bazel run @rules_hs//tools/ghci`) or running standalone `.hs` / `.lhs` scripts without writing an `hs_binary` rule (`bazel run @rules_hs//tools/ghci:runghc -- path/to/Script.hs arg1`).
+- **Standalone `@rules_haskell//tools/ghci` and `@rules_haskell//tools/ghci:runghc`**: Pre-defined public targets for launching `ghci` with all GHC boot packages exposed (`bazel run @rules_haskell//tools/ghci`) or running standalone `.hs` / `.lhs` scripts without writing an `hs_binary` rule (`bazel run @rules_haskell//tools/ghci:runghc -- path/to/Script.hs arg1`).
 
 ### Example
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_repl")
+load("@rules_haskell//hs:defs.bzl", "hs_repl")
 
 hs_repl(
     name = "engine_repl",
@@ -342,8 +342,8 @@ Use `hs_haddock` to generate HTML API documentation from `-- |` and `{-| ... -}`
 
 `hs_haddock` runs the active toolchain's `$ORIGIN`-staged `haddock` binary (`HsHaddock` action mnemonic) inside a hermetic Bazel sandbox (`-B <libdir> -l <libdir>`, `ghc_cc_wrapper`, sandbox-local `TMPDIR`, `-hide-all-packages`, and `--hide=<mod>` for library `hidden_modules`), producing module reference HTML, syntax-highlighted source pages (`src/<Module>.html`), an interactive QuickJump symbol search index (`doc-index.json`), and a binary `.haddock` interface file. Cross-package type links are wired automatically via `--read-interface`: GHC boot package types (`base`, `text`, `bytestring`, `Cabal-syntax`, etc.) link to official Hackage documentation using bundled [`HsToolchainInfo.boot_haddocks`](extensions-and-providers.md#hstoolchaininfo) interfaces without network access, while upstream `haddock_deps` targets link via relative paths.
 
-- **Load from**: `@rules_hs//hs:defs.bzl` (implemented in `hs/private/haddock.bzl`)
-- **Toolchains**: `@rules_hs//hs:toolchain_type`, `@bazel_tools//tools/cpp:toolchain_type`
+- **Load from**: `@rules_haskell//hs:defs.bzl` (implemented in `hs/private/haddock.bzl`)
+- **Toolchains**: `@rules_haskell//hs:toolchain_type`, `@bazel_tools//tools/cpp:toolchain_type`
 - **Provides**: `DefaultInfo` (single HTML directory artifact `<name>`), [`HsHaddockInfo`](extensions-and-providers.md#hshaddockinfo), `OutputGroupInfo` (`haddock_interface`)
 
 ### Signature
@@ -386,7 +386,7 @@ hs_haddock(
 ### Example
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_haddock", "hs_library")
+load("@rules_haskell//hs:defs.bzl", "hs_haddock", "hs_library")
 
 hs_library(
     name = "lock_lib",
@@ -406,7 +406,7 @@ hs_library(
 
 hs_haddock(
     name = "lock_haddock",
-    title = "rules_hs Lock Generator API (//tools/lock)",
+    title = "rules_haskell Lock Generator API (//tools/lock)",
     deps = [":lock_lib"],
 )
 ```
@@ -419,8 +419,8 @@ Wraps one of GHC's pre-compiled boot libraries (from the active toolchain's glob
 
 > **Tip — Already Generated for You in `@hs_boot` and `@hackage`:** In normal projects, you do not need to write `hs_toolchain_library` rules yourself. [`hs.toolchain`](extensions-and-providers.md#hs-toolchain) creates `@hs_boot//:<pkg>` for every boot library in your selected GHC version, and [`hackage.from_lock`](extensions-and-providers.md#hackage-from_lock) creates `@hackage//:<pkg>` for every boot library not overridden in `hackage.lock.json`. Call `hs_toolchain_library` directly only if you are assembling a custom hub `BUILD.bazel` or aliasing boot packages under project-specific names.
 
-- **Load from**: `@rules_hs//hs:defs.bzl` (implemented in `hs/private/rules.bzl`)
-- **Toolchains**: `@rules_hs//hs:toolchain_type`
+- **Load from**: `@rules_haskell//hs:defs.bzl` (implemented in `hs/private/rules.bzl`)
+- **Toolchains**: `@rules_haskell//hs:toolchain_type`
 - **Provides**: `DefaultInfo`, [`HsPackageInfo`](extensions-and-providers.md#hspackageinfo), [`HsLinkInfo`](extensions-and-providers.md#hslinkinfo)
 
 ### Signature
@@ -442,7 +442,7 @@ hs_toolchain_library(
 ### Example
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_toolchain_library")
+load("@rules_haskell//hs:defs.bzl", "hs_toolchain_library")
 
 hs_toolchain_library(
     name = "cabal_syntax",
@@ -464,8 +464,8 @@ Compiles a third-party Cabal/Hackage Haskell library, an internal Cabal sublibra
 
 **When to use it**: [`hackage.from_lock`](extensions-and-providers.md#hackage-from_lock) generates `hs_cabal_library` targets automatically inside `@<hub>__<pkg>` repositories for every locked Hackage dependency. Call `hs_cabal_library` manually in your own `BUILD.bazel` only when vendoring or patching a third-party Cabal package's source tree directly inside your repository and needing Cabal-specific mechanics (`cabal_macros.h`, `Paths_<pkg>.hs`, `.hsc` preprocessing, `install_includes`, or `./configure`) that plain [`hs_library`](rules.md#hs_library) intentionally omits.
 
-- **Load from**: `@rules_hs//hs:defs.bzl` (implemented in `hs/private/cabal_library.bzl`)
-- **Toolchains**: `@rules_hs//hs:toolchain_type`, `@bazel_tools//tools/cpp:toolchain_type`
+- **Load from**: `@rules_haskell//hs:defs.bzl` (implemented in `hs/private/cabal_library.bzl`)
+- **Toolchains**: `@rules_haskell//hs:toolchain_type`, `@bazel_tools//tools/cpp:toolchain_type`
 - **Provides**: `DefaultInfo`, [`HsPackageInfo`](extensions-and-providers.md#hspackageinfo), [`HsLinkInfo`](extensions-and-providers.md#hslinkinfo), `CcInfo`
 
 ### Signature
@@ -539,7 +539,7 @@ hs_cabal_library(
 ### Example
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_cabal_library")
+load("@rules_haskell//hs:defs.bzl", "hs_cabal_library")
 
 # C-only Cabal library propagating public headers (<zlib.h>, <zconf.h>) to downstream Haskell packages
 hs_cabal_library(
@@ -561,14 +561,14 @@ Connects a staged GHC compiler distribution (`staged_ghc`), the native C11 `ghc_
 
 **When to use it**: Standard workspaces never call `hs_toolchain` directly — [`hs.toolchain`](extensions-and-providers.md#hs-toolchain) generates all `hs_toolchain` targets automatically inside `@hs_toolchains`. Instantiate `hs_toolchain` manually only when registering your own custom-built or corporate-mirrored GHC binary distribution.
 
-- **Load from**: `@rules_hs//hs:toolchain.bzl`
+- **Load from**: `@rules_haskell//hs:toolchain.bzl`
 - **Provides**: `platform_common.ToolchainInfo`, [`HsToolchainInfo`](extensions-and-providers.md#hstoolchaininfo)
 
 ### Attributes
 
 | Attribute | Type | Default | Required | Description |
 |---|---|---|---|---|
-| `name` | `Name` | — | **Yes** | Target name of this `hs_toolchain` definition (paired with a Bazel `toolchain(toolchain = ":<name>", toolchain_type = "@rules_hs//hs:toolchain_type", ...)` target). |
+| `name` | `Name` | — | **Yes** | Target name of this `hs_toolchain` definition (paired with a Bazel `toolchain(toolchain = ":<name>", toolchain_type = "@rules_haskell//hs:toolchain_type", ...)` target). |
 | `version` | `str` | — | **Yes** | Dotted GHC compiler version string (for example, `"9.10.3"` or `"9.12.4"`), used to compute `TOOL_VERSION_ghc` macros and preprocessor defines. |
 | `staged_ghc` | `Label` | — | **Yes** | Exec-configured `staged_ghc` target providing [`HsToolchainInfo`](extensions-and-providers.md#hstoolchaininfo) with `$ORIGIN`-staged compiler binaries (`ghc`, `ghc-pkg`, `hsc2hs`, `haddock`, `runghc`, `ghc-iserv-dyn`), dereferenced `lib/` directory, boot `.haddock` interfaces, and static `libgmp.a`. |
 | `cc_wrapper` | `Label` | `Label("//hs/private:ghc_cc_wrapper")` | No | Exec-configured C11 adapter binary invoked by GHC, `hsc2hs`, `haddock`, and `./configure` to scrub `RUNFILES_*` variables and normalize C compiler/linker flags. Override only if supplying a custom wrapper. |

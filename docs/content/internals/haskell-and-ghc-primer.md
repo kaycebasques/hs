@@ -6,7 +6,7 @@ nav_title: "Haskell & GHC Primer"
 order: 8
 ---
 
-This chapter introduces Haskell, its compiler (GHC), its runtime library, and its package ecosystem for software engineers who have never written Haskell before. Paired with the [Bazel Ruleset Primer](bazel-rules-primer.md), it provides the background needed to read every `.bzl`, `.c`, and `.hs` file in `rules_hs` without guessing at Haskell or compiler terminology.
+This chapter introduces Haskell, its compiler (GHC), its runtime library, and its package ecosystem for software engineers who have never written Haskell before. Paired with the [Bazel Ruleset Primer](bazel-rules-primer.md), it provides the background needed to read every `.bzl`, `.c`, and `.hs` file in `rules_haskell` without guessing at Haskell or compiler terminology.
 
 If you have worked with Rust (`rustc` and `Cargo`), Go (`go build`), C++ (`clang++` and `CMake`), or Python (`pip` and `uv`), most parts of the Haskell toolchain have direct counterparts. The main differences come from older 1990s–2000s naming conventions and a small number of language design choices that directly affect how a build system invokes the compiler and linker.
 
@@ -14,7 +14,7 @@ If you have worked with Rust (`rustc` and `Cargo`), Go (`go build`), C++ (`clang
 
 ## Core Concepts Before We Start {#core-concepts}
 
-Five Haskell and GHC design choices shape almost every rule, provider, and C helper in `rules_hs`. Understanding them in plain terms first prevents forward references in the sections that follow.
+Five Haskell and GHC design choices shape almost every rule, provider, and C helper in `rules_haskell`. Understanding them in plain terms first prevents forward references in the sections that follow.
 
 ### 1. Lazy Evaluation, "Boxed" Values, and "Unboxed" Raw CPU Values (`Int` vs. `Int#`)
 
@@ -37,11 +37,11 @@ Haskell's standard library provides two built-in integer types:
 - **`Int`**: A fixed-width signed integer matching the CPU's word size (64 bits on 64-bit platforms, from $-2^{63}$ to $2^{63}-1$). Like C's `int64_t`, arithmetic on `Int` maps to hardware instructions and wraps around on overflow.
 - **`Integer`**: An unbounded signed integer that dynamically allocates as many machine words as needed and never overflows. Writing `2 ^ 256 :: Integer` in Haskell computes the exact 78-digit number.
 
-To perform fast arithmetic on large `Integer` values, GHC delegates multi-word math to **GMP (`libgmp`, the GNU Multiple Precision Arithmetic Library)**, a widely used C and assembly bignum library. Because `Integer` is built into Haskell's standard library, `gmp` appears in `rules_hs`'s `MODULE.bazel` dependencies and linker flags even when your own Haskell source code never calls C directly.
+To perform fast arithmetic on large `Integer` values, GHC delegates multi-word math to **GMP (`libgmp`, the GNU Multiple Precision Arithmetic Library)**, a widely used C and assembly bignum library. Because `Integer` is built into Haskell's standard library, `gmp` appears in `rules_haskell`'s `MODULE.bazel` dependencies and linker flags even when your own Haskell source code never calls C directly.
 
 ### 3. Compile-Time Code Generation (Template Haskell)
 
-**Template Haskell** is GHC's built-in macro and compile-time code-generation system (comparable to Rust procedural macros). A library author writes an ordinary Haskell function that builds a data structure representing Haskell code — for example, inspecting the fields of a `Config` record type and generating a JSON parser and serializer for it. When GHC compiles a file that calls that macro, the compiler pauses typechecking, executes the compiled Haskell generator function right during the build (including reading schema or data files declared as build inputs), and inserts the generated code into the module being compiled. Because the compiler runs compiled library code during compilation, Template Haskell influences both GHC's helper executables and how `rules_hs` builds shared libraries alongside static archives.
+**Template Haskell** is GHC's built-in macro and compile-time code-generation system (comparable to Rust procedural macros). A library author writes an ordinary Haskell function that builds a data structure representing Haskell code — for example, inspecting the fields of a `Config` record type and generating a JSON parser and serializer for it. When GHC compiles a file that calls that macro, the compiler pauses typechecking, executes the compiled Haskell generator function right during the build (including reading schema or data files declared as build inputs), and inserts the generated code into the module being compiled. Because the compiler runs compiled library code during compilation, Template Haskell influences both GHC's helper executables and how `rules_haskell` builds shared libraries alongside static archives.
 
 ### 4. Why Compiling One `.hs` File Produces Two Files (`.o` Machine Code and `.hi` Summary)
 
@@ -74,9 +74,9 @@ Haskell is a statically typed, purely functional, lazily evaluated language comp
 - **Language extensions (`-X<Ext>`)**: GHC evolves Haskell through opt-in compiler features called *language extensions*. You can enable an extension for a single file with a comment pragma on line 1 (`{-# LANGUAGE OverloadedStrings #-}`) or across an entire Bazel target via `default_extensions = ["OverloadedStrings"]` (which passes `-XOverloadedStrings` to `ghc`).
 - **Language editions (`default_language`)**: Just as Rust has `2018`, `2021`, and `2024` editions, GHC groups baseline syntax rules and extensions into named editions: the older formal standards **`Haskell98`** and **`Haskell2010`**, and the newer GHC editions **`GHC2021`** and **`GHC2024`**, selected via `-XHaskell98`, `-XHaskell2010`, `-XGHC2021`, or `-XGHC2024`.
 - **Why `hs_library`, `hs_binary`, and `hs_test` default to `"GHC2021"` instead of `"GHC2024"`**:
-  - GHC `9.10` introduced the **`GHC2024`** edition, and `rules_hs` supports `default_language = "GHC2024"` today whenever you set that attribute on a target.
+  - GHC `9.10` introduced the **`GHC2024`** edition, and `rules_haskell` supports `default_language = "GHC2024"` today whenever you set that attribute on a target.
   - However, **GHC `9.10` and `9.12` themselves still default to `GHC2021`** when invoked without a language flag. Upstream GHC kept `GHC2021` as the compiler's default because `GHC2024` enables an extension called `MonoLocalBinds`, which changes how type inference works for local helper functions defined inside `let` and `where` blocks. Under `Haskell2010` and `GHC2021`, GHC automatically infers polymorphic (generic) types for local helpers; under `MonoLocalBinds`, local helpers that reference variables from an enclosing scope are restricted to a single concrete type unless you write an explicit type signature, which causes some code written for `GHC2021` to fail typechecking.
-  - `rules_hs` matches GHC's own compiler default (`"GHC2021"`) on [`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), and [`hs_test`](../reference/rules.md#hs_test) so targets behave identically to running `ghc` directly, while letting any target set `default_language = "GHC2024"`, `"Haskell2010"`, or `"Haskell98"`.
+  - `rules_haskell` matches GHC's own compiler default (`"GHC2021"`) on [`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), and [`hs_test`](../reference/rules.md#hs_test) so targets behave identically to running `ghc` directly, while letting any target set `default_language = "GHC2024"`, `"Haskell2010"`, or `"Haskell98"`.
   - By contrast, [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) (used to build third-party Hackage packages) defaults to `"Haskell98"`, because the `.cabal` file specification requires packages that omit the `default-language:` field to be compiled as `Haskell98`.
 - **Strings in Haskell (`String` vs. `ByteString` vs. `Text`)**: `Haskell98` defined `type String = [Char]` — a singly linked list of boxed Unicode characters, where every character is a separate heap object. Production Haskell code uses **`ByteString`** (from the `bytestring` boot library: a contiguous byte array, like Rust `&[u8]` or Go `[]byte`) for raw binary data and **`Text`** (from the `text` boot library: contiguous UTF-8 text, like Rust `String` / `&str`) for human-readable strings. Enabling `{-# LANGUAGE OverloadedStrings #-}` allows double-quoted string literals (`"hello"`) to construct `Text` or `ByteString` values directly without conversion calls.
 
@@ -87,7 +87,7 @@ Haskell is a statically typed, purely functional, lazily evaluated language comp
 - **`ghc`**: The non-interactive ahead-of-time native-code compiler and linker driver. It compiles `.hs` modules into `.o` object files and `.hi` interface files, and calls the system C linker to produce libraries and executables.
 - **`ghci` (`ghc --interactive`) and `runghc`**:
   - `ghci` is GHC's interactive read-eval-print loop (similar to typing `python` or `node` in a terminal), where developers load `.hs` source files into bytecode, inspect inferred types (`:type`, `:info`), set breakpoints (`:break`), and reload edited workspace modules (`:reload`). `runghc` executes standalone `.hs` / `.lhs` scripts in interpreter mode without writing a compiled binary to disk.
-  - **Interactive REPL support in `rules_hs`**: [`hs_repl`](../reference/rules.md#hs_repl) (`bazel run //:my_repl`) launches staged `ghc` in interactive mode (or `-e` expression mode) with workspace modules loaded into `*Module` bytecode scope, precompiled `@hs_boot` and `@hackage` package databases, C/C++ FFI shared stubs, Template Haskell, `data` runfiles, and `haskeline` arrow-key history and Tab completion. `rules_hs` also provides standalone `@rules_hs//tools/ghci` and `@rules_hs//tools/ghci:runghc` targets. (`haskell-language-server` `hie.yaml` editor configuration generation remains planned future work.)
+  - **Interactive REPL support in `rules_haskell`**: [`hs_repl`](../reference/rules.md#hs_repl) (`bazel run //:my_repl`) launches staged `ghc` in interactive mode (or `-e` expression mode) with workspace modules loaded into `*Module` bytecode scope, precompiled `@hs_boot` and `@hackage` package databases, C/C++ FFI shared stubs, Template Haskell, `data` runfiles, and `haskeline` arrow-key history and Tab completion. `rules_haskell` also provides standalone `@rules_haskell//tools/ghci` and `@rules_haskell//tools/ghci:runghc` targets. (`haskell-language-server` `hie.yaml` editor configuration generation remains planned future work.)
 - **`ghc-pkg`**:
   - GHC does not search directories for `lib*.a` files by filename alone. Instead, every compiled Haskell library has a small `.conf` text registration file — an index card recording the library's package name, version, unique identifier, exported module names, dependencies, and the directory paths of its `.hi` and `.a` files. A directory holding `.conf` files is called a **GHC package database** (commonly named `package.conf.d` or `<target>.pkgdb`).
   - `ghc-pkg` is the utility that validates those `.conf` files and compiles all `.conf` files in a package database directory into a single binary lookup file named `package.cache` (`ghc-pkg recache`) so `ghc` can look up libraries quickly at startup without re-parsing text files.
@@ -113,15 +113,15 @@ The word **"Cabal"** (*Common Architecture for Building Applications and Librari
 1. **The `<pkg>.cabal` package manifest file**: A declarative text file at the root of a Haskell package (like `Cargo.toml` or `pyproject.toml`). It declares the package's name and version, public modules (`exposed-modules`), private modules (`other-modules`), dependency version ranges (`build-depends`), C source files and header directories, boolean configuration `flag`s, and `if os(...)` / `if arch(...)` conditional blocks.
 2. **`Cabal-syntax` (pure `.cabal` parser library)**: A Haskell library shipped inside GHC (`Distribution.PackageDescription.Parsec`) that parses `.cabal` files into an in-memory syntax tree (`GenericPackageDescription`) and evaluates `if os(...)`, `if arch(...)`, and `if flag(...)` conditionals (`finalizePD`). It performs no file I/O, network calls, or compilation.
 3. **`Cabal` (`Distribution.Simple`, legacy build-execution library) and `Setup.hs`**: In Cabal's original 2000s build protocol, every Haskell package included a small `Setup.hs` source file at its root; build tools compiled `Setup.hs` against the `Cabal` library into a `./Setup` executable and ran `./Setup configure && ./Setup build`. For backwards compatibility, almost every Hackage tarball still ships a `Setup.hs` file at its root. What `Setup.hs` actually contains depends on the `build-type:` field in the `.cabal` file:
-   - **`build-type: Simple`** (~95%+ of Hackage): `Setup.hs` contains only two boilerplate lines (`import Distribution.Simple; main = defaultMain`) and zero custom logic. The `.cabal` file alone contains all build instructions. **Supported in `rules_hs`.**
-   - **`build-type: Configure`** (used by C-binding packages such as `network`, `unix-time`, and `old-time`): Runs a POSIX `./configure` shell script first to probe C headers and platform types and generate headers (such as `HsNetworkConfig.h`) or `<pkg>.buildinfo` flags, then builds the library like `Simple`. **Supported in `rules_hs`.**
-   - **`build-type: Custom`**: Compiles and executes arbitrary custom Haskell code written inside `Setup.hs` (using dependencies listed in a `custom-setup` block) during the build. Historically, the most common reason packages set `build-type: Custom` was an older test helper called `cabal-doctest` (used by packages such as `xml-conduit`, `lens`, and `bifunctors`), which only generated metadata for running doc-comment tests and built the library component identically to `Simple`. `rules_hs`'s lockfile generator (`//tools/lock`) detects `cabal-doctest`-only `Custom` packages and **automatically converts them to `Simple`** so they build cleanly. What `rules_hs` intentionally **does not support** is executing bespoke `Custom` `Setup.hs` programs that perform arbitrary custom code generation at build time (fewer than 1% of Hackage packages): `hs_cabal_library` rejects remaining `Custom` packages with a clear analysis error rather than running an uncacheable opaque script, and special cases are handled through [`hackage.override`](../reference/extensions-and-providers.md#hackage-override) or explicit Bazel build rules.
+   - **`build-type: Simple`** (~95%+ of Hackage): `Setup.hs` contains only two boilerplate lines (`import Distribution.Simple; main = defaultMain`) and zero custom logic. The `.cabal` file alone contains all build instructions. **Supported in `rules_haskell`.**
+   - **`build-type: Configure`** (used by C-binding packages such as `network`, `unix-time`, and `old-time`): Runs a POSIX `./configure` shell script first to probe C headers and platform types and generate headers (such as `HsNetworkConfig.h`) or `<pkg>.buildinfo` flags, then builds the library like `Simple`. **Supported in `rules_haskell`.**
+   - **`build-type: Custom`**: Compiles and executes arbitrary custom Haskell code written inside `Setup.hs` (using dependencies listed in a `custom-setup` block) during the build. Historically, the most common reason packages set `build-type: Custom` was an older test helper called `cabal-doctest` (used by packages such as `xml-conduit`, `lens`, and `bifunctors`), which only generated metadata for running doc-comment tests and built the library component identically to `Simple`. `rules_haskell`'s lockfile generator (`//tools/lock`) detects `cabal-doctest`-only `Custom` packages and **automatically converts them to `Simple`** so they build cleanly. What `rules_haskell` intentionally **does not support** is executing bespoke `Custom` `Setup.hs` programs that perform arbitrary custom code generation at build time (fewer than 1% of Hackage packages): `hs_cabal_library` rejects remaining `Custom` packages with a clear analysis error rather than running an uncacheable opaque script, and special cases are handled through [`hackage.override`](../reference/extensions-and-providers.md#hackage-override) or explicit Bazel build rules.
 
-`rules_hs` **never compiles or runs `Setup.hs`**. It evaluates `.cabal` files offline using `Cabal-syntax` and runs compilation via explicit Bazel actions in [`hs_cabal_library`](../reference/rules.md#hs_cabal_library).
+`rules_haskell` **never compiles or runs `Setup.hs`**. It evaluates `.cabal` files offline using `Cabal-syntax` and runs compilation via explicit Bazel actions in [`hs_cabal_library`](../reference/rules.md#hs_cabal_library).
 
 ### 4. `cabal-install` (the `cabal` CLI)
 
-**`cabal-install`** is the standalone command-line package manager (`cabal update`, `cabal build`, analogous to `cargo` or `pip`) used in non-Bazel Haskell workflows. It downloads Hackage's package index, runs a SAT-based dependency version solver over open version ranges, and builds packages into `~/.cabal`. Because Bazel manages downloading, sandboxing, caching, and action execution ([Bazel Ruleset Primer](bazel-rules-primer.md#three-phases)), `rules_hs` **never installs or invokes `cabal-install`**.
+**`cabal-install`** is the standalone command-line package manager (`cabal update`, `cabal build`, analogous to `cargo` or `pip`) used in non-Bazel Haskell workflows. It downloads Hackage's package index, runs a SAT-based dependency version solver over open version ranges, and builds packages into `~/.cabal`. Because Bazel manages downloading, sandboxing, caching, and action execution ([Bazel Ruleset Primer](bazel-rules-primer.md#three-phases)), `rules_haskell` **never installs or invokes `cabal-install`**.
 
 ### 5. Hackage and Metadata Revisions (`x-revision`)
 
@@ -137,7 +137,7 @@ The word **"Cabal"** (*Common Architecture for Building Applications and Librari
 Because Hackage packages declare open version ranges (`aeson >= 2.0 && < 2.3`), choosing compatible versions across hundreds of transitive dependencies normally requires running a SAT version solver. **Stackage** (`stackage.org`) solves that version-selection step centrally:
 
 - A **Stackage LTS (Long-Term Support)** snapshot (such as **`lts-24.67`**, paired with GHC `9.10.3`) is a curated, CI-tested collection of roughly 3,300 Hackage packages in which every package is pinned to **one exact version**, one exact `.cabal` revision SHA-256 digest, and tested Cabal `flags:` defaults that all compile and pass tests together. (`stack` is the standalone non-Bazel CLI tool originally created around Stackage snapshots.)
-- Because a Stackage snapshot already maps each package name to one fixed `(version, cabal_sha256, flags)` entry, `rules_hs`'s lockfile generator (`//tools/lock:lock`) needs **no SAT solver**: starting from your root `--package` flags, it finds all transitive dependencies with a deterministic breadth-first search (BFS) in milliseconds ([Hackage & Cabal Pipeline](ecosystem-and-hackage.md#phase-1-lock-generator)).
+- Because a Stackage snapshot already maps each package name to one fixed `(version, cabal_sha256, flags)` entry, `rules_haskell`'s lockfile generator (`//tools/lock:lock`) needs **no SAT solver**: starting from your root `--package` flags, it finds all transitive dependencies with a deterministic breadth-first search (BFS) in milliseconds ([Hackage & Cabal Pipeline](ecosystem-and-hackage.md#phase-1-lock-generator)).
 
 ---
 
@@ -162,7 +162,7 @@ Several entries in this table come up frequently when reading `BUILD.bazel` file
 - **`ghc-prim`, `ghc-bignum`, and `rts`**: These three sit directly beneath `base`. `ghc-prim` defines the unboxed `#` types and CPU primitives described in [Core Concepts](#core-concepts); `ghc-bignum` (along with `integer-gmp`, a thin compatibility shim for older packages) implements unbounded `Integer` math using C's `libgmp`; and `rts` registers `libHSrts` and its C headers (`Rts.h`, `HsFFI.h`).
 - **`stm` (Software Transactional Memory)**: Updating multiple shared variables across threads with traditional mutex locks requires careful lock ordering to avoid deadlocks. `stm` provides transactional variables (`TVar`) modified inside an `atomically` block: threads read and write `TVar`s in an isolated log, commit all updates atomically if no other thread changed those variables concurrently, or automatically roll back and retry the block when a conflict occurs.
 - **`transformers` and `mtl`**: Because Haskell functions do not mutate hidden global state by default, code often threads read-only configuration, mutable state, or typed error values from caller to callee. `transformers` and `mtl` provide standard wrapper types (`ReaderT` for read-only config, `StateT` for state, `ExceptT` for typed errors) that pass that context along without adding manual boilerplate parameters to every function call.
-- **`Cabal-syntax` (and how `rules_hs` builds `//tools/lock:lock` without host tools)**: Many Bazel rulesets face a bootstrap problem when parsing third-party package manifests: either maintain a partial parser in Starlark/Python, or require developers to pre-install a package manager (`cargo`, `pip`, `cabal`, `stack`) on their host machine. Because the GHC tarball already includes pre-compiled `Cabal-syntax`, `bytestring`, `text`, `containers`, `directory`, `filepath`, and `process`, `rules_hs` exposes them via `@hs_boot//*` and compiles [`//tools/lock:lock`](../reference/lock-cli.md) directly with GHC — requiring no `cabal`, `stack`, or Python installation on the host.
+- **`Cabal-syntax` (and how `rules_haskell` builds `//tools/lock:lock` without host tools)**: Many Bazel rulesets face a bootstrap problem when parsing third-party package manifests: either maintain a partial parser in Starlark/Python, or require developers to pre-install a package manager (`cargo`, `pip`, `cabal`, `stack`) on their host machine. Because the GHC tarball already includes pre-compiled `Cabal-syntax`, `bytestring`, `text`, `containers`, `directory`, `filepath`, and `process`, `rules_haskell` exposes them via `@hs_boot//*` and compiles [`//tools/lock:lock`](../reference/lock-cli.md) directly with GHC — requiring no `cabal`, `stack`, or Python installation on the host.
 - **`system-cxx-std-lib`**: Starting in GHC 9.4, when a `.cabal` package compiles C++ source files (`cxx-sources:`), Cabal avoids hardcoding `-lstdc++` (Linux GCC) versus `-lc++` (macOS and Clang `libc++`) inside the package's metadata. Instead, Cabal writes `depends: system-cxx-std-lib-1.0`. To satisfy that dependency, GHC ships a small metadata-only `system-cxx-std-lib-1.0.conf` file inside `lib/package.conf.d/` containing zero `.hs` modules and zero `.a` archives — only `extra-libraries: stdc++` (or `c++`) — so the linker knows which C++ standard library to link.
 
 ---
@@ -206,7 +206,7 @@ When GHC compiles `src/Acme/Greet.hs`:
 
 As introduced under `ghc-pkg` above, GHC resolves libraries through **GHC package databases** (directories ending in `package.conf.d` or `.pkgdb`):
 
-- **`unit-id` (`-this-unit-id`)**: Every compiled Haskell library is assigned a globally unique identifier string that GHC mangles into every linker symbol the library exports, preventing symbol collisions if two packages define modules or functions with similar names. Boot libraries use `<name>-<ver>-<hash>` (`base-4.20.2.0-9331`), Hackage targets in `rules_hs` use `<pkg>-<ver>[-<sublib>]` (`attoparsec-0.14.4`), and user [`hs_library`](../reference/rules.md#hs_library) targets derive a collision-free ID from their full Bazel label (`u__S_Sapp_Ctypes-0.0.0`).
+- **`unit-id` (`-this-unit-id`)**: Every compiled Haskell library is assigned a globally unique identifier string that GHC mangles into every linker symbol the library exports, preventing symbol collisions if two packages define modules or functions with similar names. Boot libraries use `<name>-<ver>-<hash>` (`base-4.20.2.0-9331`), Hackage targets in `rules_haskell` use `<pkg>-<ver>[-<sublib>]` (`attoparsec-0.14.4`), and user [`hs_library`](../reference/rules.md#hs_library) targets derive a collision-free ID from their full Bazel label (`u__S_Sapp_Ctypes-0.0.0`).
 - **`<unit_id>.conf` and `package.cache`**: Each `.pkgdb` directory contains one `<unit_id>.conf` key-value file plus the binary **`package.cache`** lookup table generated by **`ghc-pkg recache`**:
 
 ```text
@@ -224,7 +224,7 @@ exposed-modules: Acme.Greet
 depends: base-4.20.2.0-9331 text-2.1.3-4a1b
 ```
 
-- **Relocatable `${pkgroot}` expansion**: Bazel executes build actions inside temporary sandboxes and remote execution workers whose absolute directory paths change between machines. `ghc-pkg` supports a built-in `${pkgroot}` variable inside `.conf` files that expands at runtime to **the parent directory of the `.pkgdb` directory** (`dirname($PKG_DB)`). By placing `libHSgreet-0.1.0.a` and `greet.pkgdb` side by side in the same Bazel output directory, `rules_hs` keeps `.conf` and `package.cache` files free of hardcoded sandbox paths ([Providers & Action Graph](providers-and-actions.md#relocatable-pkgdb)).
+- **Relocatable `${pkgroot}` expansion**: Bazel executes build actions inside temporary sandboxes and remote execution workers whose absolute directory paths change between machines. `ghc-pkg` supports a built-in `${pkgroot}` variable inside `.conf` files that expands at runtime to **the parent directory of the `.pkgdb` directory** (`dirname($PKG_DB)`). By placing `libHSgreet-0.1.0.a` and `greet.pkgdb` side by side in the same Bazel output directory, `rules_haskell` keeps `.conf` and `package.cache` files free of hardcoded sandbox paths ([Providers & Action Graph](providers-and-actions.md#relocatable-pkgdb)).
 
 ### 3. How `-hide-all-packages`, `-package-db`, and `-package-id` Enforce Direct Dependencies
 
@@ -232,7 +232,7 @@ Suppose `App` depends on `LibB`, and `LibB` depends on `LibA` (`App -> LibB -> L
 
 - While compiling `App`, GHC needs **transitive** access to `LibA.pkgdb` (`-package-db`) so the typechecker can look up `LibA`'s type definitions and inline function bodies referenced inside `LibB.hi`.
 - At the same time, `App.hs` should **not** be allowed to write `import LibA` directly unless `App`'s `BUILD.bazel` explicitly lists `LibA` in `deps`.
-- `rules_hs` enforces this separation on every compile action ([Bazel Ruleset Primer](bazel-rules-primer.md#providers-and-depsets)):
+- `rules_haskell` enforces this separation on every compile action ([Bazel Ruleset Primer](bazel-rules-primer.md#providers-and-depsets)):
   1. **`-hide-all-packages`**: Hides every boot and external package from `import` statements by default (including `base`).
   2. **`-package-db <db>`** (passed for all *transitive* `HsLinkInfo.pkg_dbs`): Lets GHC's typechecker resolve types and inline bodies from any transitive `.hi` file.
   3. **`-package-id <unit_id>`** (passed only for *direct* `HsPackageInfo` entries in `deps`): Makes only direct `deps` visible to source `import` statements.
@@ -263,7 +263,7 @@ flowchart LR
 3. **STG -> Cmm**: Lowers heap closures into **Cmm** (short for `C--`, a portable low-level register and stack language modeled on C), turning implicit runtime behavior into explicit stack pointer arithmetic, CPU register assignments, and fast-path checks that call into the garbage collector when the current heap allocation block is full.
 4. **Cmm -> Native Code Generator (NCG) -> `.s` Assembly**: GHC's built-in `x86_64` / `AArch64` Native Code Generator emits GNU-syntax `.s` assembly files. From that point onward, **GHC calls external C toolchain programs** configured via `-pgm*` flags:
 
-| GHC Flag | Role in Compilation / Linking | What `rules_hs` Wires It To (`hs/private/actions.bzl`) |
+| GHC Flag | Role in Compilation / Linking | What `rules_haskell` Wires It To (`hs/private/actions.bzl`) |
 |---|---|---|
 | `-pgma` | Assembles NCG `.s` assembly files into `.o` object files | `ghc_cc_wrapper` -> Bazel `cc_toolchain` compiler driver |
 | `-pgmc` / `-pgmcxx` | Compiles C / C++ FFI sources and generated C wrapper stubs | `ghc_cc_wrapper` -> Bazel `cc_toolchain` compiler driver |
@@ -272,7 +272,7 @@ flowchart LR
 | `-pgmar` | Packs `.o` files into static `libHS*.a` archives | `cc_tools.ar` |
 | `-pgml` | Links `.so` shared libraries and final executables (`crt1.o`, `libc`) | `ghc_cc_wrapper` -> Bazel `cc_toolchain` linker driver |
 
-Because upstream GHC binary distributions record the release machine's `/usr/bin/gcc` and `-fuse-ld=gold` inside `lib/settings`, `rules_hs` rewrites those paths in `lib/settings` to `/nonexistent/*` when extracting the archive and routes every `-pgm*` hook through a small C11 adapter binary (`ghc_cc_wrapper`, documented in [Hermeticity & Toolchain](hermeticity.md#ghc-cc-wrapper)).
+Because upstream GHC binary distributions record the release machine's `/usr/bin/gcc` and `-fuse-ld=gold` inside `lib/settings`, `rules_haskell` rewrites those paths in `lib/settings` to `/nonexistent/*` when extracting the archive and routes every `-pgm*` hook through a small C11 adapter binary (`ghc_cc_wrapper`, documented in [Hermeticity & Toolchain](hermeticity.md#ghc-cc-wrapper)).
 
 ### 2. What `libHSrts` (the GHC Runtime System) Does
 
@@ -297,10 +297,10 @@ When reading `MODULE.bazel` or `hs/private/staged_ghc.bzl`, two C library names 
 
 ### 1. Why `gmp` (`libgmp`): Built-In Unbounded `Integer` Arithmetic
 
-As explained in [Core Concepts](#core-concepts), Haskell's standard library (`base`) provides both fixed-width 64-bit `Int` and unbounded **`Integer`**, which `base` implements via the `ghc-bignum` boot package on top of C's **GNU Multiple Precision Arithmetic Library (`libgmp`)**. On Linux (`deb10`), GMP crosses **two separate boundaries** that `rules_hs` handles differently:
+As explained in [Core Concepts](#core-concepts), Haskell's standard library (`base`) provides both fixed-width 64-bit `Int` and unbounded **`Integer`**, which `base` implements via the `ghc-bignum` boot package on top of C's **GNU Multiple Precision Arithmetic Library (`libgmp`)**. On Linux (`deb10`), GMP crosses **two separate boundaries** that `rules_haskell` handles differently:
 
 1. **Running the `ghc` compiler binary itself (`libgmp.so.10`)**: Because upstream Linux GHC (`deb10`) is dynamically linked, `bin/ghc-9.10.3` carries a Linux ELF `DT_NEEDED` entry (the list of shared libraries the OS loads at startup) for `libgmp.so.10`. `staged_ghc` links a `libgmp.so.10` shared library from BCR `@gmp//:gmp` (`gmp@6.3.0.bcr.5`) and places it in GHC's relative library directory (`$ORIGIN/../lib/...`, where `$ORIGIN` expands to the directory containing the `ghc` binary) so `ghc` starts in minimal containers that do not have `libgmp10` installed.
-2. **Linking user executables (`gmp_static/libgmp.a`)**: Because user binaries link `base` -> `ghc-bignum` (`extra-libraries: gmp`), GHC passes `-lgmp` to the C linker. `rules_hs` points `-L` at an isolated directory (`gmp_static/`) containing *only* static `libgmp.a` and no `.so` files, linking GMP statically into the output binary so deployed executables do not depend on `libgmp.so.10` at runtime ([Hermeticity & Toolchain](hermeticity.md#static-gmp-executables)).
+2. **Linking user executables (`gmp_static/libgmp.a`)**: Because user binaries link `base` -> `ghc-bignum` (`extra-libraries: gmp`), GHC passes `-lgmp` to the C linker. `rules_haskell` points `-L` at an isolated directory (`gmp_static/`) containing *only* static `libgmp.a` and no `.so` files, linking GMP statically into the output binary so deployed executables do not depend on `libgmp.so.10` at runtime ([Hermeticity & Toolchain](hermeticity.md#static-gmp-executables)).
 
 ### 2. Why `libtinfo.so.6` and `libtinfo.a` Exist — and How the Self-Contained C11 Reader Works
 
@@ -312,7 +312,7 @@ At first glance, seeing an in-tree C11 source file (`hs/private/tinfo_stub.c`) p
 
 In GHC's upstream architecture, **the batch compiler `ghc` and the interactive REPL `ghci` (`ghc --interactive`) are compiled into the same executable** (`bin/ghc-9.10.3`). To support `ghci`'s interactive prompt, `bin/ghc-9.10.3` links `libHSghci` -> `libHShaskeline` -> `libHSterminfo` -> **`libtinfo.so.6`**.
 
-On Linux, the kernel's dynamic linker (`ld-linux.so`) loads every `DT_NEEDED` shared library **before `main()` runs**. On a minimal Docker or remote-execution container without `libtinfo6` installed, running `ghc -c Foo.hs` or `bazel run //:my_repl` would fail immediately at process startup (`libtinfo.so.6: cannot open shared object file`) unless `rules_hs` stages `libtinfo.so.6` itself.
+On Linux, the kernel's dynamic linker (`ld-linux.so`) loads every `DT_NEEDED` shared library **before `main()` runs**. On a minimal Docker or remote-execution container without `libtinfo6` installed, running `ghc -c Foo.hs` or `bazel run //:my_repl` would fail immediately at process startup (`libtinfo.so.6: cannot open shared object file`) unless `rules_haskell` stages `libtinfo.so.6` itself.
 
 #### How the Exact Symbol Surface Was Verified
 
@@ -415,7 +415,7 @@ banner = "Built on base " ++ show version
 
 - **`{-# LANGUAGE CPP #-}` (`-XCPP`)**: Runs the C preprocessor over a `.hs` file before Haskell parsing. GHC invokes `-pgmP` with `-traditional` mode so that valid single-quote characters in Haskell variable names (such as `x'`) are not rejected by the C preprocessor as unterminated character literals.
 - **`cabal_macros.h`**: Cabal pre-includes (`-optP-include cabal_macros.h`) a generated header defining `VERSION_<pkg>` and `MIN_VERSION_<pkg>(maj1,maj2,min)` C macros for every direct dependency so libraries can conditionally compile across multiple GHC or dependency versions.
-- **`Paths_<pkg>.hs`**: When listed in a `.cabal` file's `autogen-modules` or `other-modules`, Cabal generates a helper module exporting `version :: Version` and `getDataFileName :: FilePath -> IO FilePath`. `rules_hs` writes both `cabal_macros.h` and `Paths_<pkg>.hs` directly during Bazel analysis via `ctx.actions.write` without spawning a subprocess (`hs/private/actions.bzl`).
+- **`Paths_<pkg>.hs`**: When listed in a `.cabal` file's `autogen-modules` or `other-modules`, Cabal generates a helper module exporting `version :: Version` and `getDataFileName :: FilePath -> IO FilePath`. `rules_haskell` writes both `cabal_macros.h` and `Paths_<pkg>.hs` directly during Bazel analysis via `ctx.actions.write` without spawning a subprocess (`hs/private/actions.bzl`).
 
 ### 5. `.hs-boot` Files (Breaking Mutual Module Cycles)
 
@@ -437,7 +437,7 @@ import BootB (Node)
 data Expr = Lit Int | Nested Node
 ```
 
-Because `rules_hs` compiles each library with `ghc --make -c`, GHC orders `BootA.hs-boot -> BootB.hs -> BootA.hs` automatically without requiring separate Bazel targets per file.
+Because `rules_haskell` compiles each library with `ghc --make -c`, GHC orders `BootA.hs-boot -> BootB.hs -> BootA.hs` automatically without requiring separate Bazel targets per file.
 
 ### 6. Cabal Sublibraries and `reexported-modules`
 
@@ -453,7 +453,7 @@ library
   reexported-modules: Data.Attoparsec.ByteString.FastSet as Data.Attoparsec.FastSet
 ```
 
-- **Internal and Public Sublibraries**: `.cabal` files can define helper libraries (`library attoparsec-internal`) alongside the main `library` inside a single tarball (private to that package by default, or usable by external packages as `pkg:sublib` when marked `visibility: public` in Cabal 3.0+). `rules_hs` generates a separate `hs_cabal_library` target for each sublibrary (`@hackage//:attoparsec__attoparsec-internal`).
+- **Internal and Public Sublibraries**: `.cabal` files can define helper libraries (`library attoparsec-internal`) alongside the main `library` inside a single tarball (private to that package by default, or usable by external packages as `pkg:sublib` when marked `visibility: public` in Cabal 3.0+). `rules_haskell` generates a separate `hs_cabal_library` target for each sublibrary (`@hackage//:attoparsec__attoparsec-internal`).
 - **`reexported-modules`**: Lets a package's `.conf` registration file re-expose a module that was compiled in an upstream dependency or internal sublibrary (`exposed-modules: Data.Attoparsec.FastSet from attoparsec-0.14.4-attoparsec-internal:Data.Attoparsec.ByteString.FastSet`) without writing or compiling a wrapper `.hs` file.
 
 ---
@@ -488,8 +488,8 @@ embeddedSchema = $(embedFile "static/schema.json")
 Suppose library `A` (`aeson` or `file-embed`) defines `deriveJSON`, and downstream library `B` calls `$(deriveJSON ...)` while `B.hs` is being compiled:
 
 1. **Why dynamically linked `ghc` loads `.so` files at compile time**: On Linux (`deb10`) and macOS, the upstream `ghc` compiler binary itself is dynamically linked (`GHC Dynamic = YES` — its own `base` and `rts` libraries live in `libHS*-ghc9.10.3.so`). When `ghc` (or its `ghc-iserv-dyn` child process) pauses typechecking `B.hs` to run `A.deriveJSON`, the OS dynamic loader (`dlopen`) can load library `A` into that running dynamic process only if `A` was also compiled as a position-independent shared library (`libHSA-ghc9.10.3.so`).
-2. **How `rules_hs` supports compile-time `.so` loading while linking static user binaries**:
-   - During `HsCompileLibrary`, `rules_hs` passes **`-dynamic-too`** to `ghc --make -c`, causing GHC to emit **both** static outputs (`.o` and `.hi`) and dynamic outputs (`.dyn_o` and `.dyn_hi`) in a single compilation pass.
+2. **How `rules_haskell` supports compile-time `.so` loading while linking static user binaries**:
+   - During `HsCompileLibrary`, `rules_haskell` passes **`-dynamic-too`** to `ghc --make -c`, causing GHC to emit **both** static outputs (`.o` and `.hi`) and dynamic outputs (`.dyn_o` and `.dyn_hi`) in a single compilation pass.
    - Static `.o` files are packed into `${pkgroot}/libHS<unit_id>.a` (`library-dirs-static`), while dynamic `.dyn_o` files (plus any C static archives in that target) are linked into **`<name>.pkgdb/dyn/libHS<unit_id>-ghc<ver>.so`** (`dynamic-library-dirs`).
    - When compiling downstream library `B`, GHC loads `A`'s `.so` from `<A>.pkgdb/dyn/` via `dlopen` to run `$(...)` splices. When linking the final [`hs_binary`](../reference/rules.md#hs_binary), `${pkgroot}` contains no `.so` files, so the C linker links strictly against the static `.a` archives — producing a standalone executable with no `libHS*.so` runtime dependencies ([Providers & Action Graph](providers-and-actions.md#template-haskell)).
 

@@ -160,7 +160,7 @@ echo "OK: DT_NEEDED contains ONLY base glibc shared libraries"
 
 echo "=== 4. Running compiled binary under env -i PATH=/nonexistent ==="
 ACTUAL_OUT="$(env -i PATH=/nonexistent "$BIN")"
-EXPECTED_OUT=$'rules_hs:hermetic:ok\npow2_256=115792089237316195423570985008687907853269984665640564039457584007913129639936'
+EXPECTED_OUT=$'rules_haskell:hermetic:ok\npow2_256=115792089237316195423570985008687907853269984665640564039457584007913129639936'
 
 if [ "$ACTUAL_OUT" != "$EXPECTED_OUT" ]; then
     echo "FAIL: unexpected stdout from hermetic binary!" >&2

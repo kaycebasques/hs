@@ -1,6 +1,6 @@
 # `examples/language_features` — Language Editions, `.lhs`, `.hs-boot`, RTS, Runfiles & Template Haskell
 
-Minimal, isolated examples for each language and runtime feature in `rules_hs`:
+Minimal, isolated examples for each language and runtime feature in `rules_haskell`:
 
 - [`editions/`](editions/BUILD.bazel) — `Haskell98`, `Haskell2010`, `GHC2021` (default), and `GHC2024`
 - [`modules/`](modules/BUILD.bazel) — `default_extensions`, `ghc_opts`, `cpp_options`, and `hidden_modules`

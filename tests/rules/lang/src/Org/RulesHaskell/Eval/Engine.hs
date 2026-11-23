@@ -1,10 +1,10 @@
-module Org.RulesHs.Eval.Engine
+module Org.RulesHaskell.Eval.Engine
     ( classifyScore
     , adjustedScore
     ) where
 
-import Org.RulesHs.Internal.Secret (secretOffset)
-import Org.RulesHs.Types (Label (..), defaultLabel)
+import Org.RulesHaskell.Internal.Secret (secretOffset)
+import Org.RulesHaskell.Types (Label (..), defaultLabel)
 
 -- Relies on default_extensions = ["OverloadedStrings", "LambdaCase"].
 classifyScore :: Int -> Label

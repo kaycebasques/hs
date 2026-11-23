@@ -1,5 +1,5 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
-load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_library", "hs_test")
+load("@rules_haskell//hs:defs.bzl", "hs_binary", "hs_library", "hs_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 cc_library(

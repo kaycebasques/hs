@@ -22,5 +22,5 @@ __attribute__((weak, visibility("hidden"))) struct {
     unsigned int __cpu_features[4];
 } __cpu_model = {0, 0, 0, {0, 0, 0, 0}};
 #else
-typedef int rules_hs_rt_shims_nonempty_tu;
+typedef int rules_haskell_rt_shims_nonempty_tu;
 #endif

@@ -1,4 +1,4 @@
-"""Public Haskell rules for rules_hs."""
+"""Public Haskell rules for rules_haskell."""
 
 load("//hs/private:cabal_library.bzl", _hs_cabal_library = "hs_cabal_library")
 load("//hs/private:haddock.bzl", _hs_haddock = "hs_haddock")

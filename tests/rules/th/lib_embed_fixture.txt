@@ -1,1 +1,1 @@
-rules_hs compile-time library data fixture
+rules_haskell compile-time library data fixture

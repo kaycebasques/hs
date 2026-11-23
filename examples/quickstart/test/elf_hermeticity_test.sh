@@ -24,7 +24,7 @@ if [ -n "$BAD" ]; then
 fi
 
 OUT="$(env -i PATH=/nonexistent "$BIN" "World")"
-if [ "$OUT" != "Hello, World, from rules_hs." ]; then
+if [ "$OUT" != "Hello, World, from rules_haskell." ]; then
     echo "FAIL: unexpected output: $OUT" >&2
     exit 1
 fi

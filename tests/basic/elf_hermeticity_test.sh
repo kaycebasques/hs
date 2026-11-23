@@ -36,7 +36,7 @@ echo "=== Executing $BIN under env -i PATH=/nonexistent ==="
 OUT=$(env -i PATH=/nonexistent "$BIN")
 echo "$OUT"
 
-echo "$OUT" | grep -q "Hello, rules_hs (36)"
+echo "$OUT" | grep -q "Hello, rules_haskell (36)"
 echo "$OUT" | grep -q "bigint=1606938044258990275541962092341162602522202993782792835301376"
 echo "$OUT" | grep -q "cfg=1337/1337"
 echo "ELF HERMETICITY TEST PASSED!"

@@ -1,4 +1,4 @@
-load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_haddock", "hs_library", "hs_repl", "hs_test")
+load("@rules_haskell//hs:defs.bzl", "hs_binary", "hs_haddock", "hs_library", "hs_repl", "hs_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 hs_library(
@@ -132,12 +132,12 @@ sh_test(
     args = [
         "$(rootpath :size_repl)",
         "$(rootpath //testdata:urlset.xml.gz)",
-        "$(rootpath @rules_hs//tools/ghci)",
+        "$(rootpath @rules_haskell//tools/ghci)",
     ],
     data = [
         ":size_repl",
         "//testdata:sitemaps",
         "//testdata:urlset.xml.gz",
-        "@rules_hs//tools/ghci",
+        "@rules_haskell//tools/ghci",
     ],
 )

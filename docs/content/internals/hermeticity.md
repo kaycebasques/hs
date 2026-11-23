@@ -1,6 +1,6 @@
 ---
 title: "Hermeticity, Toolchain Staging & C Wrapper"
-description: "How rules_hs runs GHC on Linux without host compilers or system libraries via Starlark archive extraction, ELF $ORIGIN staging, static GMP linking, and ghc_cc_wrapper."
+description: "How rules_haskell runs GHC on Linux without host compilers or system libraries via Starlark archive extraction, ELF $ORIGIN staging, static GMP linking, and ghc_cc_wrapper."
 section: internals
 nav_title: "Hermeticity & Toolchain"
 order: 20
@@ -17,7 +17,7 @@ A build is **hermetic** when every compiler binary, header file, and library com
 5. **Bazel `RUNFILES_*` environment variables**: When Bazel runs tools with `--enable_runfiles`, inherited `RUNFILES_DIR` and `RUNFILES_MANIFEST_FILE` variables can confuse nested C compiler wrappers and child processes.
 6. **C compiler flag differences**: Hermetic C/C++ toolchains (such as `hermetic_cc_toolchain`'s `zig cc`, `toolchains_llvm`, or custom sysroot Clang) differ from GCC on several flags emitted by GHC (`-Wl,-h`, `-fuse-ld=gold`, `-fno-PIC`, `.dyn_o` and `.p_o` object file suffixes, `--print-file-name`, and C++ header include ordering).
 
-`rules_hs` closes each of these six paths using Starlark archive extraction, Linux ELF `$ORIGIN` library staging, static-only `libgmp.a` linking for user binaries, and a small C11 compiler adapter (`ghc_cc_wrapper`).
+`rules_haskell` closes each of these six paths using Starlark archive extraction, Linux ELF `$ORIGIN` library staging, static-only `libgmp.a` linking for user binaries, and a small C11 compiler adapter (`ghc_cc_wrapper`).
 
 ---
 
@@ -193,7 +193,7 @@ When `ld-linux.so` launches `staged_ghc/bin/ghc-9.10.3`, it expands `$ORIGIN` to
 
 A subtle linker behavior occurs if GHC links a user executable ([`hs_binary`](../reference/rules.md#hs_binary) or [`hs_test`](../reference/rules.md#hs_test)) while `libgmp.so` is present in any `-L` search directory: GHC's `ghc-bignum` package declares `extra-libraries: gmp`, causing GHC to pass `-lgmp` to the C linker. Whenever GNU `ld` or `lld` sees both `libgmp.so` and `libgmp.a` in a `-L` directory (without global `-static`), it picks `libgmp.so` by default — adding a runtime `DT_NEEDED: libgmp.so.10` dependency to the user's binary.
 
-`rules_hs` prevents that by separating the compiler's shared libraries from the linker's static search directory:
+`rules_haskell` prevents that by separating the compiler's shared libraries from the linker's static search directory:
 
 1. `staged_ghc` places `libgmp.so.10` and `libtinfo.so.6` inside `staged_ghc/lib/<arch_libdir>/` (used by `ghc` via `$ORIGIN`, not passed as a `-L` search path for static linking), and creates a separate `staged_ghc/gmp_static/` directory containing **only** static archive symlinks (`libgmp.a` and `libtinfo.a`, with no `.so` files).
 2. `HsLinkExecutable` (`hs/private/rules.bzl`) passes two flags:
@@ -202,7 +202,7 @@ A subtle linker behavior occurs if GHC links a user executable ([`hs_binary`](..
 
 > **Background — Position-Independent Code (`-fPIC`) vs. Non-PIC Boot Archives (`-no-pie`):** Modern Linux C compilers default to linking **PIE** executables so the OS kernel's Address Space Layout Randomization (ASLR) can map the executable at a randomized virtual address. Linking a PIE executable requires every input `.o` object file to have been compiled as **Position-Independent Code (`-fPIC`)**, using instruction-pointer-relative addressing rather than fixed 32-bit addresses.
 >
-> Upstream GHC `deb10` compiles its static boot `.a` archives (`libHSbase-*.a`, `libHSrts-*.a`, `libCffi.a`) *without* `-fPIC` to avoid indirect address lookups, emitting fixed 32-bit relocations (`R_X86_64_32S` on `x86_64` and `R_AARCH64_ADR_PREL_PG_HI21` on `arm64`). Passing `-optl-no-pie` tells `lld`, Clang, and `zig cc` to emit a standard fixed-address `ET_EXEC` binary so GHC's non-PIC boot `.a` archives link cleanly, while all library objects compiled by `rules_hs` itself use `-fPIC` so they work in both static `.a` executables and `.so` Template Haskell libraries.
+> Upstream GHC `deb10` compiles its static boot `.a` archives (`libHSbase-*.a`, `libHSrts-*.a`, `libCffi.a`) *without* `-fPIC` to avoid indirect address lookups, emitting fixed 32-bit relocations (`R_X86_64_32S` on `x86_64` and `R_AARCH64_ADR_PREL_PG_HI21` on `arm64`). Passing `-optl-no-pie` tells `lld`, Clang, and `zig cc` to emit a standard fixed-address `ET_EXEC` binary so GHC's non-PIC boot `.a` archives link cleanly, while all library objects compiled by `rules_haskell` itself use `-fPIC` so they work in both static `.a` executables and `.so` Template Haskell libraries.
 
 The resulting ELF executable dynamically links only base `glibc` libraries (`libc.so.6`, `libm.so.6`, `libdl.so.2`, `libpthread.so.0`), checked automatically by `//tests/basic:elf_hermeticity_test`, `//tests/rules:bzlmod_hygiene_test`, `examples/size`'s `//:elf_hermeticity_test`, and `//docs:site_test`.
 
@@ -210,14 +210,14 @@ The resulting ELF executable dynamically links only base `glibc` libraries (`lib
 
 ## Native C11 `ghc_cc_wrapper` and C-Toolchain Compatibility {#ghc-cc-wrapper}
 
-`rules_hs` does not hardcode a specific C compiler. Instead, `resolve_cc_tools` (`hs/private/actions.bzl`) queries `@bazel_tools//tools/cpp:toolchain_type` through `rules_cc` (`find_cc_toolchain` and `cc_common`, explained in [C/C++ Interop in the Bazel Primer](bazel-rules-primer.md#cc-interop)):
+`rules_haskell` does not hardcode a specific C compiler. Instead, `resolve_cc_tools` (`hs/private/actions.bzl`) queries `@bazel_tools//tools/cpp:toolchain_type` through `rules_cc` (`find_cc_toolchain` and `cc_common`, explained in [C/C++ Interop in the Bazel Primer](bazel-rules-primer.md#cc-interop)):
 
 - Looks up `cc` (`ACTION_NAMES.c_compile`), `ar` (`ACTION_NAMES.cpp_link_static_library`), and `ld` (`cc_toolchain.ld_executable`, ignoring placeholder `/false` paths such as macOS Zig).
 - Queries `cc_common.create_compile_variables` and `cc_common.get_memory_inefficient_command_line` (falling back to `cc_toolchain.sysroot`) to collect any `--sysroot`, `--target`, or `-target` flags configured by toolchains such as `toolchains_llvm` or Pigweed.
 - Passes the resolved C compiler and extra flags to `ghc_cc_wrapper` via environment variables (`ghc_base_env`):
-  - `RULES_HS_REAL_CC`: path to the underlying C compiler driver (`cc_tools.cc`).
-  - `RULES_HS_FORCE_PIC=1`: tells the wrapper to rewrite `-fno-PIC` to `-fPIC`.
-  - `RULES_HS_CC_EXTRA_ARGS`: newline-separated `--sysroot` / `--target` flags (in `HsConfigure`, relative `--sysroot` paths are anchored to `$EXECROOT/` before `cd "$WORK"`).
+  - `RULES_HASKELL_REAL_CC`: path to the underlying C compiler driver (`cc_tools.cc`).
+  - `RULES_HASKELL_FORCE_PIC=1`: tells the wrapper to rewrite `-fno-PIC` to `-fPIC`.
+  - `RULES_HASKELL_CC_EXTRA_ARGS`: newline-separated `--sysroot` / `--target` flags (in `HsConfigure`, relative `--sysroot` paths are anchored to `$EXECROOT/` before `cd "$WORK"`).
 
 ### Inside `hs/private/cc_wrapper.c`
 
@@ -230,7 +230,7 @@ The resulting ELF executable dynamically links only base `glibc` libraries (`lib
 | **3. Parse & rewrite `@rsp` files** | `parse_rsp`, `write_rsp`, recursive `rewrite_tokens` | GHC passes long linker flag lists in `@response_file` files. `parse_rsp` parses single quotes, double quotes, and `\` escapes, applies flag/object rewrites recursively, and writes the updated arguments to `rsp_path` (or `$TMPDIR/hs_ccw.XXXXXX/hs_rsp_<n>.rsp` if read-only, removed on exit). |
 | **4. Rewrite `-Wl,-h` soname flags** | `rewrite_tokens` (`-Wl,-h` + `-Wl,<soname>` and `-Wl,-h,<soname>`) | When linking dynamic `.so` libraries (`-dynamic-too` for Template Haskell), GHC passes `-Wl,-h,<soname>`. `zig cc` rejects `-h`; `cc_wrapper.c` rewrites both 1-token and 2-token forms to `-Wl,-soname,<soname>`. |
 | **5. Strip `-fuse-ld=gold`** | `rewrite_tokens` | Drops any remaining `-fuse-ld=gold` flag rejected by `lld` and `zig cc`. |
-| **6. Rewrite `-fno-PIC` to `-fPIC`** | `rewrite_tokens` (when `RULES_HS_FORCE_PIC != "0"`) | GHC's native code generator passes `-fno-PIC` to `-pgma` on some assembly calls; `zig cc` `gnu.*` targets require PIC and reject `-fno-PIC` unless upgraded to `-fPIC`. |
+| **6. Rewrite `-fno-PIC` to `-fPIC`** | `rewrite_tokens` (when `RULES_HASKELL_FORCE_PIC != "0"`) | GHC's native code generator passes `-fno-PIC` to `-pgma` on some assembly calls; `zig cc` `gnu.*` targets require PIC and reject `-fno-PIC` unless upgraded to `-fPIC`. |
 | **7. Symlink `.dyn_o` & `.p_o` inputs** | `ensure_dot_o_alias` (`-o <out>` preserved) | During dynamic (`-dynamic-too`) or profiled builds, GHC passes `.dyn_o` or `.p_o` object files to the linker. `zig cc` determines file types from extensions and rejects non-`.o` object inputs. `rewrite_tokens` leaves `-o <out>` output paths untouched (`strcmp(a, "-o") == 0`) while symlinking `.dyn_o` and `.p_o` *inputs* via `realpath(path)` to `$TMPDIR/hs_ccw.XXXXXX/hs_obj_<counter>.o`. |
 | **8. Suppress unused-arg warnings** | `main` (skipped on `--version`, `-dumpversion`, `-dumpmachine`) | `hermetic_cc_toolchain`'s `zig-wrapper` adds `-fno-sanitize=undefined`, which triggers Clang warnings during `-E` preprocessing, `-x assembler`, and `./configure` feature checks unless `-Wno-unused-command-line-argument` is added. |
 | **9. Keep C headers ahead of C++ (`-nostdinc++`)** | `detect_cxx_invocation` + `-nostdinc++` | Stops `zig c++`'s `libc++` headers from including `<features.h>` before `_GNU_SOURCE` is defined (explained below). |

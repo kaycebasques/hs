@@ -1,14 +1,14 @@
 ---
 title: "Lock Generator CLI Reference"
-description: "Complete CLI flag reference and deterministic hackage.lock.json schema specification for @rules_hs//tools/lock:lock."
+description: "Complete CLI flag reference and deterministic hackage.lock.json schema specification for @rules_haskell//tools/lock:lock."
 section: reference
 nav_title: "Lock Generator CLI"
 order: 30
 ---
 
-`@rules_hs//tools/lock:lock` (implemented in `tools/lock/Main.hs` on top of the `//tools/lock:lock_lib` library modules `tools/lock/CabalExtract.hs` and `tools/lock/LockJson.hs`) is `rules_hs`'s command-line tool for generating `hackage.lock.json` lockfiles.
+`@rules_haskell//tools/lock:lock` (implemented in `tools/lock/Main.hs` on top of the `//tools/lock:lock_lib` library modules `tools/lock/CabalExtract.hs` and `tools/lock/LockJson.hs`) is `rules_haskell`'s command-line tool for generating `hackage.lock.json` lockfiles.
 
-**When you run it**: You run `@rules_hs//tools/lock:lock` only at **development time** when adding a new Hackage dependency, bumping your Stackage snapshot, or toggling a Cabal package flag, and then commit the resulting `hackage.lock.json` to Git. Normal `bazel build` and `bazel test` runs never invoke `//tools/lock:lock` — they read the committed `hackage.lock.json` directly in Starlark via [`hackage.from_lock`](extensions-and-providers.md#hackage-from_lock).
+**When you run it**: You run `@rules_haskell//tools/lock:lock` only at **development time** when adding a new Hackage dependency, bumping your Stackage snapshot, or toggling a Cabal package flag, and then commit the resulting `hackage.lock.json` to Git. Normal `bazel build` and `bazel test` runs never invoke `//tools/lock:lock` — they read the committed `hackage.lock.json` directly in Starlark via [`hackage.from_lock`](extensions-and-providers.md#hackage-from_lock).
 
 **How it works without external Haskell tools**: `//tools/lock:lock` is compiled solely against GHC's built-in boot libraries (`base`, `Cabal-syntax`, `bytestring`, `containers`, `directory`, `filepath`, `process`, `text`) — zero third-party Hackage dependencies and zero host `cabal` or `stack` installation. Given a **Stackage snapshot** (a curated set of ~3,000 Hackage package versions verified upstream to compile together for one GHC release) and your direct `--package` names, it walks the transitive dependency graph, evaluates every `.cabal` manifest's `if os(...)` / `if arch(...)` / `if flag(...)` conditionals across four target platforms using GHC's official `Cabal-syntax` library (`finalizePD`), verifies `.tar.gz` SHA-256 digests against Hackage, and writes a sorted, deterministic `hackage.lock.json`.
 
@@ -21,7 +21,7 @@ order: 30
 Run from any downstream workspace using `bazel run`:
 
 ```bash
-bazel run @rules_hs//tools/lock:lock -- \
+bazel run @rules_haskell//tools/lock:lock -- \
   [--snapshot <name>] \
   [--snapshot-yaml <path>] \
   [--cabal-config <path>] \
@@ -33,7 +33,7 @@ bazel run @rules_hs//tools/lock:lock -- \
   [--output <path>]
 ```
 
-Or from inside the `rules_hs` repository itself:
+Or from inside the `rules_haskell` repository itself:
 
 ```bash
 bazel run //tools/lock:lock -- --help
@@ -50,7 +50,7 @@ bazel run //tools/lock:lock -- --help
 | `--snapshot <name>` | No | `"lts-24.67"` | No | Curated Stackage snapshot identifier (`lts-<major>.<minor>` for stable Long-Term Support releases or `nightly-YYYY-MM-DD` for newer GHC series). Determines the pinned version and default Cabal flags of every Hackage package by fetching the snapshot YAML from `commercialhaskell/stackage-snapshots` and boot constraints from `www.stackage.org/<name>/cabal.config` (unless local files are given via `--snapshot-yaml` / `--cabal-config`), and is recorded in the lockfile's `snapshot` field. |
 | `--snapshot-yaml <path>` | No | `None` (fetched) | No | Path to a local copy of a Stackage snapshot `.yaml` file (`resolver`, `flags`, `packages`). Use this in air-gapped networks, offline tests, or when testing custom local edits to a snapshot file without fetching from GitHub. |
 | `--cabal-config <path>` | No | `None` (fetched) | No | Path to a local Stackage `cabal.config` file listing `<pkg> installed` boot package constraints. Pair with `--snapshot-yaml` when running offline or testing custom snapshot fixtures. |
-| `--cache-dir <dir>` | No | `"/tmp/rules_hs_lock_cache"` | No | Local disk cache folder where `//tools/lock:lock` saves downloaded snapshot manifests, `.cabal` files, and `.tar.gz` tarballs so re-locking after adding one new `--package` finishes in seconds instead of re-downloading unchanged packages. |
+| `--cache-dir <dir>` | No | `"/tmp/rules_haskell_lock_cache"` | No | Local disk cache folder where `//tools/lock:lock` saves downloaded snapshot manifests, `.cabal` files, and `.tar.gz` tarballs so re-locking after adding one new `--package` finishes in seconds instead of re-downloading unchanged packages. |
 | `--ghc-version <ver>` | No | Snapshot compiler (fallback `"9.10.3"`) | No | Target GHC compiler version used when evaluating `.cabal` `if impl(ghc >= ...)` conditionals, selecting the default boot package table (`9.10.*` vs. `9.12.*`), and writing `ghc_version` in the lockfile. Normally inferred automatically from the Stackage snapshot's `compiler:` field; pass explicitly only when testing a snapshot against a different patch or minor GHC release. |
 | `--package <name>` | **Yes** | — | **Yes** (at least 1) | Direct Hackage library name your project imports (for example, `--package aeson --package http-client-tls`). You only need to list your direct Hackage dependencies — `//tools/lock:lock` automatically discovers and locks every transitive non-boot package they require, and you do not need to pass GHC boot packages like `base` or `text`. |
 | `--flag <pkg>:<flag>=<bool>` | **Yes** | Stackage snapshot `flags:` | No | Toggles a boolean `flag` stanza inside `<pkg>.cabal` (`true` or `false`, case-insensitive; flag names are lowercased) ahead of `finalizePD` evaluation, overriding both `.cabal` and Stackage defaults. Use `--flag` to prune optional dependency trees (such as `--flag hakyll:previewserver=false`) or switch a C binding between vendored C sources (`--flag zlib:bundled-c-zlib=true --flag zlib:pkg-config=false`) and an external Bazel `cc_library` supplied via [`hackage.override`](extensions-and-providers.md#hackage-override). |

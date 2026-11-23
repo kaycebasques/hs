@@ -33,7 +33,7 @@ import System.Posix.Terminal (openPseudoTerminal)
 import System.Posix.Types (Fd (..), ProcessID)
 import System.Timeout (timeout)
 
-foreign import ccall unsafe "rules_hs_set_controlling_tty"
+foreign import ccall unsafe "rules_haskell_set_controlling_tty"
     c_set_controlling_tty :: CInt -> IO CInt
 
 -- | Strips ANSI CSI / OSC / charset terminal control sequences so assertions match clean text.
@@ -108,8 +108,8 @@ spawnPtyRepl bin extraEnv = do
             ]
         finalEnv =
             [ ("TERM", "xterm-256color")
-            , ("TERMINFO", "/nonexistent_rules_hs_ti")
-            , ("TERMINFO_DIRS", "/nonexistent_rules_hs_ti")
+            , ("TERMINFO", "/nonexistent_rules_haskell_ti")
+            , ("TERMINFO_DIRS", "/nonexistent_rules_haskell_ti")
             , ("HOME", homeDir)
             ]
                 ++ extraEnv
