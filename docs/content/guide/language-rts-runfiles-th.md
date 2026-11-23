@@ -1,23 +1,64 @@
 ---
 title: "Language, RTS, Runfiles & Template Haskell"
-description: "Configure Haskell language editions, module visibility, .hs-boot mutual recursion, GHC RTS threading, Bazel runfiles, Template Haskell, and Haddock API documentation."
+description: "Configure Haskell language editions (GHC2021 and GHC2024), module visibility, .hs-boot mutual recursion, GHC runtime threading, Bazel runfiles, Template Haskell, and Haddock API docs."
 section: guide
 nav_title: "Language, RTS, Runfiles & TH"
 order: 40
 ---
 
-This guide covers day-to-day Haskell language configuration, module encapsulation, `.hs-boot` cycles, GHC runtime system (RTS) threading, Bazel `data` runfiles, Template Haskell, and hermetic Haddock API documentation ([`hs_haddock`](../reference/rules.md#hs_haddock)) in `rules_hs`, grounded in the test suites under `tests/rules/` and `tests/basic/`.
+This guide covers day-to-day Haskell language settings, module visibility, `.hs-boot` mutually recursive modules, batch compilation vs. planned `ghci`, GHC runtime system (RTS) threading, Bazel `data` runfiles, Template Haskell, and Haddock API documentation ([`hs_haddock`](../reference/rules.md#hs_haddock)), based on the test suites under `tests/rules/` and `tests/basic/`.
 
-## Language Editions & Compiler Extensions
+## Language Editions (`GHC2021` vs. `GHC2024`) & Extensions
 
-### `default_language`
+In Haskell, a **language edition** (`Haskell98`, `Haskell2010`, `GHC2021`, or `GHC2024`) is a named bundle of GHC compiler extensions enabled together via `-X<edition>`, saving you from repeating dozens of `{-# LANGUAGE ... #-}` headers at the top of every source file.
 
-[`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), and [`hs_test`](../reference/rules.md#hs_test) pass `-X<default_language>` to GHC:
+### Why `default_language` Defaults to `"GHC2021"` Instead of `"GHC2024"`
 
-- **User rules (`hs_library`, `hs_binary`, `hs_test`)** default to **`"GHC2021"`**, enabling ergonomic modern extensions (`BangPatterns`, `DeriveFoldable`, `DeriveFunctor`, `DeriveGeneric`, `DeriveTraversable`, `EmptyCase`, `ExistentialQuantification`, `FlexibleContexts`, `FlexibleInstances`, `GeneralizedNewtypeDeriving`, `ImportQualifiedPost`, `InstanceSigs`, `MultiParamTypeClasses`, `NamedFieldPuns`, `NumericUnderscores`, `PolyKinds`, `RankNTypes`, `ScopedTypeVariables`, `StandaloneDeriving`, `TupleSections`, `TypeApplications`, `TypeOperators`, etc.) out of the box.
-- **Third-party Cabal packages (`hs_cabal_library`)** default to **`"Haskell98"`**, matching the official Cabal specification when a `.cabal` file omits `default-language:`.
+[`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), and [`hs_test`](../reference/rules.md#hs_test) pass `-X<default_language>` to GHC with the following defaults:
 
-You can select `"Haskell98"`, `"Haskell2010"`, `"GHC2021"`, or `"GHC2024"` per target, and layer additional target-wide extensions via `default_extensions` (from `tests/rules/lang/BUILD.bazel`):
+- **User rules (`hs_library`, `hs_binary`, `hs_test`)** default to **`"GHC2021"`**.
+- **Third-party Cabal packages (`hs_cabal_library`)** default to **`"Haskell98"`** when an older `.cabal` manifest omits `default-language:`, matching the Cabal specification.
+
+Why does `rules_hs` default user targets to `"GHC2021"` rather than `"GHC2024"` even on GHC `9.10.3` and `9.12.4`?
+
+1. **Upstream GHC compatibility**: GHC `9.10` and `9.12` themselves still use `GHC2021` as the compiler's built-in default when invoked without an explicit language edition flag.
+2. **`MonoLocalBinds` in `GHC2024`**: `GHC2024` adds several useful extensions on top of `GHC2021` — including `LambdaCase`, `DerivingStrategies`, `GADTs`, `DataKinds`, `DisambiguateRecordFields`, `ExplicitNamespaces`, and `RoleAnnotations` — **and** it also turns on `MonoLocalBinds`. With `MonoLocalBinds` enabled, GHC stops automatically inferring polymorphic (generic) types for local helper functions inside `let` and `where` blocks when certain type features are in scope. Existing `Haskell2010` and `GHC2021` modules that rely on polymorphic local helpers can fail typechecking under `GHC2024` until explicit type signatures are added to those `let`/`where` bindings.
+
+Keeping `"GHC2021"` as the default matches upstream GHC behavior while enabling widely used features (`ImportQualifiedPost`, `BangPatterns`, `DeriveFunctor`, `DeriveGeneric`, `DeriveTraversable`, `FlexibleContexts`, `FlexibleInstances`, `GeneralizedNewtypeDeriving`, `MultiParamTypeClasses`, `NamedFieldPuns`, `NumericUnderscores`, `PolyKinds`, `RankNTypes`, `ScopedTypeVariables`, `StandaloneDeriving`, `TupleSections`, `TypeApplications`, and `TypeOperators`).
+
+### Opting Into `GHC2024` (or `Haskell2010` / `Haskell98`)
+
+Both GHC `9.10.3` and `9.12.4` support `GHC2024`. Pass `default_language = "GHC2024"` on any target (or wrap `hs_library` in a small `.bzl` macro in new projects):
+
+```haskell
+-- src/Status.hs (compiled with default_language = "GHC2024")
+module Status (Status (..), describeStatus) where
+
+-- DerivingStrategies (deriving stock) and LambdaCase (\case) are built into GHC2024,
+-- so no {-# LANGUAGE #-} pragmas are needed in this file.
+data Status = Pending | Complete
+  deriving stock (Eq, Show)
+
+describeStatus :: Status -> String
+describeStatus = \case
+  Pending -> "pending"
+  Complete -> "complete"
+```
+
+```starlark
+load("@rules_hs//hs:defs.bzl", "hs_library")
+
+hs_library(
+    name = "status_lib",
+    srcs = ["src/Status.hs"],
+    default_language = "GHC2024",
+    ghc_opts = ["-Wall"],
+    hs_source_dirs = ["src"],
+    deps = ["@hs_boot//:base"],
+)
+```
+
+You can also stay on `"GHC2021"` and add specific target-wide extensions via `default_extensions` (from `tests/rules/lang/BUILD.bazel`):
 
 ```starlark
 load("@rules_hs//hs:defs.bzl", "hs_library")
@@ -51,13 +92,21 @@ hs_library(
 
 ---
 
+## Batch Compilation Today vs. Interactive `ghci` REPL (Planned)
+
+**Is interactive `ghci` supported today?** No. Today `rules_hs` invokes GHC in batch compilation mode only (`ghc --make -c` for libraries and `ghc --make` for executables and tests). You cannot yet run `bazel run` on a rule to open an interactive `ghci` prompt preloaded with a target's modules and dependencies, and automatic `hie.yaml` generation for `haskell-language-server` editor tooling is not implemented yet.
+
+Both an interactive `hs_repl` rule and `hie.yaml` IDE setup are planned (see [What Is Supported, Planned, and Out of Scope](../index.md#project-scope)). Today, the quickest feedback loop during development is running fine-grained [`hs_test`](../reference/rules.md#hs_test) targets (`bazel test //path/to:my_test`).
+
+---
+
 ## Module Encapsulation & Mutual Recursion
 
-### `hidden_modules` (`other-modules`)
+### Keeping Internal Modules Private (`hidden_modules`)
 
-By default, [`hs_library`](../reference/rules.md#hs_library) inspects the compiled `.hi` files produced by `ghc --make -c` and registers every module in `exposed-modules:` inside the library's relocatable `.pkgdb` package configuration.
+When [`hs_library`](../reference/rules.md#hs_library) compiles a library, it inspects the generated `.hi` compiler interface files and lists every module under `exposed-modules:` in the library's package database registration file unless told otherwise.
 
-To keep internal implementation modules private to the library — equivalent to Cabal's `other-modules:` — list their dotted Haskell module names in `hidden_modules`:
+To keep internal helper modules private to a library — equivalent to Cabal's `other-modules:` field — list their dotted Haskell module names in `hidden_modules`:
 
 ```starlark
 hs_library(
@@ -71,11 +120,34 @@ hs_library(
 )
 ```
 
-Modules inside `:math_lib` (`Math.Core`) can freely `import Math.Internal`, while downstream targets depending on `:math_lib` receive a GHC hidden-module compile error if they attempt to import `Math.Internal`.
+Modules inside `:math_lib` (such as `Math.Core`) can `import Math.Internal`, while any downstream target depending on `:math_lib` receives a GHC compile error (`Could not load module 'Math.Internal': it is a hidden module`) if it tries to import `Math.Internal`.
 
-### Mutual Module Recursion with `.hs-boot`
+### Mutually Recursive Modules with `.hs-boot`
 
-Because [`hs_library`](../reference/rules.md#hs_library) compiles all modules of a library together via `ghc --make -c`, mutually recursive modules using `.hs-boot` (or `.lhs-boot`) interface files work out of the box — simply include the `.hs-boot` file alongside the `.hs` sources in `srcs` (from `tests/basic/BUILD.bazel`):
+Haskell compilers typecheck modules in dependency order, so two `.hs` files normally cannot import each other in a loop (`BootA` imports `BootB` and `BootB` imports `BootA`). When two modules genuinely need to reference each other's types or functions, GHC breaks the cycle with a **`.hs-boot` forward-declaration file** (similar in spirit to a `.h` forward declaration in C):
+
+```haskell
+-- BootA.hs-boot (declares only the type/function signatures BootB needs first)
+module BootA (NodeA (..)) where
+import {-# SOURCE #-} BootB (NodeB)
+data NodeA = NodeA Int (Maybe NodeB)
+```
+
+```haskell
+-- BootB.hs (imports the lightweight BootA.hs-boot interface via {-# SOURCE #-})
+module BootB (NodeB (..)) where
+import {-# SOURCE #-} BootA (NodeA)
+data NodeB = NodeB String NodeA
+```
+
+```haskell
+-- BootA.hs (full implementation, Checked by GHC against BootA.hs-boot)
+module BootA (NodeA (..)) where
+import BootB (NodeB)
+data NodeA = NodeA Int (Maybe NodeB)
+```
+
+Because [`hs_library`](../reference/rules.md#hs_library) compiles all modules of a library together via `ghc --make -c`, include the `.hs-boot` (or `.lhs-boot`) file alongside the `.hs` files in `srcs` (from `tests/basic/BUILD.bazel`):
 
 ```starlark
 hs_library(
@@ -89,20 +161,22 @@ hs_library(
 )
 ```
 
-`rules_hs` stages `.hs-boot` files as compilation inputs while passing only primary `.hs`/`.lhs` source files on the GHC command line, allowing GHC to discover `.hs-boot` files automatically through `-i` search paths.
+`rules_hs` stages `.hs-boot` files in the compile sandbox while passing only `.hs` and `.lhs` files as command-line entry points to GHC, letting GHC resolve `{-# SOURCE #-}` imports automatically through its `-i` source search paths.
 
 ---
 
 ## GHC Runtime System (RTS) & Concurrency
 
-### Threaded vs. Non-Threaded RTS
+Every compiled Haskell binary links in GHC's **Runtime System (RTS)** — a C library bundled with GHC that provides garbage collection, lightweight green threads (`forkIO`, similar to Go goroutines), software transactional memory (`STM`), and non-blocking network/timer I/O polling.
 
-Both [`hs_binary`](../reference/rules.md#hs_binary) and [`hs_test`](../reference/rules.md#hs_test) set **`threaded = True` by default**, passing `-threaded` at link time:
+### Threaded vs. Single-Threaded RTS
 
-| Setting | `rtsSupportsBoundThreads` | Capabilities & `forkOS` | Best For |
+GHC ships two variants of the RTS library, controlled by the `threaded` attribute on [`hs_binary`](../reference/rules.md#hs_binary) and [`hs_test`](../reference/rules.md#hs_test) (**`threaded = True` by default**):
+
+| Setting | `rtsSupportsBoundThreads` | How Threads & C Calls Run | When to Use |
 |---|---|---|---|
-| `threaded = True` (default) | `True` | Supports multi-core `getNumCapabilities`, OS-bound threads (`forkOS`), non-blocking `safe` C FFI calls concurrently with green threads, and multi-worker STM | Almost all servers, CLI tools (`async`, `http-client`), and parallel test suites |
-| `threaded = False` | `False` | Single OS thread; cooperative green threads (`forkIO` + `MVar`/`STM`) still run, `forkOS` raises an error | Deterministic single-threaded benchmarks or minimal footprint tools |
+| `threaded = True` (default) | `True` | Schedules Haskell green threads across multiple OS worker threads (`-N`), supports OS-bound threads (`forkOS`), and runs `safe` blocking C FFI calls on dedicated OS threads without pausing other green threads | Servers, concurrent CLI tools (`async`, `http-client`), C FFI programs, and parallel test suites |
+| `threaded = False` | `False` | Runs all Haskell green threads (`forkIO` + `MVar`/`STM`) cooperatively on a single OS thread; calling `forkOS` raises a runtime error, and a blocking C call pauses all green threads until it returns | Single-threaded benchmarks or tools that never need multi-core parallelism |
 
 ```starlark
 load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_test")
@@ -130,23 +204,24 @@ hs_test(
 )
 ```
 
-> **Tip — Baking Default RTS Flags Into Executables:** Pass `"-rtsopts"` and `"-with-rtsopts=-N"` in `ghc_opts` on [`hs_binary`](../reference/rules.md#hs_binary) or [`hs_test`](../reference/rules.md#hs_test) when you want your binary to use all available CPU cores automatically without requiring callers to append `+RTS -N -RTS` on the command line.
+> **Tip — Setting default multi-core RTS flags at link time:** Even with `threaded = True`, GHC binaries default to using 1 CPU core at startup unless told otherwise. Pass `"-rtsopts"` and `"-with-rtsopts=-N"` in `ghc_opts` on [`hs_binary`](../reference/rules.md#hs_binary) or [`hs_test`](../reference/rules.md#hs_test) (optionally adding `-A32m` for a 32 MiB garbage-collector allocation area) so your executable uses all available CPU cores automatically without callers passing `+RTS -N -RTS` on the command line.
 
 ---
 
 ## Bazel `data` Runfiles
 
-Every rule ([`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), [`hs_test`](../reference/rules.md#hs_test), and [`hs_cabal_library`](../reference/rules.md#hs_cabal_library)) accepts a `data` attribute (`attr.label_list(allow_files = True)`) and merges `default_runfiles` transitively across `deps`, `cc_deps` (`extra_cc_deps`), and `data`.
+When a binary or test needs non-code files at runtime — such as JSON schemas, SQL migrations, test fixture files, or helper executables — Bazel stages those files inside a directory tree called **runfiles** (`<binary>.runfiles/_main/<package>/<file>`) rather than assuming your program runs from the Git repository root.
 
-That means:
-- A fixture or asset attached to `data` on a deep [`hs_library`](../reference/rules.md#hs_library) target is **automatically available at runtime** to every [`hs_binary`](../reference/rules.md#hs_binary) and [`hs_test`](../reference/rules.md#hs_test) that transitively depends on that library.
-- An [`hs_binary`](../reference/rules.md#hs_binary) helper tool placed in `data = [":helper_bin"]` of an [`hs_test`](../reference/rules.md#hs_test) is staged into the test's runfiles alongside all of `:helper_bin`'s own transitive `data` files.
+Every rule ([`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), [`hs_test`](../reference/rules.md#hs_test), and [`hs_cabal_library`](../reference/rules.md#hs_cabal_library)) accepts a `data` attribute and merges runfiles transitively across `deps`, `cc_deps` (`extra_cc_deps`), and `data`:
 
-### Reading Runfiles Hermetically in Haskell
+- A file listed in `data` on a [`hs_library`](../reference/rules.md#hs_library) target is **automatically available at runtime** to every [`hs_binary`](../reference/rules.md#hs_binary) and [`hs_test`](../reference/rules.md#hs_test) that transitively depends on that library.
+- A helper [`hs_binary`](../reference/rules.md#hs_binary) listed in `data = [":helper_bin"]` on an [`hs_test`](../reference/rules.md#hs_test) is staged into the test's runfiles together with all of `:helper_bin`'s own transitive `data` files.
 
-Ensure `.bazelrc` sets `common --enable_runfiles`. Under Bzlmod, workspace-local files live under `<runfiles_root>/_main/<package>/<file>` (or `$TEST_WORKSPACE`, which defaults to `_main`).
+### Locating Runfiles in Haskell
 
-Here is the zero-dependency runfile resolver pattern from `tests/rules/runfiles/DataLib.hs`:
+Make sure `.bazelrc` includes `common --enable_runfiles`. Under Bzlmod, files from your root workspace sit under `<runfiles_root>/_main/<package>/<file>` (or `$TEST_WORKSPACE`, which defaults to `_main`).
+
+Here is a small runfile path helper using only GHC boot libraries (from `tests/rules/runfiles/DataLib.hs`):
 
 ```haskell
 module Runfiles (resolveRunfile) where
@@ -179,7 +254,7 @@ resolveRunfile rel = do
       if exists then pure p else pickExisting ps
 ```
 
-Corresponding `BUILD.bazel` wiring:
+Corresponding `BUILD.bazel` targets:
 
 ```starlark
 hs_library(
@@ -209,15 +284,17 @@ hs_test(
 
 ## Template Haskell (`TemplateHaskell` & `TemplateHaskellQuotes`)
 
-`rules_hs` supports the full spectrum of Template Haskell out of the box — with zero opt-in attributes required and zero dynamic-library leakage into linked executables:
+**Template Haskell (TH)** is GHC's built-in compile-time code generation system (comparable to procedural macros in Rust). While compiling a module, GHC can evaluate Haskell expressions wrapped in `$( ... )` (called **splices**) and insert the generated declarations, types, or expressions directly into the module being compiled. Common Hackage libraries use Template Haskell to generate boilerplate JSON encoders (`aeson`) or embed static files into binaries at compile time (`file-embed`).
 
-- **`TemplateHaskellQuotes`** (pure AST construction via `@hs_boot//:template-haskell`).
-- **Boot-package & same-library splices** (`//tests/rules/th:th_test`).
-- **Cross-library & Hackage Template Haskell splices** (`//tests/rules/th:cross_lib_th_test` and `//tests/rules/th:cross_lib_th_elf_test`), including splices defined in separate [`hs_library`](../reference/rules.md#hs_library) or [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) targets (`aeson`, `file-embed`, `skylighting`, `pandoc`), multi-hop library chains, C FFI / `CApiFFI` calls inside splices, and `runIO` file reads.
+`rules_hs` supports Template Haskell with no extra rule attributes required:
 
-### 1. `TemplateHaskellQuotes` (Zero Compile-Time Interpreter Overhead)
+- **`TemplateHaskellQuotes`**: Constructing syntax trees (`[| ... |]`, `''MyType`, `'myFunc`) via `@hs_boot//:template-haskell` without running splices in the current module.
+- **Boot-package and same-library splices** (`//tests/rules/th:th_test`).
+- **Cross-library and Hackage Template Haskell splices** (`//tests/rules/th:cross_lib_th_test` and `//tests/rules/th:cross_lib_th_elf_test`), including splices imported from separate [`hs_library`](../reference/rules.md#hs_library) or [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) targets (`aeson`, `file-embed`, `skylighting`, `pandoc`), multi-hop library chains, C FFI / `CApiFFI` calls inside splices, and compile-time `runIO` file reads.
 
-Whenever a module only constructs AST quotes (`[| ... |]`, `''MyType`, `'myFunc`) without evaluating `$( ... )` splices itself, prefer `{-# LANGUAGE TemplateHaskellQuotes #-}`:
+### 1. `TemplateHaskellQuotes` (Building Syntax Trees Without Running the Interpreter)
+
+When a helper module only constructs quoted syntax (`[| ... |]`, `''MyType`, `'myFunc`) for downstream modules to splice in, enable `{-# LANGUAGE TemplateHaskellQuotes #-}` instead of full `TemplateHaskell` so GHC does not start its compile-time interpreter for that module:
 
 ```haskell
 {-# LANGUAGE TemplateHaskellQuotes #-}
@@ -235,7 +312,7 @@ mkAnswerExp n = [| n * 2 |]
 
 ### 2. Same-Library & Cross-Library Splices (`{-# LANGUAGE TemplateHaskell #-}`)
 
-You can evaluate `$( ... )` splices defined in the same library, in upstream [`hs_library`](../reference/rules.md#hs_library) targets, or in Hackage packages (`@hackage//:aeson`, `@hackage//:file-embed`, etc.):
+To evaluate `$( ... )` splices defined in the same library, in upstream [`hs_library`](../reference/rules.md#hs_library) targets, or in Hackage packages (`@hackage//:aeson`, `@hackage//:file-embed`, etc.), enable `{-# LANGUAGE TemplateHaskell #-}`:
 
 ```haskell
 {-# LANGUAGE TemplateHaskell #-}
@@ -284,30 +361,30 @@ hs_test(
 )
 ```
 
-### How Cross-Library TH Preserves Static Executables
+### How Cross-Library Template Haskell Keeps Final Executables Statically Linked
 
-When `HsToolchainInfo.is_dynamic_ghc == True`, `HsCompileLibrary` (`hs/private/actions.bzl`) compiles libraries with `-dynamic-too`:
+Because official GHC binary distributions are dynamically linked executables, GHC's compile-time splice runner (`ghc-iserv`) must load upstream libraries as shared `.so` files while compiling a `TemplateHaskell` module. To support that without turning your final executables into dynamically linked binaries, `HsCompileLibrary` (`hs/private/actions.bzl`) compiles libraries with `-dynamic-too`:
 
-1. Static `.o` objects are archived into `${pkgroot}/libHS<unit_id>.a` (`library-dirs` / `library-dirs-static`).
-2. Dynamic `.dyn_o` objects (along with any `c_sources` and `cc_deps` archives, linked with `-Wl,-Bsymbolic`) are linked into `<name>.pkgdb/dyn/libHS<unit_id>-ghc<ver>.so`, and `dynamic-library-dirs: ${pkgroot}/<pkgdb_base>/dyn` is recorded in `<unit_id>.conf`.
-3. Because `<name>.pkgdb/dyn` is isolated from `${pkgroot}`, GHC's compile-time TH loader resolves `.so` libraries cleanly across multi-hop C FFI and Haskell dependencies, while [`hs_binary`](../reference/rules.md#hs_binary) and [`hs_test`](../reference/rules.md#hs_test) link **100% statically** against `libHS*.a` and `libgmp.a` (`DT_NEEDED` remains strictly base glibc — zero `libHS*.so` or `libgmp.so` at runtime).
+1. Static `.o` objects are packed into `${pkgroot}/libHS<unit_id>.a` (`library-dirs` and `library-dirs-static`).
+2. Dynamic `.dyn_o` objects (along with any `c_sources` and `cc_deps` C archives, linked with `-Wl,-Bsymbolic`) are linked into `<name>.pkgdb/dyn/libHS<unit_id>-ghc<ver>.so`, and `dynamic-library-dirs: ${pkgroot}/<pkgdb_base>/dyn` is recorded in `<unit_id>.conf`.
+3. Keeping `.so` files in `<name>.pkgdb/dyn` lets GHC's compile-time TH loader load `.so` libraries across multi-hop Haskell and C dependencies during compilation, while [`hs_binary`](../reference/rules.md#hs_binary) and [`hs_test`](../reference/rules.md#hs_test) link only static `libHS*.a` and `libgmp.a` archives (so linked binaries carry no runtime `libHS*.so` or `libgmp.so` dependencies).
 
-> **Tip — Compile-Time File Embedding with `data` (`file-embed` & `runIO`):** `data` files declared on [`hs_library`](../reference/rules.md#hs_library), [`hs_cabal_library`](../reference/rules.md#hs_cabal_library), [`hs_binary`](../reference/rules.md#hs_binary), and [`hs_test`](../reference/rules.md#hs_test) are automatically staged into the compilation sandbox (including package-root working directory staging on [`hs_cabal_library`](../reference/rules.md#hs_cabal_library)) **as well as** runtime runfiles. That means compile-time Template Haskell splices such as `file-embed`'s `$(embedFile "...")` / `$(embedDir "...")` (e.g., `--flag pandoc:embed_data_files=true`) and `runIO . readFile` work hermetically inside `linux-sandbox`!
+> **Tip — Compile-time file embedding with `data` (`file-embed` and `runIO`):** Files listed in `data` on [`hs_library`](../reference/rules.md#hs_library), [`hs_cabal_library`](../reference/rules.md#hs_cabal_library), [`hs_binary`](../reference/rules.md#hs_binary), and [`hs_test`](../reference/rules.md#hs_test) are staged into the compilation sandbox (as well as runtime runfiles). Compile-time Template Haskell splices such as `file-embed`'s `$(embedFile "...")` and `$(embedDir "...")` (used by `--flag pandoc:embed_data_files=true`) or `runIO (readFile ...)` can read declared `data` files directly inside `linux-sandbox`.
 
 ---
 
 ## Generating Haddock API Documentation (`hs_haddock`) {#haddock}
 
-`rules_hs` ships a first-class [`hs_haddock`](../reference/rules.md#hs_haddock) rule that runs the active GHC toolchain's `$ORIGIN`-staged `bin/haddock-ghc-<ver>` binary 100% hermetically inside `linux-sandbox` (with zero host tools or network access).
+**Haddock** is Haskell's standard API documentation generator (analogous to `rustdoc` in Rust or `godoc` in Go) and ships inside every GHC distribution. [`hs_haddock`](../reference/rules.md#hs_haddock) runs GHC's staged `bin/haddock-ghc-<ver>` binary inside Bazel's sandbox with no host tools or network access.
 
-### Writing Haddock Docstrings & Declaring `hs_haddock`
+### Writing Haddock Comments and Declaring `hs_haddock`
 
-Annotate modules, types, and functions using standard `-- |` and `-- ^` Haddock comments:
+Document modules, types, and functions with `-- |` (before an item) and `-- ^` (after an item or constructor field) comments:
 
 ```haskell
 -- |
 -- Module      : Greet
--- Description : Greeting formatters for hermetic Bazel 9 builds.
+-- Description : Greeting formatters for Bazel 9 builds.
 module Greet
   ( greetingFor
   ) where
@@ -317,10 +394,10 @@ import Data.Text qualified as T
 
 -- | Format a trimmed greeting message for @who@.
 greetingFor :: Text -> Text
-greetingFor who = "Hello, " <> T.strip who <> ", from hermetic rules_hs!"
+greetingFor who = "Hello, " <> T.strip who <> ", from rules_hs."
 ```
 
-Declare an [`hs_haddock`](../reference/rules.md#hs_haddock) target in `BUILD.bazel` pointing at one or more [`hs_library`](../reference/rules.md#hs_library) (or [`hs_cabal_library`](../reference/rules.md#hs_cabal_library)) targets in `deps`:
+Declare an [`hs_haddock`](../reference/rules.md#hs_haddock) target in `BUILD.bazel` listing one or more [`hs_library`](../reference/rules.md#hs_library) (or [`hs_cabal_library`](../reference/rules.md#hs_cabal_library)) targets in `deps`:
 
 ```starlark
 load("@rules_hs//hs:defs.bzl", "hs_haddock", "hs_library")
@@ -343,18 +420,18 @@ hs_haddock(
 )
 ```
 
-Build the documentation tree:
+Build the documentation directory:
 
 ```bash
 bazel build //:greet_haddock
 ```
 
-By default (`hyperlinked_source = True`, `quickjump = True`), `bazel-bin/greet_haddock/` is a self-contained HTML `TreeArtifact` containing:
-- `index.html` and per-module `<Module>.html` pages (`hidden_modules` are automatically passed via `--hide=<mod>`),
-- `src/<Module>.html` syntax-highlighted, clickable source views,
-- `doc-index.json` powering Haddock's interactive QuickJump search modal,
-- Automatic `--read-interface` hyperlinks to Hackage documentation for GHC boot types (`Text`, `IO`, `Map`, etc.) via `HsToolchainInfo.boot_haddocks`.
+By default (`hyperlinked_source = True`, `quickjump = True`), `bazel-bin/greet_haddock/` is a self-contained HTML directory output containing:
+- `index.html` and per-module `<Module>.html` pages (`hidden_modules` are automatically hidden via `--hide=<mod>`),
+- `src/<Module>.html` syntax-highlighted, clickable source code pages,
+- `doc-index.json` powering Haddock's client-side QuickJump search dialog,
+- Cross-reference hyperlinks to Hackage documentation for GHC boot types (`Text`, `IO`, `Map`, etc.) via `HsToolchainInfo.boot_haddocks`.
 
-### Cross-Target Linking (`haddock_deps`) & Site Mounting
+### Cross-Target Linking (`haddock_deps`) and Site Mounting
 
-When documenting layered libraries separately, pass upstream `hs_haddock` targets in `haddock_deps` (which consume [`HsHaddockInfo`](../reference/extensions-and-providers.md#hshaddockinfo) `.haddock` interfaces via relative `--read-interface` paths). Because `DefaultInfo.files` of an `hs_haddock` target is a single directory `TreeArtifact`, downstream static-site or packaging rules can reference `$(rootpath :greet_haddock)` directly — just as `//docs:site` mounts `//tools/lock:lock_haddock` at `/haddock/lock/`.
+When generating separate Haddock bundles for layered libraries, pass upstream `hs_haddock` targets in `haddock_deps` so Haddock reads their `.haddock` interface files (`HsHaddockInfo`) and emits relative links between them. Because the default output of an `hs_haddock` target is a single Bazel directory artifact, downstream static-site or packaging rules can consume `$(rootpath :greet_haddock)` as one path — just as `//docs:site` mounts `//tools/lock:lock_haddock` at `/haddock/lock/`.
