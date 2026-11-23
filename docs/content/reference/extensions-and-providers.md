@@ -38,7 +38,7 @@ Selects which GHC release version and which host/target OS-CPU platforms `@hs_to
 | Attribute | Type | Default | Required | Description |
 |---|---|---|---|---|
 | `ghc_version` | `str` | `"9.10.3"` | No | Official GHC compiler version to download and register. Supported versions: `"9.10.3"` (default, 41 boot packages, paired with Stackage LTS 24.x) and `"9.12.4"` (42 boot packages including `file-io`). Set this to match the `ghc_version` in your `hackage.lock.json` when testing newer GHC releases. |
-| `platforms` | `list[str]` | `[]` | No | Subset of platform keys (`"linux_x86_64"`, `"linux_arm64"`) to generate `toolchain()` definitions for. Leave empty (`[]`) in multi-architecture repos so both `x86_64` and `arm64` Linux machines work out of the box (Bazel still downloads only the bindist matching the current machine); set `["linux_x86_64"]` only if you want to restrict toolchain registration to a single architecture. |
+| `platforms` | `list[str]` | `[]` | No | Subset of platform keys (`"linux_x86_64"`, `"linux_arm64"`) to generate `toolchain()` definitions for. Leave empty (`[]`) in multi-architecture repos so both `x86_64` and `arm64` Linux machines work without extra configuration (Bazel still downloads only the bindist matching the current machine); set `["linux_x86_64"]` only if you want to restrict toolchain registration to a single architecture. |
 
 ---
 
