@@ -50,7 +50,7 @@ Running an arbitrary `Setup.hs` program requires compiling a per-package Haskell
 
 If you encounter a package that fails with `Unsupported Cabal build-type 'Custom'`:
 1. Read the package's `Setup.hs` (usually 30–100 lines) to see what it actually generates or probes.
-2. If it only probes C flags or libraries, supply them declaratively via [`hackage.override`](../reference/extensions-and-providers.md#hackage-override) (`extra_cc_deps`, `extra_cpp_options`, `extra_cc_options`, `extra_ghc_opts`).
+2. If it only probes C flags or libraries, set `"build_type": "Simple"` on that package's entry in `hackage.lock.json` (because [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) requires `build_type` to be `"Simple"` or `"Configure"`) and supply those settings declaratively via [`hackage.override`](../reference/extensions-and-providers.md#hackage-override) (`extra_cc_deps`, `extra_cpp_options`, `extra_cc_options`, `extra_ghc_opts`).
 3. If it generates `.hs` or `.h` source files, write a `genrule` + [`hs_library`](../reference/rules.md#hs_library) target in your workspace for that package (see [Migration & Troubleshooting](troubleshooting-and-migration.md)).
 
 ## Step 1: Generate `hackage.lock.json`
