@@ -8,9 +8,9 @@ Bazel 9 ruleset for Haskell using Bzlmod (`bazel_compatibility = [">=9.0.0"]`).
 
 **Documentation**: [**https://kaycebasques.github.io/hs/**](https://kaycebasques.github.io/hs/) · [Haddock API (`//tools/lock`)](https://kaycebasques.github.io/hs/haddock/lock/index.html)
 
-`rules_hs` compiles Haskell libraries, executables, tests, C/C++ bindings, Haddock API documentation, and third-party Hackage packages on Linux inside isolated Bazel sandboxes. It does not require Nix, legacy `WORKSPACE` files, Python wrapper scripts, or host installations of `ghc`, `cabal`, `stack`, `gcc`, `clang`, or system C `-dev` packages.
+`rules_hs` compiles Haskell libraries, executables, tests, interactive `ghci` REPL targets, C/C++ bindings, Haddock API documentation, and third-party Hackage packages on Linux inside isolated Bazel sandboxes. It does not require Nix, legacy `WORKSPACE` files, Python wrapper scripts, or host installations of `ghc`, `cabal`, `stack`, `gcc`, `clang`, or system C `-dev` packages.
 
-- **Self-contained Linux GHC toolchains**: Extracts official GHC `9.10.3` and `9.12.4` binary distributions in Starlark without running host `./configure && make install`. Compiler binaries load `libgmp.so.10` (built from Bazel Central Registry `@gmp`) and a small 8-symbol `libtinfo.so.6` stub via relative ELF library paths (`$ORIGIN`), without `LD_LIBRARY_PATH` or `patchelf`.
+- **Self-contained Linux GHC toolchains**: Extracts official GHC `9.10.3` and `9.12.4` binary distributions in Starlark without running host `./configure && make install`. Compiler binaries load `libgmp.so.10` (built from Bazel Central Registry `@gmp`) and a self-contained C11 `libtinfo.so.6` terminfo library via relative ELF library paths (`$ORIGIN`), without `LD_LIBRARY_PATH` or `patchelf`.
 - **Portable Linux executables with static GMP**: `hs_binary` and `hs_test` link `libgmp.a` statically so compiled executables dynamically depend only on standard Linux `glibc` libraries (`libc.so.6`, `libm.so.6`, `libdl.so.2`, `libpthread.so.0`) and run under `env -i PATH=/nonexistent`.
 - **Compiled C11 compiler wrapper**: Bridges GHC, `hsc2hs`, and Cabal `./configure` to Bazel's `cc_toolchain` through a small compiled C11 binary (`ghc_cc_wrapper`) instead of a Python wrapper script.
 - **Two-phase Hackage lockfiles**: Uses `@rules_hs//tools/lock:lock` (built by `rules_hs` itself against GHC's built-in `Cabal-syntax` library) to generate a deterministic `hackage.lock.json`, read in Starlark (`reproducible = True`) and compiled with a 5-stage `hs_cabal_library` pipeline rather than running `Setup.hs`.
@@ -27,7 +27,8 @@ Bazel 9 ruleset for Haskell using Bzlmod (`bazel_compatibility = [">=9.0.0"]`).
 
 ### Supported Today
 
-- **Build, test, and documentation rules**: `hs_library`, `hs_binary`, `hs_test`, `hs_haddock`, `hs_toolchain_library`, and `hs_cabal_library`.
+- **Build, test, REPL, and documentation rules**: `hs_library`, `hs_binary`, `hs_test`, `hs_repl`, `hs_haddock`, `hs_toolchain_library`, and `hs_cabal_library`, plus standalone `@rules_hs//tools/ghci` and `@rules_hs//tools/ghci:runghc` targets.
+- **Interactive interpreter execution (`ghci`, `-e`, `runghc`, and `ghc-iserv-dyn`)**: `bazel run` on an `hs_repl` target opens an interactive `ghci` session preloaded with workspace modules (supporting `:reload` against live workspace edits, `:break`/`:continue` bytecode debugging, C/C++ FFI, `CApiFFI`, Template Haskell, and `data` runfiles), `-e` expression evaluation, `.ghci` scripts, `-fexternal-interpreter`, and `terminfo` line editing (`haskeline` arrow-key history, Tab completion, and 256-color output via a self-contained C11 `libtinfo` reader with built-in `xterm-256color`/`vt100`/`dumb` fallbacks).
 - **Platforms and GHC versions**: Linux `x86_64` (tested in CI on bare Debian 12, Ubuntu 24.04, and Rocky Linux 9 containers with no host compilers installed) and Linux `arm64`, with official GHC `9.10.3` (default) and `9.12.4` binary distributions.
 - **Language and compiler features**: `Haskell98`, `Haskell2010`, `GHC2021` (default), and `GHC2024` language editions; per-target GHC extensions and flags; `.hs-boot` mutually recursive modules; `.lhs` literate Haskell; single-threaded and `-threaded` GHC runtime; Bazel `data` runfiles; and Template Haskell (including cross-library splices and compile-time file reading such as `file-embed`).
 - **C and C++ interoperability**: `foreign import ccall` and `CApiFFI`, inline `c_sources` (C and C++), `cc_deps` (`cc_library` targets from your repository or the Bazel Central Registry), and compatibility with any Bazel `cc_toolchain` (`hermetic_cc_toolchain` `zig cc`, `toolchains_llvm`, GCC, or Clang).
@@ -41,8 +42,7 @@ Bazel 9 ruleset for Haskell using Bzlmod (`bazel_compatibility = [">=9.0.0"]`).
 ### Not Supported Today — Planned
 
 - **macOS (`macos_arm64`, `macos_x86_64`) and Windows (`windows_x86_64`) execution**: GHC download URLs, SHA-256 digests, and multi-OS lockfile `select()` branches are already generated, but macOS Mach-O library staging and Windows `.exe` wrapper and action support are not wired yet.
-- **Interactive `ghci` REPL rule (`hs_repl`) and IDE setup (`haskell-language-server` / `hie.yaml`)**: Today `rules_hs` runs GHC in batch mode only; you cannot yet run `bazel run` to open an interactive `ghci` session for a target.
-- **Interactive full-screen terminal UI (`terminfo`) by default**: `rules_hs` links a minimal `libtinfo` stub that puts `terminfo` into basic non-ANSI terminal mode so batch builds need no host `ncurses`; full-screen TUI applications (`vty` or `brick`) currently require supplying a real `ncurses` `cc_library` via `cc_deps` or `hackage.override`.
+- **IDE setup (`haskell-language-server` / `hie.yaml`)**: Automatic `hie.yaml` cradle generation for editor integration is not implemented yet.
 - **Static `musl` Linux builds (`linux_x86_64_musl`)** for zero-glibc `FROM scratch` containers.
 - **GHC profiling (`-prof`) and code coverage (`HPC`) build modes**.
 - **`c2hs` FFI preprocessor** and **GHC compiler plugins (`-fplugin`)**.
@@ -244,6 +244,7 @@ hs_binary(
 | `hs_library` | Compiles a Haskell library into `libHS<unit_id>.a` and a relocatable `ghc-pkg` package database, enforcing direct-dependency visibility (`-hide-all-packages` + direct `-package-id` flags). | `srcs`, `deps`, `cc_deps`, `c_sources`, `hdrs`, `include_dirs`, `hs_source_dirs`, `hidden_modules`, `default_language` (`"GHC2021"`), `default_extensions`, `ghc_opts`, `cpp_options`, `cc_options`, `data` |
 | `hs_binary` | Compiles and links a Haskell executable statically against `libgmp.a` and transitive `CcInfo` C archives. | Same as `hs_library` (minus `hidden_modules`), plus `main_module` (`"Main"`) and `threaded` (`True`) |
 | `hs_test` | Test executable variant of `hs_binary`, supporting `data` runfiles via `TEST_SRCDIR` and `RUNFILES_DIR`. | Same as `hs_binary` |
+| `hs_repl` | Launches an interactive `ghci` session (or `-e` expression evaluator) preloaded with target sources, precompiled packages, C/C++ FFI stubs, and runfiles. | `srcs`, `deps`, `compiled_deps`, `interpret_deps` (`True`), `cc_deps`, `c_sources`, `hdrs`, `include_dirs`, `hs_source_dirs`, `default_language`, `default_extensions`, `ghc_opts`, `ghci_opts`, `ghci_commands`, `ghci_script`, `allow_dot_ghci` (`False`), `data` |
 | `hs_haddock` | Generates HTML API documentation, hyperlinked source (`src/`), QuickJump search index (`doc-index.json`), and `.haddock` interfaces using GHC's bundled `haddock`. | `deps`, `haddock_deps`, `title`, `prologue`, `hyperlinked_source` (`True`), `quickjump` (`True`), `hoogle` (`False`), `haddock_opts`, `ghc_opts` |
 | `hs_toolchain_library` | Exposes a GHC boot package from the active `HsToolchainInfo`. Automatically generated for every boot library in `@hs_boot` and `@hackage`. | `package_name` |
 | `hs_cabal_library` | 5-stage Cabal package builder (used by generated `@hackage__<pkg>` repos): sandboxed `./configure`, `cabal_macros.h` + `Paths_*`, per-file `hsc2hs`, `cc_common.compile` (including C-only packages like `zlib-clib`), and `ghc --make -c`. | `package_name`, `component_name`, `version`, `srcs`, `hsc_srcs`, `c_sources`, `hdrs`, `install_includes`, `include_dirs`, `exposed_modules`, `other_modules`, `reexported_modules`, `build_type`, `configure_*`, `generate_paths_module`, `deps`, `extra_cc_deps` |
@@ -261,7 +262,8 @@ hs_binary(
 - `HsPackageInfo`: Direct package metadata (`name`, `version`, `unit_id`, `pkg_db`, `exposed_modules`, `is_boot`, `hs_lib`, `hi_dir`).
 - `HsLinkInfo`: Transitive sets (`pkg_dbs`, `hs_libs`, `include_dirs`, `headers`) and merged `CcInfo`.
 - `HsHaddockInfo`: Generated Haddock HTML directory output (`html_dir`), `.haddock` `interface`, documented `unit_ids`, and `transitive_haddocks`.
-- `HsToolchainInfo`: Staged GHC binaries (`ghc`, `ghc_pkg`, `hsc2hs`, `haddock`, `ghc_iserv`), `libdir` directory output, RTS headers, `cc_wrapper`, static `gmp_static_lib`, parsed `boot_packages`, and bundled `boot_haddocks`.
+- `HsReplInfo`: Generated REPL launcher (`executable`), startup `.ghci` file (`ghci_script`), `interpreted_srcs`, and direct compiled `package_ids`.
+- `HsToolchainInfo`: Staged GHC binaries (`ghc`, `ghc_pkg`, `hsc2hs`, `haddock`, `runghc`, `ghc_iserv`), `libdir` directory output, RTS headers, `cc_wrapper`, static `gmp_static_lib`, parsed `boot_packages`, and bundled `boot_haddocks`.
 
 ---
 
@@ -282,6 +284,7 @@ Run the offline unit, loopback HTTP end-to-end, and ELF runtime-dependency tests
 cd examples/size
 bazel test //...
 bazel build //:size_haddock
+bazel run //:size_repl
 ```
 
 Run live against a documentation sitemap over HTTPS:

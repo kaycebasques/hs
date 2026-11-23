@@ -1,0 +1,165 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//hs:defs.bzl", "hs_library", "hs_repl", "hs_test")
+
+package(default_visibility = ["//tests:__subpackages__"])
+
+hs_library(
+    name = "repl_lib",
+    srcs = [
+        "ReplAlpha.hs",
+        "ReplBeta.hs",
+        "ReplHidden.hs",
+        "ReplLiterate.lhs",
+    ],
+    hdrs = ["repl_c.h"],
+    c_sources = ["repl_c.c"],
+    ghc_opts = [
+        "-Wall",
+        "-Werror",
+        "-O2",
+    ],
+    hidden_modules = ["ReplHidden"],
+    include_dirs = ["."],
+    deps = ["@hs_boot//:base"],
+)
+
+hs_library(
+    name = "live_reload_lib",
+    srcs = ["LiveReloadMod.hs"],
+    deps = ["@hs_boot//:base"],
+)
+
+# 1. Interactive PTY fixture REPLs
+hs_repl(
+    name = "pty_main_repl",
+    deps = [":repl_lib"],
+)
+
+hs_repl(
+    name = "pty_live_reload_repl",
+    deps = [":live_reload_lib"],
+)
+
+# 2. Full C/C++17/CApiFFI + .hs-boot + .lhs + Cabal Configure/hsc2hs/Paths_* REPL
+hs_repl(
+    name = "full_matrix_repl",
+    deps = [
+        ":repl_lib",
+        "//tests/basic:boot_cycle_lib",
+        "//tests/basic:cabal_configure",
+        "//tests/basic:cabal_top",
+        "//tests/rules/ffi:cc_deps_lib",
+        "//tests/rules/ffi:cxx_ffi_lib",
+        "@hs_boot//:base",
+    ],
+)
+
+# 3. Cross-library & interactive Template Haskell REPL
+hs_repl(
+    name = "th_repl",
+    deps = [
+        "//tests/rules/th:th_cross_lib_mid",
+        "@hs_boot//:base",
+        "@hs_boot//:template-haskell",
+    ],
+)
+
+# 4. Bazel data runfiles REPL
+hs_repl(
+    name = "runfiles_repl",
+    deps = [
+        "//tests/rules/runfiles:direct_data_lib",
+        "@hs_boot//:base",
+    ],
+)
+
+# 5. hs_repl wrapping an hs_binary target
+hs_repl(
+    name = "smoke_bin_repl",
+    deps = ["//tests/basic:smoke_bin"],
+)
+
+# 6. Precompiled package mode (interpret_deps = False)
+hs_repl(
+    name = "compiled_mode_repl",
+    interpret_deps = False,
+    deps = [
+        ":repl_lib",
+        "@hs_boot//:base",
+    ],
+)
+
+# 7. Startup ghci_commands + ghci_script REPL
+hs_repl(
+    name = "scripted_repl",
+    ghci_commands = ["let inlineCmdValue = 111 :: Int"],
+    ghci_script = "startup.ghci",
+    deps = [":repl_lib"],
+)
+
+# 8. Self-contained C11 libtinfo engine unit & binary term(5) parser test
+hs_test(
+    name = "terminfo_test",
+    size = "small",
+    srcs = ["TerminfoTest.hs"],
+    ghc_opts = ["-Wall"],
+    deps = [
+        "@hs_boot//:base",
+        "@hs_boot//:bytestring",
+        "@hs_boot//:directory",
+        "@hs_boot//:filepath",
+        "@hs_boot//:terminfo",
+    ],
+)
+
+# 9. End-to-end interactive pseudo-TTY (openPseudoTerminal) session test
+hs_test(
+    name = "pty_repl_test",
+    size = "small",
+    srcs = ["PtyReplTest.hs"],
+    c_sources = ["pty_helper.c"],
+    args = [
+        "$(rootpath :pty_main_repl)",
+        "$(rootpath :pty_live_reload_repl)",
+    ],
+    data = [
+        ":pty_live_reload_repl",
+        ":pty_main_repl",
+    ],
+    ghc_opts = ["-Wall"],
+    deps = [
+        "@hs_boot//:base",
+        "@hs_boot//:directory",
+        "@hs_boot//:filepath",
+        "@hs_boot//:unix",
+    ],
+)
+
+# 10. Non-interactive interpreter modes, FFI/TH/Cabal/runfiles, iserv, and tools/ghci test
+sh_test(
+    name = "repl_modes_test",
+    size = "small",
+    srcs = ["repl_modes_test.sh"],
+    args = [
+        "$(rootpath :terminfo_test)",
+        "$(rootpath :full_matrix_repl)",
+        "$(rootpath :th_repl)",
+        "$(rootpath :runfiles_repl)",
+        "$(rootpath :smoke_bin_repl)",
+        "$(rootpath :compiled_mode_repl)",
+        "$(rootpath :scripted_repl)",
+        "$(rootpath //tools/ghci:ghci)",
+        "$(rootpath //tools/ghci:runghc)",
+    ],
+    data = [
+        ":compiled_mode_repl",
+        ":full_matrix_repl",
+        ":runfiles_repl",
+        ":scripted_repl",
+        ":smoke_bin_repl",
+        ":terminfo_test",
+        ":th_repl",
+        "//tools/ghci",
+        "//tools/ghci:runghc",
+    ],
+)

@@ -1,4 +1,4 @@
-load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_haddock", "hs_library", "hs_test")
+load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_haddock", "hs_library", "hs_repl", "hs_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 hs_library(
@@ -66,6 +66,15 @@ hs_haddock(
     ],
 )
 
+hs_repl(
+    name = "size_repl",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":sitemap",
+        ":fetch",
+    ],
+)
+
 hs_test(
     name = "sitemap_test",
     size = "small",
@@ -114,4 +123,21 @@ sh_test(
     srcs = ["test/elf_hermeticity_test.sh"],
     args = ["$(rootpath :size)"],
     data = [":size"],
+)
+
+sh_test(
+    name = "size_repl_test",
+    size = "small",
+    srcs = ["test/size_repl_test.sh"],
+    args = [
+        "$(rootpath :size_repl)",
+        "$(rootpath //testdata:urlset.xml.gz)",
+        "$(rootpath @rules_hs//tools/ghci)",
+    ],
+    data = [
+        ":size_repl",
+        "//testdata:sitemaps",
+        "//testdata:urlset.xml.gz",
+        "@rules_hs//tools/ghci",
+    ],
 )

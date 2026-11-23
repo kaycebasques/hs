@@ -2,7 +2,8 @@
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
-load("//hs:providers.bzl", "HsHaddockInfo", "HsLinkInfo", "HsPackageInfo")
+load("//hs:providers.bzl", "HsHaddockInfo", "HsLinkInfo", "HsPackageInfo", "HsReplInfo", "HsToolchainInfo")
+load("//hs:toolchain.bzl", "TOOLCHAIN_TYPE")
 
 # ==============================================================================
 # Helpers
@@ -580,3 +581,127 @@ hs_haddock_action_test = analysistest.make(
         "upstream_haddock": attr.label(providers = [HsHaddockInfo]),
     },
 )
+
+# ==============================================================================
+# 8. hs_repl provider, strict visibility, flag sanitization, and cbits checks
+# ==============================================================================
+
+def _hs_repl_interpreted_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    actions = analysistest.target_actions(env)
+
+    asserts.true(env, HsReplInfo in target, "hs_repl must provide HsReplInfo")
+    asserts.true(
+        env,
+        target[DefaultInfo].files_to_run.executable != None,
+        "hs_repl must declare an executable launcher",
+    )
+
+    rinfo = target[HsReplInfo]
+    asserts.equals(env, target[DefaultInfo].files_to_run.executable, rinfo.executable)
+    asserts.true(env, rinfo.ghci_script.basename.endswith(".ghci"), "ghci_script must end with .ghci")
+
+    src_names = [f.basename for f in rinfo.interpreted_srcs.to_list()]
+    asserts.true(env, "LibC.hs" in src_names, "workspace dep LibC.hs must be interpreted from source")
+    asserts.false(env, "LibB.hs" in src_names, "indirect workspace dep LibB.hs must remain compiled unless in deps")
+
+    pkg_c = ctx.attr.interpreted_dep[HsPackageInfo]
+    pkg_b = ctx.attr.direct_compiled_dep[HsPackageInfo]
+    pkg_a = ctx.attr.transitive_dep[HsPackageInfo]
+    pkg_base = ctx.attr.base_dep[HsPackageInfo]
+
+    pkg_ids = rinfo.package_ids.to_list()
+    asserts.false(env, pkg_c.unit_id in pkg_ids, "interpreted target's own unit_id must not be passed via -package-id")
+    asserts.true(env, pkg_b.unit_id in pkg_ids, "interpreted target's direct dep lib_b must be passed via -package-id")
+    asserts.true(env, pkg_base.unit_id in pkg_ids, "direct boot dep base must be passed via -package-id")
+    asserts.false(env, pkg_a.unit_id in pkg_ids, "transitive-only dep lib_a must NOT be passed via -package-id")
+
+    launcher_writes = [
+        a
+        for a in actions
+        if a.mnemonic == "FileWrite" and any([o == rinfo.executable for o in a.outputs.to_list()])
+    ]
+    asserts.equals(env, 1, len(launcher_writes), "expected FileWrite action for hs_repl launcher")
+    script_text = launcher_writes[0].content
+
+    asserts.true(env, '"-hide-all-packages"' in script_text, "hs_repl must pass -hide-all-packages by default")
+    asserts.true(env, '"-ignore-dot-ghci"' in script_text, "hs_repl must pass -ignore-dot-ghci by default")
+    asserts.false(env, pkg_c.pkg_db.short_path in script_text, "interpreted target pkg_db must be excluded from -package-db")
+    asserts.true(env, pkg_b.pkg_db.short_path in script_text, "direct compiled dep pkg_db must be passed via -package-db")
+    asserts.true(env, pkg_a.pkg_db.short_path in script_text, "transitive compiled dep pkg_db must be passed via -package-db")
+    asserts.false(env, "'-O2'" in script_text, "batch-only -O2 from upstream library ghc_opts must be stripped for GHCi")
+    asserts.false(env, "'-Werror'" in script_text, "batch-only -Werror from upstream library ghc_opts must be stripped for GHCi")
+    asserts.true(env, "'-Wall'" in script_text, "compatible warning flag -Wall must be preserved")
+
+    cbits_actions = _find_actions_by_mnemonic(actions, "HsLinkReplCbits")
+    asserts.equals(env, 0, len(cbits_actions), "pure-Haskell hs_repl must not emit HsLinkReplCbits")
+
+    return analysistest.end(env)
+
+hs_repl_interpreted_test = analysistest.make(
+    _hs_repl_interpreted_test_impl,
+    attrs = {
+        "interpreted_dep": attr.label(mandatory = True, providers = [HsPackageInfo]),
+        "direct_compiled_dep": attr.label(mandatory = True, providers = [HsPackageInfo]),
+        "transitive_dep": attr.label(mandatory = True, providers = [HsPackageInfo]),
+        "base_dep": attr.label(mandatory = True, providers = [HsPackageInfo]),
+    },
+)
+
+def _hs_repl_cbits_and_compiled_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    actions = analysistest.target_actions(env)
+
+    rinfo = target[HsReplInfo]
+    src_names = [f.basename for f in rinfo.interpreted_srcs.to_list()]
+    asserts.true(env, "WithCc.hs" in src_names, "hs_with_cc in deps must be interpreted")
+    asserts.false(env, "LibB.hs" in src_names, "lib_b in compiled_deps must NOT be interpreted from source")
+
+    pkg_b = ctx.attr.compiled_dep[HsPackageInfo]
+    asserts.true(env, pkg_b.unit_id in rinfo.package_ids.to_list(), "compiled_deps unit_id must be in package_ids")
+
+    cbits_actions = _find_actions_by_mnemonic(actions, "HsLinkReplCbits")
+    asserts.equals(env, 1, len(cbits_actions), "hs_repl with C deps must emit one HsLinkReplCbits action")
+
+    ghci_writes = [
+        a
+        for a in actions
+        if a.mnemonic == "FileWrite" and any([o == rinfo.ghci_script for o in a.outputs.to_list()])
+    ]
+    asserts.equals(env, 1, len(ghci_writes))
+    asserts.true(env, ":set +t" in ghci_writes[0].content, "ghci_commands must be written to static .ghci file")
+
+    return analysistest.end(env)
+
+hs_repl_cbits_and_compiled_test = analysistest.make(
+    _hs_repl_cbits_and_compiled_test_impl,
+    attrs = {
+        "compiled_dep": attr.label(mandatory = True, providers = [HsPackageInfo]),
+    },
+)
+
+def _toolchain_probe_impl(ctx):
+    return [ctx.toolchains[TOOLCHAIN_TYPE].hs]
+
+toolchain_probe = rule(
+    implementation = _toolchain_probe_impl,
+    toolchains = [TOOLCHAIN_TYPE],
+    provides = [HsToolchainInfo],
+)
+
+def _hs_toolchain_interpreter_tools_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+
+    asserts.true(env, HsToolchainInfo in target, "toolchain_probe must provide HsToolchainInfo")
+    tc = target[HsToolchainInfo]
+    asserts.true(env, tc.runghc != None, "HsToolchainInfo.runghc must be staged")
+    asserts.true(env, tc.runghc.basename.startswith("runghc"), "unexpected runghc basename: " + tc.runghc.basename)
+    if tc.is_dynamic_ghc:
+        asserts.true(env, tc.ghc_iserv != None, "HsToolchainInfo.ghc_iserv must be staged on dynamic GHC")
+
+    return analysistest.end(env)
+
+hs_toolchain_interpreter_tools_test = analysistest.make(_hs_toolchain_interpreter_tools_test_impl)

@@ -21,11 +21,13 @@ From `examples/size`:
 ```bash
 bazel test //...
 bazel build //:size_haddock
+bazel run //:size_repl
 ```
 
 This builds all 69 Hackage packages plus the `size` executable and runs:
 - `//:sitemap_test`: Fixture tests (`urlset.xml`, `sitemapindex.xml`, `invalid_root.xml`, `urlset.xml.gz`, recursive `crawl/sitemap.xml`) plus UTF-8 BOM stripping, cycle and duplicate detection, blank `<loc>` handling, and corrupt gzip error handling.
 - `//:http_e2e_test`: Offline loopback HTTP end-to-end test binding an ephemeral `127.0.0.1:0` server via `network` to serve `testdata/crawl/*`, HTTP `302` redirects, and HTTP `404` responses.
+- `//:size_repl_test`: Evaluates gzipped XML sitemap decoding inside `//:size_repl` (`hs_repl` over `:sitemap` and `:fetch` plus C-only `zlib-clib`) and tests `@rules_hs//tools/ghci`.
 - `//:elf_hermeticity_test`: Inspects `readelf -d` on `//:size` to verify only base `glibc` shared libraries (`libc`, `libm`, `libdl`, `libpthread`, `librt`, `libutil`) are dynamically linked — no `libgmp`, `libtinfo`, `libffi`, `libz`, `libssl`, `libcrypto`, or `libHS*.so` — and runs `//:size` under `env -i PATH=/nonexistent`.
 
 ## Running Live Against a Documentation Sitemap

@@ -1,6 +1,8 @@
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//hs:defs.bzl", "hs_library", "hs_test")
 
+package(default_visibility = ["//tests:__subpackages__"])
+
 # Template Haskell support coverage:
 # 1. TemplateHaskellQuotes via @hs_boot//:template-haskell (:th_quotes_lib).
 # 2. Boot-package TH splices and same-library cross-module TH splices (:th_splice_lib).

@@ -33,6 +33,7 @@ HsToolchainInfo = provider(
         "ghc_pkg": "File: Staged ghc-pkg executable.",
         "hsc2hs": "File: Staged hsc2hs executable.",
         "haddock": "File: Staged haddock executable.",
+        "runghc": "File: Staged runghc script-interpreter executable.",
         "ghc_iserv": "File | None: Optional staged ghc-iserv-dyn / ghc-iserv executable.",
         "libdir": "File: Staged GHC lib/ directory TreeArtifact.",
         "template_hsc_h": "File: Path to template-hsc.h for hsc2hs.",
@@ -59,5 +60,15 @@ HsHaddockInfo = provider(
         "interface": "File: Generated .haddock interface file (--dump-interface) for cross-package linking.",
         "unit_ids": "depset[str]: GHC unit IDs documented by this hs_haddock target.",
         "transitive_haddocks": "depset[struct]: Transitive struct(html_dir, interface) entries from this target and haddock_deps.",
+    },
+)
+
+HsReplInfo = provider(
+    doc = "Metadata for an interactive GHCi interpreter launcher target (`hs_repl`).",
+    fields = {
+        "executable": "File: Executable launcher script running hermetic GHC in interactive/interpreter mode.",
+        "ghci_script": "File: Generated startup .ghci script bringing target modules and commands into scope.",
+        "interpreted_srcs": "depset[File]: Haskell source files loaded directly into GHCi bytecode.",
+        "package_ids": "depset[str]: Direct compiled package unit IDs exposed via -package-id.",
     },
 )
