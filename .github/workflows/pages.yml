@@ -64,9 +64,9 @@ jobs:
           bazel build //docs:site //tools/lock:lock_haddock \
             --repository_cache="$HOME/.cache/bazel-repo"
 
-      - name: Verify documentation links, assets, and ELF hermeticity
+      - name: Verify documentation build and smoke test
         run: |
-          bazel test //docs:link_check_test //docs:site_test \
+          bazel test //docs/... \
             --repository_cache="$HOME/.cache/bazel-repo" \
             --test_output=errors
 

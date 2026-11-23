@@ -131,7 +131,7 @@ For a detailed architectural comparison across `tweag/rules_haskell`, Buck2's Ha
 - **[Providers & Action Graph](internals/providers-and-actions.md)** — Direct vs. transitive provider split, `-hide-all-packages` visibility enforcement, relocatable package databases, Template Haskell shared-object isolation, interactive `hs_repl` staging, and Haddock actions.
 - **[Hackage & Cabal Pipeline](internals/ecosystem-and-hackage.md)** — `Cabal-syntax` multi-platform evaluation, lazy hub and package repositories, and the 5-stage [`hs_cabal_library`](reference/rules.md#hs_cabal_library) action graph.
 - **[Cross-OS & Platforms](internals/cross-os-and-platforms.md)** — Multi-architecture Linux support, `deb10` glibc vs. `alpine3_12` musl trade-offs, and implementation plans for macOS and Windows.
-- **[Hakyll & Haddock Docs](internals/docs-engine.md)** — How this documentation site is built by `rules_haskell` itself using Hakyll, Pandoc, Skylighting, and GHC Haddock.
+- **[Hakyll & Haddock Docs](internals/docs-engine.md)** — How this documentation site is built by `rules_haskell` itself using minimal Hakyll and GHC Haddock.
 - **[Dependency Decisions](internals/dependencies.md)** — Engineering record of adopted and rejected dependencies, along with the conditions that would justify reconsidering each choice.
 
 ## Platform Support Matrix

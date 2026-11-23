@@ -95,7 +95,7 @@ Use `hackage.override` when a specific third-party Hackage package in your lockf
 
 ## Public Starlark Providers
 
-If you are only writing `BUILD.bazel` and `MODULE.bazel` files, you never need to import providers directly. Load `@rules_haskell//hs:providers.bzl` when authoring **custom Starlark rules, macros, or IDE/linter aspects** (such as a custom code generator, packaging rule, or static-site bundler like `docs/app/site.bzl`) that inspect or consume Haskell targets:
+If you are only writing `BUILD.bazel` and `MODULE.bazel` files, you never need to import providers directly. Load `@rules_haskell//hs:providers.bzl` when authoring **custom Starlark rules, macros, or IDE/linter aspects** (such as a custom code generator, packaging rule, or static-site bundler like `docs/site.bzl`) that inspect or consume Haskell targets:
 
 ```starlark
 load(
@@ -147,7 +147,7 @@ Carries the **full transitive compilation and linking closure** accumulated acro
 
 ## `HsHaddockInfo` {#hshaddockinfo}
 
-Returned by [`hs_haddock`](rules.md#hs_haddock) targets so downstream `hs_haddock` rules (via `haddock_deps`) can cross-link module/type references across libraries and custom site-packaging rules (like `docs/app/site.bzl`) can mount generated Haddock HTML directories into a larger documentation site.
+Returned by [`hs_haddock`](rules.md#hs_haddock) targets so downstream `hs_haddock` rules (via `haddock_deps`) can cross-link module/type references across libraries and custom site-packaging rules (like `docs/site.bzl`) can mount generated Haddock HTML directories into a larger documentation site.
 
 | Field | Type | Description |
 |---|---|---|

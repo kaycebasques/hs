@@ -1,6 +1,6 @@
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load("//docs:app/site.bzl", "hs_docs_site")
-load("//hs:defs.bzl", "hs_binary", "hs_test")
+load("//docs:site.bzl", "hs_docs_site")
+load("//hs:defs.bzl", "hs_binary")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -8,21 +8,6 @@ exports_files([
     "README.md",
     "hackage.lock.json",
 ])
-
-filegroup(
-    name = "templates",
-    srcs = glob(["templates/*"]),
-)
-
-filegroup(
-    name = "static_assets",
-    srcs = glob(["static/**"]),
-)
-
-filegroup(
-    name = "content_srcs",
-    srcs = glob(["content/**/*.md"]),
-)
 
 hs_binary(
     name = "docs_gen",
@@ -36,73 +21,44 @@ hs_binary(
         "@hackage//:base",
         "@hackage//:filepath",
         "@hackage//:hakyll",
-        "@hackage//:pandoc",
-        "@hackage//:pandoc-types",
-        "@hackage//:skylighting",
-        "@hackage//:text",
     ],
 )
 
 hs_docs_site(
     name = "site",
     compiler = ":docs_gen",
-    content = [":content_srcs"],
-    content_dir = "docs/content",
     haddocks = {
         "//tools/lock:lock_haddock": "haddock/lock",
     },
-    static = [":static_assets"],
-    static_dir = "docs/static",
-    templates = [":templates"],
-    templates_dir = "docs/templates",
+    srcs = glob([
+        "content/**/*.md",
+        "css/*",
+        "templates/*",
+    ]),
 )
 
 hs_binary(
     name = "serve",
-    srcs = ["app/ServeMain.hs"],
+    srcs = ["serve.hs"],
     data = [":site"],
     ghc_opts = [
         "-Wall",
         "-Wcompat",
     ],
-    hs_source_dirs = ["app"],
     main_module = "Main",
     deps = [
         "@hackage//:base",
-        "@hackage//:bytestring",
         "@hackage//:directory",
         "@hackage//:filepath",
-        "@hackage//:network",
-    ],
-)
-
-hs_test(
-    name = "link_check_test",
-    size = "small",
-    srcs = ["test/LinkCheckTest.hs"],
-    args = ["$(rootpath :site)"],
-    data = [":site"],
-    ghc_opts = [
-        "-Wall",
-        "-Wcompat",
-    ],
-    hs_source_dirs = ["test"],
-    main_module = "Main",
-    deps = [
-        "@hackage//:base",
-        "@hackage//:bytestring",
-        "@hackage//:containers",
-        "@hackage//:directory",
-        "@hackage//:filepath",
-        "@hackage//:tagsoup",
-        "@hackage//:text",
+        "@hackage//:wai-app-static",
+        "@hackage//:warp",
     ],
 )
 
 sh_test(
     name = "site_test",
     size = "small",
-    srcs = ["test/site_test.sh"],
+    srcs = ["site_test.sh"],
     args = [
         "$(rootpath :site)",
         "$(rootpath :docs_gen)",

@@ -336,7 +336,7 @@ Sample output:
 
 The documentation site is built by `rules_haskell` itself without Python or Node.js (see [`docs/README.md`](docs/README.md)):
 
-- **Hakyll + Pandoc + Skylighting** (`docs/site.hs`) rendering Markdown guides, Starlark reference pages, and architecture docs under [`docs/content/`](docs/content/index.md).
+- **Hakyll** (`docs/site.hs`) rendering Markdown guides, Starlark reference pages, and architecture docs under [`docs/content/`](docs/content/index.md).
 - **GHC Haddock (`hs_haddock`)** generating Haskell library API reference pages, hyperlinked source, and QuickJump search (`//tools/lock:lock_haddock`, mounted into the site at `/haddock/lock/`).
 
 ```bash
@@ -349,7 +349,7 @@ bazel build //tools/lock:lock_haddock
 # Serve the documentation site locally (http://127.0.0.1:8000 by default)
 bazel run //docs:serve
 
-# Run the documentation site and link-check test suite
+# Run the documentation smoke test
 bazel test //docs:...
 ```
 

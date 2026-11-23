@@ -23,7 +23,7 @@ This page explains the main engineering choices in `rules_haskell`, reviews the 
 - [Providers & Action Graph](providers-and-actions.md) — end-to-end build walkthrough, direct vs. transitive providers, strict direct-dependency visibility, relocatable package databases, C archive linking, runfiles, Template Haskell, interactive [`hs_repl`](../reference/rules.md#hs_repl), and [`hs_haddock`](../reference/rules.md#hs_haddock).
 - [Hackage & Cabal Pipeline](ecosystem-and-hackage.md) — the `Cabal-syntax` lockfile generator ([`//tools/lock:lock`](../reference/lock-cli.md)), `@hackage` repository generation, and the 5-stage [`hs_cabal_library`](../reference/rules.md#hs_cabal_library) build pipeline.
 - [Cross-OS & Platforms](cross-os-and-platforms.md) — `hs/private/ghc_versions.bzl` platform metadata, `deb10` glibc vs. `alpine3_12` musl archives, and implementation plans for macOS, Windows, and static musl.
-- [Hakyll & Haddock Docs](docs-engine.md) — how `rules_haskell` builds this documentation site using vanilla Hakyll (`docs/site.hs`), Pandoc, Skylighting, and bundled GHC Haddock ([`hs_haddock`](../reference/rules.md#hs_haddock)).
+- [Hakyll & Haddock Docs](docs-engine.md) — how `rules_haskell` builds this documentation site using minimal Hakyll (`docs/site.hs`), `wai-app-static`/`warp` (`docs/serve.hs`), and bundled GHC Haddock ([`hs_haddock`](../reference/rules.md#hs_haddock)).
 - [Dependency Decisions](dependencies.md) — rationale and trade-offs for every adopted and rejected dependency across `rules_haskell`, `examples/size`, and `//docs`.
 
 ---
@@ -196,7 +196,7 @@ Each file in `rules_haskell` owns one part of the pipeline:
 | `tests/starlark/rules_analysis_test.bzl` | Phase-2 Starlark `analysistest` suite checking providers, action command lines, strict `-package-id` visibility, static `libgmp.a` flags, `cabal_macros.h`, C-only Cabal targets, `hs_haddock`, and `CcInfo` forwarding. |
 | `tests/basic/` & `tests/rules/` | Functional tests covering multi-library graphs, `.hs-boot` mutual recursion, `Configure` + `hsc2hs` + C-only Cabal builds, C/C++ FFI, language editions (`Haskell98`/`Haskell2010`/`GHC2021`), threaded vs. single-threaded runtime, 2-hop runfiles, same-library & cross-library Template Haskell, Haddock HTML/QuickJump output, ELF shared-library headers, and Bzlmod hygiene. |
 | `examples/size/` | Standalone consumer workspace compiling 69 Hackage packages (`xml-conduit`, `http-client-tls`, `zlib-clib`, `async`) into a concurrent HTTPS sitemap page counter (`//:size`) and Haddock API docs (`//:size_haddock`). |
-| `docs/` | Vanilla Hakyll (`docs/site.hs`) + Pandoc + Skylighting documentation site (`//docs:docs_gen`, `//docs:site`, `//docs:serve`), mounted Haddock API docs (`haddock/lock/`), Markdown content (`docs/content/`), and link/binary tests (`//docs:link_check_test`, `//docs:site_test`). |
+| `docs/` | Minimal Hakyll (`docs/site.hs`) documentation site (`//docs:docs_gen`, `//docs:site`, `//docs:serve` via `docs/serve.hs`), mounted Haddock API docs (`haddock/lock/`), Markdown content (`docs/content/`), and smoke test (`//docs:site_test`). |
 
 ---
 
@@ -211,7 +211,7 @@ To prevent architectural rules from drifting over time ([Testing a Bazel Ruleset
    - Every `bazel_dep(...)` outside the four-module runtime allowlist (`platforms`, `bazel_skylib`, `rules_cc`, `gmp`) sets `dev_dependency = True`.
    - Every `register_toolchains(...)` block in `MODULE.bazel` sets `dev_dependency = True`.
    - Every `@hermetic_cc_toolchain` and documentation `@hackage` `use_extension(...)` call sets `dev_dependency = True`.
-3. **ELF shared-library (`DT_NEEDED`) allowlist**: Runs `readelf -d` on `//tests/rules:hermetic_bin` (and `//tests/basic:elf_hermeticity_test`, `examples/size//:elf_hermeticity_test`, and `//docs:site_test` run the same check on their binaries), failing if any shared library outside base `glibc` is listed:
+3. **ELF shared-library (`DT_NEEDED`) allowlist**: Runs `readelf -d` on `//tests/rules:hermetic_bin` (and `//tests/basic:elf_hermeticity_test`, `//tests/rules/th:cross_lib_th_elf_test`, and `examples/size//:elf_hermeticity_test` run the same check on their binaries), failing if any shared library outside base `glibc` is listed:
    - Allowed: `libc.so.6`, `libm.so.6`, `libdl.so.2`, `libpthread.so.0`, `librt.so.1`, `libutil.so.1`, `ld-linux-*.so.*`.
    - Disallowed: `libgmp.so*`, `libtinfo.so*`, `libffi.so*`, `libnuma.so*`, `libz.so*`, `libssl.so*`, `libHS*.so*`.
 4. **Empty-environment execution (`env -i PATH=/nonexistent`)**: Runs `hermetic_bin` with all environment variables cleared and `PATH` set to `/nonexistent`, verifying exact output including unbounded GMP `Integer` arithmetic (`2 ^ 256 = 115792089237316195423570985008687907853269984665640564039457584007913129639936`) to confirm static `libgmp.a` linking works without runtime environment variables.
