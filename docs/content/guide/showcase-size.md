@@ -1,14 +1,14 @@
 ---
 title: "Showcase: examples/size"
-description: "Walkthrough of examples/size, a standalone 69-package HTTPS XML and gzip sitemap crawler built hermetically with rules_hs."
+description: "Walkthrough of examples/size, a standalone 69-package HTTPS XML and gzip sitemap crawler built with rules_hs."
 section: guide
 nav_title: "Showcase: examples/size"
 order: 50
 ---
 
-`examples/size` is a standalone Bzlmod Bazel 9 workspace included in the `rules_hs` repository. It builds a concurrent CLI tool (`//:size`) that crawls XML `<urlset>`, recursive `<sitemapindex>`, and gzipped `.xml.gz` documentation sitemaps over HTTP and HTTPS to count unique pages.
+`examples/size` is a standalone Bazel 9 workspace included in the `rules_hs` repository. It builds a concurrent command-line tool (`//:size`) that crawls XML `<urlset>`, nested `<sitemapindex>`, and gzipped `.xml.gz` documentation sitemaps over HTTP and HTTPS to count unique pages.
 
-More importantly, `examples/size` serves as an end-to-end integration showcase exercising **69 pinned Hackage packages** (plus 41 GHC `9.10.3` boot libraries) with **zero Nix, zero host GHC/Cabal/Stack, zero host OpenSSL, and zero host `zlib`**.
+`examples/size` also serves as an end-to-end integration example compiling **69 pinned Hackage packages** (plus 41 GHC `9.10.3` boot libraries) without Nix or host installations of GHC, Cabal, Stack, OpenSSL, or `zlib`.
 
 ## Architecture at a Glance
 
@@ -25,22 +25,22 @@ flowchart TD
     DOC --> SM
     TEST1["test/SitemapTest.hs (//:sitemap_test)"] --> SM
     TEST2["test/HttpE2eTest.hs (//:http_e2e_test, loopback TCP server)"] --> FETCH
-    TEST3["test/elf_hermeticity_test.sh (readelf DT_NEEDED + env -i)"] --> CLI
+    TEST3["test/elf_hermeticity_test.sh (readelf NEEDED + env -i)"] --> CLI
 ```
 
-### Real-World Ecosystem Features Exercised
+### Cabal and GHC Features Exercised
 
-Building `examples/size` exercises nearly every edge case encountered in production Haskell codebases:
+Building `examples/size` exercises several common Hackage packaging patterns in one workspace:
 
 | Ecosystem Feature | Packages Exercising It in `examples/size` | How `rules_hs` Builds It |
 |---|---|---|
-| **C-only Cabal package + transitive `install-includes`** | `zlib-clib` -> `zlib` -> `streaming-commons` | Stage 4 `cc_common.compile` compiles 11 `.c` files and exports `<zlib.h>` via `CcInfo` + [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo) without invoking GHC |
-| **Autoconf `build-type: Configure` + `hsc2hs`** | `network`, `unix-time`, `old-time` | Stage 1 runs sandboxed `./configure` via `ghc_cc_wrapper`, feeding `HsNetworkConfig.h` into parallel Stage 3 `hsc2hs` actions |
-| **`build-type: Custom` (`cabal-doctest`)** | `xml-conduit` | Normalized automatically to `"Simple"` by [`//tools/lock:lock`](../reference/lock-cli.md) |
-| **Platform `select()` + textual `.c` `#include`s** | `crypton` (AESNI/SSE2 on `x86_64` vs. ref C on `arm64`) | [`//tools/lock:lock`](../reference/lock-cli.md) emits per-platform `select` deltas; `hackage.bzl` retains `#include`-d `cbits/*_impl.c` files in `hdrs` |
-| **Mutual recursion via `.hs-boot` cycles** | `cborg`, `tls` | Stage 5 `ghc --make -c` resolves `.hs-boot` loops within each library |
-| **Internal Cabal sublibraries** | `attoparsec` (`attoparsec-internal`) | Emitted as `:attoparsec-internal` in `@hackage__attoparsec` and aliased on `@hackage` |
-| **Pure-Haskell TLS 1.3** | `http-client-tls`, `tls`, `crypton-x509*` | Eliminates runtime OpenSSL (`libssl.so` / `libcrypto.so`) dependencies |
+| **C-only Cabal package + transitive `install-includes`** | `zlib-clib` -> `zlib` -> `streaming-commons` | Stage 4 `cc_common.compile` compiles 11 `.c` files and exports `<zlib.h>` via `CcInfo` and [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo) without invoking GHC |
+| **Autoconf `build-type: Configure` + `hsc2hs`** | `network`, `unix-time`, `old-time` | Stage 1 runs sandboxed `./configure` via `ghc_cc_wrapper`, feeding `HsNetworkConfig.h` into Stage 3 `hsc2hs` actions |
+| **`build-type: Custom` (`cabal-doctest`)** | `xml-conduit` | Converted automatically to `"Simple"` by [`//tools/lock:lock`](../reference/lock-cli.md) |
+| **Platform `select()` + `#include`-d `.c` files** | `crypton` (AESNI/SSE2 on `x86_64` vs. portable C on `arm64`) | [`//tools/lock:lock`](../reference/lock-cli.md) emits per-platform `select` deltas; `hackage.bzl` keeps `#include`-d `cbits/*_impl.c` files in `hdrs` |
+| **Mutual recursion via `.hs-boot` files** | `cborg`, `tls` | Stage 5 `ghc --make -c` compiles `.hs-boot` cycles within each library |
+| **Internal Cabal sublibraries** | `attoparsec` (`attoparsec-internal`) | Compiled as `:attoparsec-internal` in `@hackage__attoparsec` and aliased on `@hackage` |
+| **Pure-Haskell TLS 1.2 / 1.3** | `http-client-tls`, `tls`, `crypton-x509*` | Connects over HTTPS without linking C OpenSSL (`libssl.so` / `libcrypto.so`) |
 
 ---
 
@@ -61,7 +61,7 @@ local_path_override(
     path = "../..",
 )
 
-# Hermetic Linux C/C++ toolchain (zig cc) — zero host gcc/ld/libc-dev required.
+# Self-contained Linux C/C++ toolchain (zig cc) — no host gcc/ld/libc-dev required.
 bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0")
 bazel_dep(name = "rules_shell", version = "0.6.1", dev_dependency = True)
 
@@ -75,13 +75,13 @@ register_toolchains(
     "@zig_sdk//libc_aware/toolchain/...",
 )
 
-# Hermetic GHC toolchain
+# GHC toolchain
 hs = use_extension("@rules_hs//hs:extensions.bzl", "hs")
 hs.toolchain(ghc_version = "9.10.3")
 use_repo(hs, "hs_toolchains")
 register_toolchains("@hs_toolchains//:all")
 
-# Pinned 3p Hackage packages (69 packages, zero host cabal/stack at build time)
+# Pinned third-party Hackage packages (69 packages, no host cabal/stack at build time)
 hackage = use_extension("@rules_hs//hs:extensions.bzl", "hackage")
 hackage.from_lock(
     name = "hackage",
@@ -90,7 +90,7 @@ hackage.from_lock(
 use_repo(hackage, "hackage")
 ```
 
-Notice how `examples/size` generated `hackage.lock.json` with `zlib:bundled-c-zlib=true` and `zlib:pkg-config=false`:
+`examples/size/hackage.lock.json` was generated with `zlib:bundled-c-zlib=true` and `zlib:pkg-config=false` so `zlib` compiles its vendored C sources through Bazel's `cc_toolchain`:
 
 ```bash
 bazel run @rules_hs//tools/lock:lock -- \
@@ -111,7 +111,7 @@ bazel run @rules_hs//tools/lock:lock -- \
 
 ## Build Graph (`examples/size/BUILD.bazel`)
 
-The application is factored cleanly into a pure domain library (`:sitemap`), an HTTP/TLS adapter library (`:fetch`), a thin CLI entry point (`:size`), a combined [`hs_haddock`](../reference/rules.md#hs_haddock) API documentation target (`:size_haddock`), and three test suites:
+The project splits its code into a pure XML/sitemap parsing library (`:sitemap`), an HTTP/TLS client library (`:fetch`), a small CLI entry point (`:size`), a combined [`hs_haddock`](../reference/rules.md#hs_haddock) API documentation target (`:size_haddock`), and three test targets:
 
 ```starlark
 load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_haddock", "hs_library", "hs_test")
@@ -176,28 +176,28 @@ hs_haddock(
 
 ### Direct Dependency Breakdown (`examples/size/BUILD.bazel`) {#dependency-breakdown}
 
-Across its library, binary, and test targets (`:sitemap`, `:fetch`, `:size`, `:sitemap_test`, and `:http_e2e_test`), `examples/size/BUILD.bazel` declares **12 direct `@hackage//:*` dependencies** — 5 GHC boot packages and 7 third-party Hackage libraries (which transitively resolve to the 69-package closure in `examples/size/hackage.lock.json`; see [Dependency Decisions](../internals/dependencies.md#showcase-libraries) for a full Go/Rust/Python comparison and rejected alternatives):
+Across its library, binary, and test targets (`:sitemap`, `:fetch`, `:size`, `:sitemap_test`, and `:http_e2e_test`), `examples/size/BUILD.bazel` declares **12 direct `@hackage//:*` dependencies** — 5 GHC boot packages and 7 third-party Hackage libraries, which pull in the 69-package transitive closure in `examples/size/hackage.lock.json` (see [Dependency Decisions](../internals/dependencies.md#showcase-libraries) for details on each library choice):
 
 | Dependency Target | Source | Go / Rust / Python Analog | Imported By (`BUILD.bazel` Targets -> Modules) | Why It Is Needed |
 |---|---|---|---|---|
-| `@hackage//:base` | GHC Boot (`4.20.2.0`) | Rust `std`, Go `builtin` + `os` + `sync` | All 5 Haskell targets (`Main`, `Fetch`, `Sitemap`, `SitemapTest`, `HttpE2eTest`) | Standard library: `IO`, CLI `getArgs`/`exitFailure`, exceptions, `MVar` & `QSem` concurrency primitives, and pure `ST` state threads (`runST`). |
-| `@hackage//:bytestring` | GHC Boot | Rust `&[u8]` / `bytes::Bytes`, Go `[]byte`, Python `bytes` | `:sitemap`, `:fetch`, `:sitemap_test`, `:http_e2e_test` (`Sitemap`, `Fetch`, `SitemapTest`, `HttpE2eTest`) | Contiguous raw byte buffers (`ByteString`) for HTTP response bodies, gzip magic-byte detection (`0x1f 0x8b`), and loopback TCP socket I/O. |
-| `@hackage//:text` | GHC Boot | Rust `String` / `&str`, Go `string`, Python `str` | All 5 Haskell targets (`Main`, `Fetch`, `Sitemap`, `SitemapTest`, `HttpE2eTest`) | Contiguous packed UTF-8 text (`Text`), strict UTF-8 decoding (`decodeUtf8'`), UTF-8 BOM stripping, and URL/XML element text. |
-| `@hackage//:containers` | GHC Boot | Rust `BTreeSet` / `BTreeMap`, C++ `std::set` / `std::map` | `:sitemap` (`Sitemap`), `:sitemap_test` (`SitemapTest`) | `Data.Set` deduplicates discovered page URLs and tracks visited `<sitemapindex>` URLs; `Data.Map.Strict` backs offline test fixtures. |
-| `@hackage//:filepath` | GHC Boot | Rust `std::path`, Go `path/filepath`, Python `pathlib` | `:sitemap_test` (`SitemapTest`), `:http_e2e_test` (`HttpE2eTest`) | Joins `TEST_SRCDIR` / `TEST_WORKSPACE` runfile paths (`</>`) when loading `testdata/` XML and `.xml.gz` fixtures. |
+| `@hackage//:base` | GHC Boot (`4.20.2.0`) | Rust `std`, Go `builtin` + `os` + `sync` | All 5 Haskell targets (`Main`, `Fetch`, `Sitemap`, `SitemapTest`, `HttpE2eTest`) | Standard library: `IO`, CLI `getArgs`/`exitFailure`, exceptions, `MVar` (thread-safe mutable box) and `QSem` (counting semaphore) concurrency primitives, and `runST` for pure local state. |
+| `@hackage//:bytestring` | GHC Boot | Rust `&[u8]` / `bytes::Bytes`, Go `[]byte`, Python `bytes` | `:sitemap`, `:fetch`, `:sitemap_test`, `:http_e2e_test` (`Sitemap`, `Fetch`, `SitemapTest`, `HttpE2eTest`) | Packed raw byte buffers (`ByteString`) for HTTP response bodies, gzip two-byte header checks (`0x1f 0x8b`), and loopback TCP socket I/O. |
+| `@hackage//:text` | GHC Boot | Rust `String` / `&str`, Go `string`, Python `str` | All 5 Haskell targets (`Main`, `Fetch`, `Sitemap`, `SitemapTest`, `HttpE2eTest`) | Packed UTF-8 text (`Text`), UTF-8 decoding (`decodeUtf8'`), UTF-8 byte-order mark (BOM) stripping, and URL/XML element strings. |
+| `@hackage//:containers` | GHC Boot | Rust `BTreeSet` / `BTreeMap`, C++ `std::set` / `std::map` | `:sitemap` (`Sitemap`), `:sitemap_test` (`SitemapTest`) | `Data.Set` deduplicates discovered page URLs and tracks visited `<sitemapindex>` URLs; `Data.Map.Strict` stores in-memory test fixtures. |
+| `@hackage//:filepath` | GHC Boot | Rust `std::path`, Go `path/filepath`, Python `pathlib` | `:sitemap_test` (`SitemapTest`), `:http_e2e_test` (`HttpE2eTest`) | Joins `TEST_SRCDIR` and `TEST_WORKSPACE` runfile paths (`</>`) when loading `testdata/` XML and `.xml.gz` fixtures. |
 | `@hackage//:async` | Hackage (`2.2.6`) | Go `errgroup.Group`, Rust `tokio::task::JoinSet` | `:sitemap` (`Sitemap`), `:http_e2e_test` (`HttpE2eTest`) | Structured concurrency over GHC green threads: `mapConcurrently` crawls child sitemaps concurrently and `withAsync` scopes the loopback test HTTP server. |
-| `@hackage//:xml-conduit` | Hackage (`1.10.1.0`) | Rust `quick-xml` / `roxmltree`, Python `lxml` | `:sitemap` (`Sitemap`: `Text.XML`, `Text.XML.Cursor`) | Spec-compliant XML 1.0 parser and cursor query combinators (`$/`) handling XML namespaces, `<xhtml:link/>` siblings, and `&amp;` entity decoding. |
-| `@hackage//:zlib` | Hackage (`0.7.1.1`) | Rust `flate2` (vendored `zlib`), Go `compress/gzip` | `:sitemap` (`Sitemap`: `Codec.Compression.GZip`, `Codec.Compression.Zlib.Internal`) | Pure streaming `decompressST` gunzipping of `.xml.gz` sitemaps with total corrupt-archive error handling, statically linked against vendored C `zlib-clib`. |
-| `@hackage//:http-client` | Hackage (`0.7.19`) | Go `net/http`, Rust `hyper` / `reqwest` | `:fetch` (`Fetch`: `Network.HTTP.Client`) | Connection-pooled HTTP/1.1 client providing 30-second response timeouts, automatic `302` redirect following, and streaming response buffers. |
-| `@hackage//:http-client-tls` | Hackage (`0.3.6.4`) | Rust `reqwest` + `rustls` | `:fetch` (`Fetch`: `Network.HTTP.Client.TLS`) | Plugs pure-Haskell TLS 1.2/1.3 (`tls` + `crypton` + `crypton-x509-system`) into `http-client` — enabling HTTPS with **zero** C OpenSSL (`libssl.so`) dependency. |
-| `@hackage//:http-types` | Hackage (`0.12.6`) | Rust `http` crate, Go `net/http` status/headers | `:fetch` (`Fetch`: `Network.HTTP.Types.Header`, `Network.HTTP.Types.Status`) | Standard HTTP header names (`hUserAgent`) and status-code predicates (`statusIsSuccessful`, `statusCode`). |
+| `@hackage//:xml-conduit` | Hackage (`1.10.1.0`) | Rust `quick-xml` / `roxmltree`, Python `lxml` | `:sitemap` (`Sitemap`: `Text.XML`, `Text.XML.Cursor`) | XML 1.0 parser and cursor query combinators (`$/`) handling XML namespaces, `<xhtml:link/>` sibling elements, and `&amp;` entity decoding. |
+| `@hackage//:zlib` | Hackage (`0.7.1.1`) | Rust `flate2` (vendored `zlib`), Go `compress/gzip` | `:sitemap` (`Sitemap`: `Codec.Compression.GZip`, `Codec.Compression.Zlib.Internal`) | Streaming `decompressST` decompression of `.xml.gz` sitemaps with structured error values on corrupt archives, statically linked against vendored C `zlib-clib`. |
+| `@hackage//:http-client` | Hackage (`0.7.19`) | Go `net/http`, Rust `hyper` / `reqwest` | `:fetch` (`Fetch`: `Network.HTTP.Client`) | Connection-pooled HTTP/1.1 client with 30-second response timeouts, HTTP `302` redirect following, and streaming response buffers. |
+| `@hackage//:http-client-tls` | Hackage (`0.3.6.4`) | Rust `reqwest` + `rustls` | `:fetch` (`Fetch`: `Network.HTTP.Client.TLS`) | Connects pure-Haskell TLS 1.2/1.3 (`tls` + `crypton` + `crypton-x509-system`) to `http-client`, avoiding any C OpenSSL (`libssl.so`) runtime dependency. |
+| `@hackage//:http-types` | Hackage (`0.12.6`) | Rust `http` crate, Go `net/http` status/headers | `:fetch` (`Fetch`: `Network.HTTP.Types.Header`, `Network.HTTP.Types.Status`) | Standard HTTP header names (`hUserAgent`) and status-code checks (`statusIsSuccessful`, `statusCode`). |
 | `@hackage//:network` | Hackage (`3.2.14.0`) | Go `net`, Python `socket` | `:http_e2e_test` (`HttpE2eTest`: `Network.Socket`, `Network.Socket.ByteString`) | Binds an ephemeral `127.0.0.1:0` loopback TCP socket to test HTTP redirects, `.xml.gz` responses, `User-Agent` headers, and `404` handling offline inside Bazel's sandbox. |
 
-### Injectable Transport & Deadlock-Free Concurrency (`src/Sitemap.hs`)
+### Injectable Fetcher and Bounded Concurrency (`src/Sitemap.hs`)
 
-`Sitemap.hs` defines an injectable `Fetcher` type alias (`type Fetcher = Text -> IO (Either String ByteString)`) so recursive sitemap crawling, gzip decompression (`0x1f 0x8b` magic header detection via `Codec.Compression.Zlib.Internal`), UTF-8 BOM stripping, XML namespace matching, and cycle/duplicate avoidance can all be tested deterministically offline.
+`Sitemap.hs` passes network calls through a function type alias (`type Fetcher = Text -> IO (Either String ByteString)` — a function taking a URL and returning either an error string in `Left` or raw response bytes in `Right`). Unit tests can pass an in-memory `Map` lookup as the `Fetcher`, testing gzip decompression, UTF-8 BOM stripping, XML namespaces, and cycle detection without opening network sockets.
 
-To prevent thread exhaustion or deadlocks on deeply nested `<sitemapindex>` trees, `countPagesWithConcurrency` acquires the `QSem` concurrency semaphore **only around the individual HTTP fetch**, releasing it before recursing via `mapConcurrently`:
+To cap concurrent HTTP downloads at 4 without deadlocking when a `<sitemapindex>` points to nested child `<sitemapindex>` files, `countPagesWithConcurrency` acquires the `QSem` counting semaphore **only around the single `fetch url` call**, releasing it before recursing into children with `mapConcurrently`:
 
 ```haskell
 walk :: MVar (Set Text) -> QSem -> Text -> IO (Either String CrawlSummary)
@@ -206,8 +206,8 @@ walk visitedVar sem url = do
   if not claimed
     then pure (Right mempty)
     else do
-      -- Release the semaphore before recursing into child sitemaps so deep
-      -- sitemap index hierarchies can never deadlock.
+      -- Release the semaphore before recursing into child sitemaps so nested
+      -- sitemap index trees cannot deadlock waiting for permits.
       fetched <- bracket_ (waitQSem sem) (signalQSem sem) (fetch url)
       case fetched of
         Left err -> pure (Left err)
@@ -223,11 +223,17 @@ walk visitedVar sem url = do
                 Right summaries -> Right (CrawlSummary Set.empty 1 <> mconcat summaries)
 ```
 
+For readers new to Haskell, here is what each piece of `walk` does:
+- **`MVar (Set Text)`**: A thread-safe mutable box holding the set of URLs already claimed by a worker thread so duplicate or cyclic sitemap links are fetched only once.
+- **`bracket_ (waitQSem sem) (signalQSem sem) (fetch url)`**: Acquires one permit from the counting semaphore `sem`, runs `fetch url`, and guarantees `signalQSem sem` runs afterward even if `fetch` throws an exception (like `try ... finally` in Python or Java).
+- **`decodePayload rawBytes >>= parse`**: Chains two `Either String ...` steps together — decompressing `.xml.gz` if gzipped and then parsing the XML — short-circuiting on the first `Left err`.
+- **`mapConcurrently` and `sequenceA`**: `mapConcurrently` runs `walk` on all child sitemaps on separate green threads; `sequenceA` turns `[Either String CrawlSummary]` into `Either String [CrawlSummary]`, returning the first error if any child failed or combining all `CrawlSummary` sets (`mconcat`) if all succeeded.
+
 ---
 
 ## Running the Test Suite and Live CLI
 
-From `examples/size`, run all three hermetic test targets and build the Haddock API documentation:
+From `examples/size`, run all three test targets and build the Haddock API documentation:
 
 ```bash
 cd examples/size
@@ -235,14 +241,14 @@ bazel test //...
 bazel build //:size_haddock
 ```
 
-`//:size_haddock` invokes [`hs_haddock`](../reference/rules.md#hs_haddock) across `:sitemap` and `:fetch`, emitting `bazel-bin/size_haddock/index.html`, `Sitemap.html`, `Fetch.html`, QuickJump `doc-index.json`, and hyperlinked source under `src/`.
+`//:size_haddock` runs [`hs_haddock`](../reference/rules.md#hs_haddock) across `:sitemap` and `:fetch`, writing `bazel-bin/size_haddock/index.html`, `Sitemap.html`, `Fetch.html`, QuickJump `doc-index.json`, and hyperlinked source files under `src/`.
 
-What `bazel test //...` verifies:
-1. **`//:sitemap_test`** ([`hs_test`](../reference/rules.md#hs_test) with `data = ["//testdata:sitemaps"]`): Tests canonical `<urlset>`, `<sitemapindex>`, `.xml.gz`, invalid HTML root rejection, UTF-8 BOM stripping, cyclic `<sitemapindex>` graphs (asserting each URL is fetched once), case-insensitive tags, and corrupt gzip error handling.
-2. **`//:http_e2e_test`** ([`hs_test`](../reference/rules.md#hs_test)): Binds an ephemeral `127.0.0.1:0` TCP socket via `@hackage//:network`, serves XML and `.xml.gz` fixtures, HTTP `302 Found` redirects, and `404 Not Found` errors, and tests `Fetch.httpFetcher` end-to-end inside the Bazel test sandbox with zero external network access.
-3. **`//:elf_hermeticity_test`** (`sh_test`): Runs `readelf -d` on `//:size` to assert that `DT_NEEDED` contains **only** base glibc shared libraries — zero `libgmp`, `libtinfo`, `libffi`, `libz`, `libssl`, `libcrypto`, or `libHS*.so` — and executes `//:size` under `env -i PATH=/nonexistent`.
+What `bazel test //...` checks:
+1. **`//:sitemap_test`** ([`hs_test`](../reference/rules.md#hs_test) with `data = ["//testdata:sitemaps"]`): Tests `<urlset>`, `<sitemapindex>`, `.xml.gz`, invalid HTML root rejection, UTF-8 BOM stripping, cyclic `<sitemapindex>` graphs (verifying each URL is fetched once), case-insensitive tags, and corrupt gzip error reporting.
+2. **`//:http_e2e_test`** ([`hs_test`](../reference/rules.md#hs_test)): Binds an ephemeral `127.0.0.1:0` loopback TCP socket via `@hackage//:network`, serves XML and `.xml.gz` fixtures, HTTP `302 Found` redirects, and `404 Not Found` errors, and tests `Fetch.httpFetcher` inside the Bazel test sandbox with no external network access.
+3. **`//:elf_hermeticity_test`** (`sh_test`): Runs `readelf -d` on `//:size` to verify that ELF `NEEDED` entries list only base `glibc` shared libraries — no `libgmp`, `libtinfo`, `libffi`, `libz`, `libssl`, `libcrypto`, or `libHS*.so` — and runs `//:size` under `env -i PATH=/nonexistent`.
 
-To run `//:size` live over HTTPS against a real documentation site:
+To run `//:size` live over HTTPS against a public documentation site:
 
 ```bash
 cd examples/size
