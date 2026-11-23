@@ -1,0 +1,1 @@
+let startupScriptValue = 777 :: Int

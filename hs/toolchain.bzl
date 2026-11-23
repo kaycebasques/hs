@@ -16,6 +16,7 @@ def _hs_toolchain_impl(ctx):
         ghc_pkg = staged.ghc_pkg,
         hsc2hs = staged.hsc2hs,
         haddock = staged.haddock,
+        runghc = staged.runghc,
         ghc_iserv = staged.ghc_iserv,
         libdir = staged.libdir,
         template_hsc_h = staged.template_hsc_h,

@@ -38,6 +38,8 @@ cc_binary(
         "-std=c11",
         "-fPIC",
         "-O2",
+        "-Wall",
+        "-Wextra",
     ],
     linkopts = [
         "-Wl,-soname,libtinfo.so.6",
@@ -53,6 +55,8 @@ cc_library(
         "-std=c11",
         "-fPIC",
         "-O2",
+        "-Wall",
+        "-Wextra",
     ],
 )
 
@@ -108,6 +112,7 @@ bzl_library(
     srcs = [
         "cabal_library.bzl",
         "haddock.bzl",
+        "repl.bzl",
         "rules.bzl",
     ],
     deps = [

@@ -5,5 +5,6 @@ examples/haddock
 examples/language_features
 examples/llvm_toolchain
 examples/quickstart
+examples/repl
 examples/size
 examples/system_cc_toolchain

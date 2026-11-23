@@ -1,0 +1,95 @@
+load("@rules_hs//hs:defs.bzl", "hs_library", "hs_repl", "hs_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+exports_files([
+    "scripts/hello_script.hs",
+    "startup.ghci",
+])
+
+hs_library(
+    name = "precompiled_dep",
+    srcs = ["src/PrecompiledDep.hs"],
+    ghc_opts = ["-Wall"],
+    hs_source_dirs = ["src"],
+    deps = ["@hs_boot//:base"],
+)
+
+hs_library(
+    name = "th_tag",
+    srcs = ["src/Calc/ThTag.hs"],
+    ghc_opts = ["-Wall"],
+    hs_source_dirs = ["src"],
+    deps = [
+        "@hs_boot//:base",
+        "@hs_boot//:template-haskell",
+    ],
+)
+
+hs_library(
+    name = "calc_lib",
+    srcs = [
+        "src/Calc/Public.hs",
+        "src/Calc/Secret.hs",
+    ],
+    c_sources = ["cbits/calc_c.c"],
+    data = ["data/banner.txt"],
+    ghc_opts = [
+        "-Wall",
+        "-O2",
+    ],
+    hdrs = ["cbits/calc_c.h"],
+    hidden_modules = ["Calc.Secret"],
+    hs_source_dirs = ["src"],
+    include_dirs = ["cbits"],
+    deps = [
+        ":th_tag",
+        "@hs_boot//:base",
+        "@hs_boot//:template-haskell",
+    ],
+)
+
+hs_repl(
+    name = "calc_repl",
+    compiled_deps = [":precompiled_dep"],
+    ghci_commands = [
+        "import PrecompiledDep",
+        "inlineBonus = 10 :: Int",
+    ],
+    ghci_script = ":startup.ghci",
+    deps = [
+        ":calc_lib",
+        "@hs_boot//:terminfo",
+    ],
+)
+
+hs_test(
+    name = "terminfo_test",
+    size = "small",
+    srcs = ["test/TerminfoTest.hs"],
+    ghc_opts = ["-Wall"],
+    hs_source_dirs = ["test"],
+    deps = [
+        "@hs_boot//:base",
+        "@hs_boot//:terminfo",
+    ],
+)
+
+sh_test(
+    name = "repl_test",
+    size = "small",
+    srcs = ["test/repl_test.sh"],
+    args = [
+        "$(rootpath :terminfo_test)",
+        "$(rootpath :calc_repl)",
+        "$(rootpath @rules_hs//tools/ghci)",
+        "$(rootpath @rules_hs//tools/ghci:runghc)",
+        "$(rootpath :scripts/hello_script.hs)",
+    ],
+    data = [
+        ":calc_repl",
+        ":scripts/hello_script.hs",
+        ":terminfo_test",
+        "@rules_hs//tools/ghci",
+        "@rules_hs//tools/ghci:runghc",
+    ],
+)

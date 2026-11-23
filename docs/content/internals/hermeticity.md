@@ -98,32 +98,30 @@ Inspecting every executable and shared library in the GHC `9.10.3` and `9.12.4` 
 
 Because GHC `deb10` imports unversioned `__gmpn_*` and `__gmpz_*` symbols, `--whole-archive` exports the full GMP symbol table under `SONAME` `libgmp.so.10`.
 
-### 2. Deep Dive: The 8-Symbol `libtinfo.so.6` / `libtinfo.a` Stub (`tinfo_stub.c` and `tinfo_stub.lds`)
+### 2. Deep Dive: Self-Contained C11 `libtinfo.so.6` / `libtinfo.a` (`tinfo_stub.c` and `tinfo_stub.lds`)
 
-#### Why `libtinfo` Is Referenced at All
+#### Why `libtinfo` Is Referenced by GHC and GHCi
 
-`libtinfo` is the low-level terminal capability library from `ncurses`; it reads `/usr/share/terminfo` based on `$TERM` to look up escape sequences for cursor movement and colors. Because upstream GHC compiles the batch compiler (`ghc`) and interactive prompt (`ghci`) into a single binary (`bin/ghc-9.10.3`), `ghc` links `libHSghci` -> `libHShaskeline` -> `libHSterminfo` -> `libtinfo.so.6`. Even though batch compilation (`ghc -c`) never uses interactive terminal editing, `ld-linux.so` refuses to start `bin/ghc-9.10.3` unless `libtinfo.so.6` can be loaded and its symbol versions match.
+`libtinfo` is the low-level terminal capability library from `ncurses`; it reads compiled `term(5)` entries from `/usr/share/terminfo` based on `$TERM` to look up escape sequences for cursor movement, key bindings, and colors. Because upstream GHC compiles the batch compiler (`ghc`) and interactive prompt (`ghci`) into a single binary (`bin/ghc-9.10.3`), `ghc` links `libHSghci` -> `libHShaskeline` -> `libHSterminfo` -> `libtinfo.so.6`. `ld-linux.so` requires `libtinfo.so.6` with matching ELF symbol versions before starting `ghc` in batch builds, and interactive [`hs_repl`](../reference/rules.md#hs_repl) sessions call those `libtinfo` functions directly to power `haskeline` line editing, arrow-key history, Tab completion, and colored prompts.
 
 #### Verifying the Exact Symbol Surface
 
 Running `readelf -Ws` across every executable and `libHS*.so` shared object in the GHC `9.10.3` and `9.12.4` `deb10` distributions (`x86_64` and `aarch64`) shows that `libHSterminfo` is the **only** consumer of `libtinfo.so.6`, importing strictly **8 C functions** tagged with ELF version `NCURSES6_TINFO_5.0.19991023`: `setupterm`, `set_curterm`, `del_curterm`, `tigetflag`, `tigetnum`, `tigetstr`, `tparm`, and `tputs`.
 
-#### Standard X/Open Curses Error Sentinels in `hs/private/tinfo_stub.c`
+#### Inside `hs/private/tinfo_stub.c`
 
-`//hs/private:libtinfo.so.6` (`hs/private/BUILD.bazel`) compiles a 56-line C11 file (`hs/private/tinfo_stub.c`) implementing those 8 functions:
+`//hs/private:libtinfo.so.6` and `//hs/private:tinfo_stub_static` (`hs/private/BUILD.bazel`) compile a self-contained C11 implementation (`hs/private/tinfo_stub.c`, `-std=c11 -fPIC -O2 -Wall -Wextra`) exporting those 8 X/Open Curses functions without external dependencies:
 
-| Exported Symbol (`@NCURSES6_TINFO_5.0.19991023`) | Signature in `tinfo_stub.c` | Return Value | Meaning in X/Open Curses & Effect in `libHSterminfo` |
-|---|---|---|---|
-| `setupterm` | `int setupterm(const char *term, int fildes, int *errret)` | Sets `*errret = -1` (when `errret != NULL`), returns `-1` (`ERR`) | Official X/Open Curses code for "terminfo database not found"; `System.Console.Terminfo.Base.setupTerm` raises `SetupTermError` and `haskeline`/GHC falls back to plain line-oriented I/O |
-| `del_curterm` | `int del_curterm(void *oterm)` | `0` (`OK`) | No-op cleanup |
-| `set_curterm` | `void *set_curterm(void *nterm)` | `NULL` | No active `TERMINAL` structure |
-| `tigetflag` | `int tigetflag(const char *capname)` | `-1` | Standard sentinel for absent boolean capability |
-| `tigetnum` | `int tigetnum(const char *capname)` | `-2` | Standard sentinel for absent numeric capability |
-| `tigetstr` | `char *tigetstr(const char *capname)` | `(char *)-1` | Standard sentinel for absent or cancelled string capability |
-| `tparm` | `char *tparm(const char *str, ...)` | `NULL` | Parameterized escape-string formatting unavailable |
-| `tputs` | `int tputs(const char *str, int affcnt, int (*putc_fn)(int))` | `0` (`OK`) | Padding output no-op |
-
-Returning `-1` (`*errret = -1`) from `setupterm` is not memory-unsafe fakery: it is the documented X/Open Curses return value when no terminfo database entry exists — **the exact same value real `libtinfo.so.6` returns inside a Bazel sandbox or headless CI runner** where `$TERM` is unset or `/usr/share/terminfo` is absent. Because `libHSterminfo` checks `setupterm == -1` first and immediately throws `SetupTermError`, it never passes an uninitialized `TERMINAL *` pointer to `tigetstr` or `tputs`.
+| Exported Symbol (`@NCURSES6_TINFO_5.0.19991023`) | Signature in `tinfo_stub.c` | Behavior & Interaction with `libHSterminfo` / `haskeline` |
+|---|---|---|
+| `setupterm` | `int setupterm(const char *term, int fildes, int *errret)` | Resolves `term` (or `$TERM` when `term == NULL`), loads binary `term(5)` (`0432` 16-bit, `01036` 32-bit, and ncurses extended capabilities) from `$TERMINFO`, `$TERMINFO_DIRS`, `$HOME/.terminfo`, `/etc/terminfo`, `/lib/terminfo`, or `/usr/share/terminfo`, falls back to built-in `xterm-256color` / `vt100` / `dumb` profiles when no database exists on disk, updates `lines` / `cols` from `ioctl(fildes, TIOCGWINSZ)` and `$LINES` / `$COLUMNS`, and sets `*errret = -1` returning `-1` (`ERR`) on empty or unknown terminal names. |
+| `set_curterm` | `void *set_curterm(void *nterm)` | Swaps the thread-local active `TERMINAL *` handle and returns the previous handle (used by `System.Console.Terminfo.Base.setupTerm` to capture each newly allocated `TERMINAL *` via `old = set_curterm(NULL); setupterm(...); term = set_curterm(old);`). |
+| `del_curterm` | `int del_curterm(void *oterm)` | Frees all capability tables owned by `oterm`, clears `cur_term` if `cur_term == oterm`, and returns `0` (`OK`). |
+| `tigetflag` | `int tigetflag(const char *capname)` | Looks up standard X/Open boolean capability names (`am`, `bce`, `xenl`, `km`, ...) and extended boolean names (`AX`, `XT`, `RGB`), returning `1`/`0` when known or `-1` when unrecognized. |
+| `tigetnum` | `int tigetnum(const char *capname)` | Looks up standard and extended numeric capabilities (`colors`, `cols`, `lines`, `it`, `pairs`, `U8`), returning the non-negative value, `-1` when absent/cancelled, or `-2` when unrecognized. |
+| `tigetstr` | `char *tigetstr(const char *capname)` | Looks up standard and extended string capabilities (`cup`, `setaf`, `setab`, `sgr0`, `bold`, `el`, `ed`, `cub1`, `kcuu1`, `kcud1`, `kcub1`, `kcuf1`, `smkx`, ...) returning the NUL-terminated escape sequence, `NULL` when absent/cancelled, or `(char *)-1` when unrecognized. |
+| `tparm` | `char *tparm(const char *str, ...)` | Evaluates stack-based parameterized terminfo capability strings (`%p1..%p9`, `%d`/`%o`/`%x`/`%X`/`%s`/`%c`, `%i` 1-based cursor increment, `'x'`/`{nn}` constants, arithmetic/bitwise/comparison operators, `%? ... %t ... %e ... %;` conditionals, and `%P`/`%g` dynamic/static variables) into a thread-local ring buffer. |
+| `tputs` | `int tputs(const char *str, int affcnt, int (*putc_fn)(int))` | Streams characters of `str` through `putc_fn` while stripping terminfo `$<delay>` millisecond padding annotations, returning `0` (`OK`) or `-1` (`ERR`) on `NULL` input. |
 
 #### Why `hs/private/tinfo_stub.lds` Is Required for ELF Symbol Versioning
 
@@ -147,18 +145,13 @@ NCURSES6_TINFO_5.0.19991023 {
 };
 ```
 
-#### Why a 56-Line Stub Was Chosen Over Building Full `ncurses`, and Its Trade-Offs
+#### Static `libtinfo.a` for Standalone Haskell Executables
 
-Building `ncurses` from source in Bazel requires running autoconf `./configure`, invoking host `gawk` and shell scripts to generate capability tables, and compiling thousands of lines of C code — only for real `ncurses` to still fail `setupterm` with `-1` inside an empty Bazel sandbox without `/usr/share/terminfo`.
-
-Alongside `libtinfo.so.6` (used by `ghc` at compile time), `//hs/private:tinfo_stub_static` compiles the same `tinfo_stub.c` into `gmp_static/libtinfo.a` so user executables linking `@hs_boot//:terminfo`, `@hs_boot//:haskeline`, or `@hs_boot//:ghc` (`extra-libraries: tinfo`) link statically without host `libtinfo-dev` or runtime `libtinfo.so.6`. That carries one explicit trade-off:
-
-- **Supported by default**: All batch compilation, `haddock` builds, automated tests, web servers, and CLI binaries that either do not call `System.Console.Terminfo` or fall back cleanly to line-oriented mode (note that standard ANSI color libraries like `ansi-terminal` emit escape codes directly without `terminfo`).
-- **Limitation for full-screen terminal UI (TUI) applications**: If you build an interactive full-screen TUI application using libraries such as **`vty`** or **`brick`** — which call `setupTermFromEnv` at runtime in an end user's terminal and require live capability strings — linking `gmp_static/libtinfo.a` causes `setupTermFromEnv` to report that terminfo is unavailable. To build a `vty` / `brick` TUI binary, attach a real `ncurses` / `tinfo` `cc_library` via `cc_deps` on [`hs_binary`](../reference/rules.md#hs_binary) or [`hackage.override`](../reference/extensions-and-providers.md#hackage-override) (`extra_cc_deps`), linking the real archive with `-Wl,--whole-archive` (or placing its `-L` directory ahead of `gmp_static` via `ghc_opts = ["-optl-L..."]`), and ensure `/usr/share/terminfo` and `$TERM` exist at runtime. Adding an interactive `hs_repl` rule is the planned milestone for optional built-in `ncurses` toolchain integration.
+Alongside `libtinfo.so.6` (loaded by `ghc` via `$ORIGIN`), `//hs/private:tinfo_stub_static` compiles the same `tinfo_stub.c` into `gmp_static/libtinfo.a`. Any [`hs_binary`](../reference/rules.md#hs_binary) or [`hs_test`](../reference/rules.md#hs_test) that links `@hs_boot//:terminfo`, `@hs_boot//:haskeline`, `@hs_boot//:ghc`, or `terminfo`-based TUI libraries (`vty`, `brick`) resolves `-ltinfo` statically from `gmp_static/libtinfo.a` — reading real `/usr/share/terminfo` files when present on the target host, falling back to built-in `xterm-256color`/`vt100`/`dumb` profiles on minimal containers, and adding **zero** `libtinfo.so.6` entry to the executable's `DT_NEEDED` header (verified by `//tests/rules/repl:terminfo_test` and `//tests/rules/repl:repl_modes_test`).
 
 ### 3. Staged `$ORIGIN` Directory Layout (`HsStageGhc`)
 
-`HsStageGhc` (`hs/private/staged_ghc.bzl`) assembles a self-contained directory tree under `<prefix>` (`staged_ghc`) and regenerates `lib/package.conf.d/package.cache` via `ghc-pkg recache` (removing read-only sandbox input symlinks first so `ghc-pkg` can create writable cache files):
+`HsStageGhc` (`hs/private/staged_ghc.bzl`) assembles a self-contained directory tree under `<prefix>` (`staged_ghc`), dereferencing input symlinks via `cp -R -L` so `staged_ghc/lib/` contains real files (rather than ephemeral build-sandbox symlinks that would dangle when invoked from `bazel run` runfiles), and regenerates `lib/package.conf.d/package.cache` via `ghc-pkg recache`:
 
 ```text
 staged_ghc/
@@ -167,9 +160,11 @@ staged_ghc/
 │   ├── ghc-pkg-9.10.3
 │   ├── hsc2hs-ghc-9.10.3
 │   ├── haddock-ghc-9.10.3      # Bundled GHC Haddock (for hs_haddock)
+│   ├── runghc-9.10.3           # Standalone script interpreter (for //tools/ghci:runghc)
 │   ├── ghc-iserv-dyn-ghc-9.10.3
+│   ├── ghc-iserv-dyn           # Copy at $topdir/../bin/ghc-iserv-dyn for -fexternal-interpreter
 │   └── unlit                   # Copied from bin/unlit-ghc-9.10.3 (GHC expects 'unlit')
-├── lib/                        # Declared TreeArtifact (cp -R -P + ghc-pkg recache)
+├── lib/                        # Declared TreeArtifact (cp -R -L + ghc-pkg recache)
 │   ├── settings                # Sanitized (/nonexistent/* tools, no -fuse-ld=gold)
 │   ├── template-hsc.h
 │   ├── html/                   # Bundled Haddock themes, CSS, and QuickJump JS assets
@@ -178,12 +173,12 @@ staged_ghc/
 │       ├── libffi.so.8         # Bundled in official archive
 │       ├── libCffi.a           # Static libffi linked into user binaries
 │       ├── libgmp.so.10        # Built by HsLinkGmpShared (+ symlink libgmp.so)
-│       ├── libtinfo.so.6       # Built from tinfo_stub.c (+ symlink libtinfo.so)
+│       ├── libtinfo.so.6       # Self-contained C11 terminfo reader (+ symlink libtinfo.so)
 │       ├── libHS*.a / libHS*.so
 │       └── rts-1.0.2/include/  # Rts.h, HsFFI.h, ghcversion.h
 └── gmp_static/
     ├── libgmp.a                # Static archives only (no .so files in this directory)
-    └── libtinfo.a              # Static terminfo fallback archive
+    └── libtinfo.a              # Static C11 terminfo archive (zero DT_NEEDED libtinfo.so.6)
 ```
 
 When `ld-linux.so` launches `staged_ghc/bin/ghc-9.10.3`, it expands `$ORIGIN` to `.../staged_ghc/bin` and resolves `libgmp.so.10`, `libtinfo.so.6`, `libffi.so.8`, and `libHS*.so` inside `staged_ghc/lib/x86_64-linux-ghc-9.10.3/`:

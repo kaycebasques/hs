@@ -12,8 +12,8 @@ import qualified Reexported.List as RL
 import qualified Reexported.MathCore as RMC
 import SubDupA (subDupAVal)
 import SubDupB (subDupBVal)
-import System.Console.Terminfo (SetupTermError, Terminal, setupTerm)
-import System.Environment (lookupEnv)
+import System.Console.Terminfo (SetupTermError, Terminal, getCapability, setupTerm, setupTermFromEnv, termColors)
+import System.Environment (lookupEnv, unsetEnv)
 import System.Exit (exitFailure)
 import TopLib (topSummary, topValue)
 
@@ -67,8 +67,13 @@ main = do
     -- 10. Injective unit IDs (//tests/basic/sub:dup vs //tests/basic:sub_dup)
     assertEq "subDupAVal + subDupBVal" 303 (subDupAVal + subDupBVal)
 
-    -- 11. Hermetic static libtinfo.a stub via @hs_boot//:terminfo
-    tRes <- (try (setupTerm "dumb") :: IO (Either SetupTermError Terminal))
-    assertEq "terminfo static stub returns Left SetupTermError" True (either (const True) (const False) tRes)
+    -- 11. Hermetic static libtinfo.a engine via @hs_boot//:terminfo
+    unsetEnv "TERM"
+    rEmpty <- (try (setupTerm "") :: IO (Either SetupTermError Terminal))
+    assertEq "empty setupTerm returns Left SetupTermError" True (either (const True) (const False) rEmpty)
+    tEnvDumb <- setupTermFromEnv
+    assertEq "headless setupTermFromEnv defaults to dumb (no colors)" Nothing (getCapability tEnvDumb termColors)
+    tXterm <- setupTerm "xterm-256color"
+    assertEq "static libtinfo.a xterm-256color termColors" (Just 256) (getCapability tXterm termColors)
 
     putStrLn "ALL BASIC TESTS PASSED!"

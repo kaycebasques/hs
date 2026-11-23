@@ -5,6 +5,7 @@ load(
     "hs_cabal_library",
     "hs_haddock",
     "hs_library",
+    "hs_repl",
     "hs_toolchain_library",
 )
 load(
@@ -17,8 +18,12 @@ load(
     "hs_library_cc_propagation_test",
     "hs_library_language_flag_test",
     "hs_library_providers_test",
+    "hs_repl_cbits_and_compiled_test",
+    "hs_repl_interpreted_test",
+    "hs_toolchain_interpreter_tools_test",
     "strict_direct_dep_visibility_test",
     "toolchain_library_test",
+    "toolchain_probe",
     "toolchain_registration_test",
 )
 
@@ -49,6 +54,11 @@ hs_library(
 hs_library(
     name = "lib_c",
     srcs = ["LibC.hs"],
+    ghc_opts = [
+        "-Wall",
+        "-Werror",
+        "-O2",
+    ],
     deps = [
         ":lib_b",
         "@hs_boot//:base",
@@ -172,6 +182,18 @@ hs_haddock(
     haddock_deps = [":lib_a_haddock"],
     title = "LibB Docs",
     deps = [":lib_b"],
+)
+
+hs_repl(
+    name = "lib_c_repl",
+    deps = [":lib_c"],
+)
+
+hs_repl(
+    name = "cc_and_compiled_repl",
+    compiled_deps = [":lib_b"],
+    ghci_commands = [":set +t"],
+    deps = [":hs_with_cc"],
 )
 
 # ------------------------------------------------------------------------------
@@ -317,4 +339,31 @@ toolchain_registration_test(
     name = "toolchain_linux_arm64_registered_test",
     size = "small",
     target_under_test = "@hs_toolchains//:ghc_linux_arm64",
+)
+
+hs_repl_interpreted_test(
+    name = "hs_repl_interpreted_test",
+    size = "small",
+    base_dep = "@hs_boot//:base",
+    direct_compiled_dep = ":lib_b",
+    interpreted_dep = ":lib_c",
+    target_under_test = ":lib_c_repl",
+    transitive_dep = ":lib_a",
+)
+
+hs_repl_cbits_and_compiled_test(
+    name = "hs_repl_cbits_and_compiled_test",
+    size = "small",
+    compiled_dep = ":lib_b",
+    target_under_test = ":cc_and_compiled_repl",
+)
+
+toolchain_probe(
+    name = "active_toolchain_probe",
+)
+
+hs_toolchain_interpreter_tools_test(
+    name = "hs_toolchain_interpreter_tools_test",
+    size = "small",
+    target_under_test = ":active_toolchain_probe",
 )

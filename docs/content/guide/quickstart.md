@@ -259,7 +259,7 @@ Output:
 Hello, World, from rules_hs.
 ```
 
-> **Note — Batch builds today vs. interactive `ghci`:** Today `rules_hs` runs GHC in batch compilation mode (`bazel build`, `bazel test`, and `bazel run` on linked `hs_binary` executables). An interactive `hs_repl` rule for launching `ghci` sessions via `bazel run` is planned, not yet implemented.
+> **Tip — Interactive `ghci` REPL:** Add an [`hs_repl`](../reference/rules.md#hs_repl) target (`hs_repl(name = "greet_repl", deps = [":greet"])`) and run `bazel run //:greet_repl` to open an interactive `ghci` session with `Greet` loaded in bytecode (supporting `:reload` on workspace edits, `:type`, and `:break`), or run `bazel run @rules_hs//tools/ghci` for a standalone prompt. See [Language, RTS, Runfiles & Template Haskell](language-rts-runfiles-th.md#interactive-ghci-repl) for details.
 
 On Linux, every ELF executable records the shared `.so` libraries it needs at startup in `NEEDED` metadata entries. You can inspect `bazel-bin/hello` with `readelf -d` and run it with an empty environment (`env -i PATH=/nonexistent`) to confirm it statically links `libgmp.a` and depends only on standard `glibc` libraries:
 

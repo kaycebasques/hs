@@ -1,6 +1,8 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("//hs:defs.bzl", "hs_cabal_library", "hs_library", "hs_test")
 
+package(default_visibility = ["//tests:__subpackages__"])
+
 cc_library(
     name = "vec_cc",
     srcs = ["vec.c"],

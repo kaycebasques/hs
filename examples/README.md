@@ -7,6 +7,7 @@ Every directory in `examples/` is a standalone Bazel 9 (`MODULE.bazel`) workspac
 | Example | What It Demonstrates |
 |---|---|
 | [`quickstart/`](quickstart/README.md) | `hs_library`, `hs_binary`, `hs_test`, `hs_toolchain_library`, `@hs_boot`, default GHC `9.10.3`, and portable static-GMP Linux executables (`readelf -d` + `env -i PATH=/nonexistent`). |
+| [`repl/`](repl/README.md) | `hs_repl`, standalone `@rules_hs//tools/ghci` & `@rules_hs//tools/ghci:runghc`, `*Module` bytecode scope (`hidden_modules` + `compiled_deps`), live `:reload`, `:break`/`:continue` debugging, C/`CApiFFI` (`HsLinkReplCbits`), cross-library Template Haskell, `data` runfiles, `.ghci` scripts, `-e` eval, `-fexternal-interpreter`, and C11 `terminfo`. |
 | [`ghc_9_12/`](ghc_9_12/README.md) | Official GHC `9.12.4` toolchain (`hs.toolchain(ghc_version = "9.12.4")`), GHC 9.12's `file-io` boot library, `GHC2024`, `hs_haddock`, and static-GMP linking. |
 | [`language_features/`](language_features/README.md) | `Haskell98`/`Haskell2010`/`GHC2021`/`GHC2024`, `default_extensions` & `ghc_opts`, `hidden_modules`, `.hs-boot` mutual recursion, `.lhs` literate Haskell, single-threaded & `-threaded` RTS, compile-time & runtime `data` runfiles, and Template Haskell (`TemplateHaskellQuotes`, cross-library splices, and `file-embed`). |
 | [`c_interop/`](c_interop/README.md) | Standard `foreign import ccall` and `CApiFFI`, inline `c_sources` (C `.c`, C++ `.cc`, preprocessed assembly `.S`, and raw assembly `.s`), in-repository `cc_library` `cc_deps`, and Bazel Central Registry `cc_deps` (`@zlib//:zlib`). |
@@ -21,6 +22,7 @@ Every directory in `examples/` is a standalone Bazel 9 (`MODULE.bazel`) workspac
 | Homepage Feature | Minimal Example | Example Test(s) | Root Test(s) |
 |---|---|---|---|
 | `hs_library`, `hs_binary`, `hs_test`, `hs_toolchain_library` | [`quickstart/`](quickstart/BUILD.bazel) | `//:greet_test`, `//:elf_hermeticity_test` | `//tests/basic:basic_test`, `//tests/starlark:...` |
+| `hs_repl`, `@rules_hs//tools/ghci`, `@rules_hs//tools/ghci:runghc`, live `:reload`, `:break`/`:continue`, `-e`, `.ghci` scripts, `-fexternal-interpreter`, and C11 `terminfo` | [`repl/`](repl/BUILD.bazel), [`size/`](size/BUILD.bazel) | `//:repl_test`, `//:terminfo_test`, `//:size_repl_test` | `//tests/rules/repl:repl_modes_test`, `//tests/rules/repl:pty_repl_test`, `//tests/rules/repl:terminfo_test`, `//tests/starlark:hs_repl_interpreted_test`, `//tests/starlark:hs_repl_cbits_and_compiled_test` |
 | `hs_haddock` (HTML, hyperlinked source, QuickJump, Hoogle, cross-target `haddock_deps`) | [`haddock/`](haddock/BUILD.bazel) | `//:haddock_test` | `//tests/rules/haddock:haddock_test`, `//tests/starlark:hs_haddock_action_test` |
 | `hs_cabal_library` (5-stage Cabal rule) | [`hackage/vendored_cabal/`](hackage/vendored_cabal/BUILD.bazel) | `//vendored_cabal:vendored_cabal_test` | `//tests/basic:basic_test`, `//tests/rules/codegen:codegen_test` |
 | GHC `9.10.3` (default) & Linux `x86_64` / `arm64` toolchains | [`quickstart/`](quickstart/MODULE.bazel) | `//:greet_test` | `//tests/starlark:toolchain_linux_x86_64_registered_test`, `//tests/starlark:toolchain_linux_arm64_registered_test` |

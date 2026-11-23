@@ -23,6 +23,8 @@ flowchart TD
     SM --> ASYNC["@hackage//:async (4-way QSem + mapConcurrently)"]
     DOC["//:size_haddock (hs_haddock HTML + QuickJump)"] --> FETCH
     DOC --> SM
+    REPL["//:size_repl (hs_repl interactive ghci)"] --> FETCH
+    REPL --> SM
     TEST1["test/SitemapTest.hs (//:sitemap_test)"] --> SM
     TEST2["test/HttpE2eTest.hs (//:http_e2e_test, loopback TCP server)"] --> FETCH
     TEST3["test/elf_hermeticity_test.sh (readelf NEEDED + env -i)"] --> CLI
@@ -111,10 +113,10 @@ bazel run @rules_hs//tools/lock:lock -- \
 
 ## Build Graph (`examples/size/BUILD.bazel`)
 
-The project splits its code into a pure XML/sitemap parsing library (`:sitemap`), an HTTP/TLS client library (`:fetch`), a small CLI entry point (`:size`), a combined [`hs_haddock`](../reference/rules.md#hs_haddock) API documentation target (`:size_haddock`), and three test targets:
+The project splits its code into a pure XML/sitemap parsing library (`:sitemap`), an HTTP/TLS client library (`:fetch`), a small CLI entry point (`:size`), a combined [`hs_haddock`](../reference/rules.md#hs_haddock) API documentation target (`:size_haddock`), an interactive [`hs_repl`](../reference/rules.md#hs_repl) target (`:size_repl`), and four test targets:
 
 ```starlark
-load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_haddock", "hs_library", "hs_test")
+load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_haddock", "hs_library", "hs_repl", "hs_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 hs_library(
@@ -166,6 +168,15 @@ hs_binary(
 hs_haddock(
     name = "size_haddock",
     title = "size — Sitemap Size Tracker API",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":sitemap",
+        ":fetch",
+    ],
+)
+
+hs_repl(
+    name = "size_repl",
     visibility = ["//visibility:public"],
     deps = [
         ":sitemap",
@@ -233,20 +244,22 @@ For readers new to Haskell, here is what each piece of `walk` does:
 
 ## Running the Test Suite and Live CLI
 
-From `examples/size`, run all three test targets and build the Haddock API documentation:
+From `examples/size`, run all four test targets, build the Haddock API documentation, or open an interactive `ghci` session:
 
 ```bash
 cd examples/size
 bazel test //...
 bazel build //:size_haddock
+bazel run //:size_repl
 ```
 
-`//:size_haddock` runs [`hs_haddock`](../reference/rules.md#hs_haddock) across `:sitemap` and `:fetch`, writing `bazel-bin/size_haddock/index.html`, `Sitemap.html`, `Fetch.html`, QuickJump `doc-index.json`, and hyperlinked source files under `src/`.
+`//:size_haddock` runs [`hs_haddock`](../reference/rules.md#hs_haddock) across `:sitemap` and `:fetch`, writing `bazel-bin/size_haddock/index.html`, `Sitemap.html`, `Fetch.html`, QuickJump `doc-index.json`, and hyperlinked source files under `src/`. `//:size_repl` opens `ghci` with `Sitemap` and `Fetch` loaded from source alongside all 69 compiled Hackage dependencies (including C-only `zlib-clib`).
 
 What `bazel test //...` checks:
 1. **`//:sitemap_test`** ([`hs_test`](../reference/rules.md#hs_test) with `data = ["//testdata:sitemaps"]`): Tests `<urlset>`, `<sitemapindex>`, `.xml.gz`, invalid HTML root rejection, UTF-8 BOM stripping, cyclic `<sitemapindex>` graphs (verifying each URL is fetched once), case-insensitive tags, and corrupt gzip error reporting.
 2. **`//:http_e2e_test`** ([`hs_test`](../reference/rules.md#hs_test)): Binds an ephemeral `127.0.0.1:0` loopback TCP socket via `@hackage//:network`, serves XML and `.xml.gz` fixtures, HTTP `302 Found` redirects, and `404 Not Found` errors, and tests `Fetch.httpFetcher` inside the Bazel test sandbox with no external network access.
-3. **`//:elf_hermeticity_test`** (`sh_test`): Runs `readelf -d` on `//:size` to verify that ELF `NEEDED` entries list only base `glibc` shared libraries — no `libgmp`, `libtinfo`, `libffi`, `libz`, `libssl`, `libcrypto`, or `libHS*.so` — and runs `//:size` under `env -i PATH=/nonexistent`.
+3. **`//:size_repl_test`** (`sh_test`): Evaluates `.xml.gz` decompression and XML parsing inside `//:size_repl` and verifies `@rules_hs//tools/ghci` from an external consumer workspace.
+4. **`//:elf_hermeticity_test`** (`sh_test`): Runs `readelf -d` on `//:size` to verify that ELF `NEEDED` entries list only base `glibc` shared libraries — no `libgmp`, `libtinfo`, `libffi`, `libz`, `libssl`, `libcrypto`, or `libHS*.so` — and runs `//:size` under `env -i PATH=/nonexistent`.
 
 To run `//:size` live over HTTPS against a public documentation site:
 

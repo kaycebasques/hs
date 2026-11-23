@@ -1,0 +1,18 @@
+load("//hs:defs.bzl", "hs_repl")
+load("//hs/private:repl.bzl", "hs_runghc")
+
+package(default_visibility = ["//visibility:public"])
+
+# Zero-configuration interactive GHCi prompt with GHC's boot packages visible:
+#   bazel run @rules_hs//tools/ghci
+#   bazel run @rules_hs//tools/ghci -- -e '2 ^ 64 :: Integer'
+hs_repl(
+    name = "ghci",
+    expose_boot_packages = True,
+)
+
+# Zero-configuration hermetic `runghc` script interpreter:
+#   bazel run @rules_hs//tools/ghci:runghc -- path/to/Script.hs arg1 arg2
+hs_runghc(
+    name = "runghc",
+)

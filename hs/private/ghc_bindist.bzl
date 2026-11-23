@@ -149,6 +149,9 @@ def _ghc_bindist_repo_impl(repository_ctx):
     haddock_rel = "bin/haddock-ghc-{}".format(ver)
     if not repository_ctx.path(haddock_rel).exists:
         haddock_rel = "bin/haddock"
+    runghc_rel = "bin/runghc-{}".format(ver)
+    if not repository_ctx.path(runghc_rel).exists:
+        runghc_rel = "bin/runghc"
 
     # Note: Keep the repository BUILD clean and expose both raw bindist files and
     # the $ORIGIN-staged GHC + hs_toolchain target.
@@ -163,6 +166,7 @@ exports_files([
     "bin/ghc-pkg-{ver}",
     "bin/hsc2hs-ghc-{ver}",
     "{haddock_rel}",
+    "{runghc_rel}",
     "bin/unlit-ghc-{ver}",
     "lib/settings",
     "lib/template-hsc.h",
@@ -205,6 +209,7 @@ staged_ghc(
     ghc_pkg = ":bin/ghc-pkg-{ver}",
     hsc2hs = ":bin/hsc2hs-ghc-{ver}",
     haddock = ":{haddock_rel}",
+    runghc = ":{runghc_rel}",
     unlit = ":bin/unlit-ghc-{ver}",
     ghc_iserv = {iserv_label},
     template_hsc_h = ":lib/template-hsc.h",
@@ -237,6 +242,7 @@ hs_toolchain(
         iserv_exports = '["bin/ghc-iserv-dyn-ghc-{}"]'.format(ver) if repository_ctx.attr.is_dynamic_ghc else "[]",
         iserv_label = iserv_label,
         haddock_rel = haddock_rel,
+        runghc_rel = runghc_rel,
         boot_packages_json = repr(boot_packages_json_dict),
         target_os = repository_ctx.attr.target_os,
         target_cpu = repository_ctx.attr.target_cpu,

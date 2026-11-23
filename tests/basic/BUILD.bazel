@@ -2,6 +2,8 @@ load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//hs:defs.bzl", "hs_binary", "hs_cabal_library", "hs_library", "hs_test")
 
+package(default_visibility = ["//tests:__subpackages__"])
+
 # 1. Native C library for CcInfo interop
 cc_library(
     name = "native_add",

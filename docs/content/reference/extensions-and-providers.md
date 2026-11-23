@@ -1,12 +1,12 @@
 ---
 title: "Extensions & Providers Reference"
-description: "Complete Starlark reference for the hs and hackage Bzlmod module extensions, public providers (HsPackageInfo, HsLinkInfo, HsHaddockInfo, HsToolchainInfo), and toolchain type."
+description: "Complete Starlark reference for the hs and hackage Bzlmod module extensions, public providers (HsPackageInfo, HsLinkInfo, HsHaddockInfo, HsReplInfo, HsToolchainInfo), and toolchain type."
 section: reference
 nav_title: "Extensions & Providers"
 order: 20
 ---
 
-`rules_hs` exposes two Bzlmod module extensions in `@rules_hs//hs:extensions.bzl` (used in `MODULE.bazel` to provision GHC and third-party Hackage packages), four public Starlark providers in `@rules_hs//hs:providers.bzl` (used when writing custom Bazel rules or aspects that inspect Haskell targets), and one Bazel toolchain type `@rules_hs//hs:toolchain_type`.
+`rules_hs` exposes two Bzlmod module extensions in `@rules_hs//hs:extensions.bzl` (used in `MODULE.bazel` to provision GHC and third-party Hackage packages), five public Starlark providers in `@rules_hs//hs:providers.bzl` (used when writing custom Bazel rules or aspects that inspect Haskell targets), and one Bazel toolchain type `@rules_hs//hs:toolchain_type`.
 
 ---
 
@@ -103,6 +103,7 @@ load(
     "HsHaddockInfo",
     "HsLinkInfo",
     "HsPackageInfo",
+    "HsReplInfo",
     "HsToolchainInfo",
 )
 ```
@@ -157,25 +158,39 @@ Returned by [`hs_haddock`](rules.md#hs_haddock) targets so downstream `hs_haddoc
 
 ---
 
+## `HsReplInfo` {#hsreplinfo}
+
+Returned by [`hs_repl`](rules.md#hs_repl) targets so custom Starlark rules, test harnesses, or editor integrations can inspect the generated GHCi launcher script, static `.ghci` startup configuration, bytecode-loaded source files, and exposed compiled package unit IDs.
+
+| Field | Type | Description |
+|---|---|---|
+| `executable` | `File` | Executable launcher script (`<name>`) that configures `RUNFILES_DIR`, `ghc_cc_wrapper`, per-session `TMPDIR`, and `*Module` startup scope before invoking staged `ghc` in `--interactive` or `-e` mode. |
+| `ghci_script` | `File` | Generated `<name>.ghci` file containing the target's static `ghci_commands` lines (appended after automatic `:load` and `:module + *...` directives at session startup). |
+| `interpreted_srcs` | `depset[File]` | `.hs` and `.lhs` source files loaded directly into GHCi bytecode for this session (including `srcs` and in-workspace `deps` when `interpret_deps = True`, excluding `.hs-boot` / `.lhs-boot` files). |
+| `package_ids` | `depset[str]` | Direct compiled GHC unit IDs passed via `-package-id` (external `@hs_boot` / `@hackage` packages, `compiled_deps`, transitive compiled dependencies of interpreted targets, and in-workspace libraries when `interpret_deps = False`). |
+
+---
+
 ## `HsToolchainInfo` {#hstoolchaininfo}
 
-Provides the resolved GHC compiler binaries, `$ORIGIN`-staged runtime libraries, bundled Haddock assets, static GMP archive, native C11 `ghc_cc_wrapper`, and parsed boot library metadata for the active `(exec_platform, target_platform)` pair. Read this provider inside custom Starlark rules when invoking `ghc`, `ghc-pkg`, `hsc2hs`, or `haddock` in custom build actions.
+Provides the resolved GHC compiler and interpreter binaries, `$ORIGIN`-staged runtime libraries, bundled Haddock assets, static GMP archive, native C11 `ghc_cc_wrapper`, and parsed boot library metadata for the active `(exec_platform, target_platform)` pair. Read this provider inside custom Starlark rules when invoking `ghc`, `runghc`, `ghc-pkg`, `hsc2hs`, or `haddock` in custom build actions.
 
 | Field | Type | Description |
 |---|---|---|
 | `version` | `str` | Active GHC compiler version string (`"9.10.3"` or `"9.12.4"`). |
-| `ghc` | `File` | `$ORIGIN`-staged `ghc` compiler executable (`<prefix>/bin/ghc-<ver>`). Always pass `-B <hs_tc.libdir.path>` when invoking it in a custom action. |
+| `ghc` | `File` | `$ORIGIN`-staged `ghc` compiler and interactive REPL executable (`<prefix>/bin/ghc-<ver>`). Always pass `-B <hs_tc.libdir.path>` when invoking it in a custom action. |
 | `ghc_pkg` | `File` | `$ORIGIN`-staged `ghc-pkg` package database registration tool (`<prefix>/bin/ghc-pkg-<ver>`), used to validate `.conf` files and write `package.cache`. |
 | `hsc2hs` | `File` | `$ORIGIN`-staged `hsc2hs` C-FFI preprocessor executable (`<prefix>/bin/hsc2hs-ghc-<ver>`) for compiling `.hsc` templates into `.hs` files. |
 | `haddock` | `File` | `$ORIGIN`-staged `haddock` documentation generator executable (`<prefix>/bin/haddock-ghc-<ver>`). |
-| `ghc_iserv` | `File \| None` | Optional staged out-of-process interpreter executable (`ghc-iserv-dyn-ghc-<ver>`) spawned by GHC when running compile-time Template Haskell splices; `None` if the bindist omits an external interpreter. |
-| `libdir` | `File` | Staged GHC `lib/` directory `TreeArtifact` (passed to `ghc -B` and `haddock -B -l`) containing `settings`, global `package.conf.d/`, `html/` (Haddock CSS/JS themes), boot `.a`/`.so`/`.hi` files, `libgmp.so.10`, and `libtinfo.so.6`. |
+| `runghc` | `File` | `$ORIGIN`-staged `runghc` standalone script-interpreter executable (`<prefix>/bin/runghc-<ver>`), used by `@rules_hs//tools/ghci:runghc`. |
+| `ghc_iserv` | `File \| None` | Optional staged out-of-process interpreter executable (`<prefix>/bin/ghc-iserv-dyn-ghc-<ver>`, also staged at `<prefix>/bin/ghc-iserv-dyn` so `-fexternal-interpreter` locates it automatically under `$topdir/../bin`); `None` if the bindist omits an external interpreter. |
+| `libdir` | `File` | Dereferenced staged GHC `lib/` directory `TreeArtifact` (passed to `ghc -B` and `haddock -B -l`) containing `settings`, global `package.conf.d/`, `html/` (Haddock CSS/JS themes), boot `.a`/`.so`/`.hi` files, `libgmp.so.10`, and `libtinfo.so.6`. |
 | `template_hsc_h` | `File` | GHC's `template-hsc.h` C macro header required by `hsc2hs` (`--template=<path>`). |
 | `rts_include_dir` | `str` | Execroot-relative path to GHC's Runtime System C header directory (`Rts.h`, `HsFFI.h`, `ghcversion.h`), added to `-I` whenever compiling C FFI files. |
 | `rts_headers` | `depset[File]` | Bazel-tracked `File` handles for GHC's RTS and boot C headers, added to action `inputs` so sandboxed C/`hsc2hs`/`./configure` actions can `#include "HsFFI.h"`. |
 | `all_files` | `depset[File]` | Complete `depset` of all staged GHC binaries, `libdir`, static archives, and RTS headers — include in `transitive` action `inputs` whenever running any GHC tool. |
 | `cc_wrapper` | `File` | Compiled native C11 `ghc_cc_wrapper` binary; pass to GHC via `-pgmc`, `-pgmcxx`, `-pgml`, `-pgma`, and `-pgmP` so C invocations route cleanly through Bazel's `cc_toolchain`. |
-| `gmp_static_dir` | `str \| None` | Execroot-relative path to an isolated directory containing only static `libgmp.a` (and stub `libtinfo.a`, with zero `.so` files), passed via `-optl-L` when linking executables so user binaries never dynamically depend on `libgmp.so.10`; `None` when `bignum` is `"native"`. |
+| `gmp_static_dir` | `str \| None` | Execroot-relative path to an isolated directory containing only static `libgmp.a` and static `libtinfo.a` (with zero `.so` files), passed via `-optl-L` when linking executables so user binaries never dynamically depend on `libgmp.so.10` or `libtinfo.so.6`; `None` when `bignum` is `"native"`. |
 | `gmp_static_lib` | `File \| None` | Static `libgmp.a` archive file from `@gmp//:gmp` (stage into link action inputs alongside `gmp_static_dir`), or `None` when `bignum` is `"native"`. |
 | `boot_packages` | `dict[str, dict]` | Parsed global boot library table keyed by Cabal name (`"base"`, `"text"`, etc.), mapping each to `{name, version, id, depends, exposed_modules}`. |
 | `boot_haddocks` | `dict[str, File]` | Map from boot package name (`"base"`, `"Cabal-syntax"`, `"text"`, etc.) to its pre-built `.haddock` interface `File` shipped inside the GHC bindist (`doc/html/libraries/`). Used by [`hs_haddock`](rules.md#hs_haddock) so references to standard library types hyperlink offline without recompiling boot docs. |

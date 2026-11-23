@@ -78,6 +78,7 @@ jobs:
           set -euo pipefail
           for ex in \
             examples/quickstart \
+            examples/repl \
             examples/ghc_9_12 \
             examples/language_features \
             examples/c_interop \
@@ -252,6 +253,7 @@ jobs:
           set -euo pipefail
           for ex in \
             examples/quickstart \
+            examples/repl \
             examples/ghc_9_12 \
             examples/language_features \
             examples/c_interop \

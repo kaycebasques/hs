@@ -171,21 +171,26 @@ shift 3
     out_ghc_pkg = ctx.actions.declare_file(prefix + "/bin/ghc-pkg-" + ver)
     out_hsc2hs = ctx.actions.declare_file(prefix + "/bin/hsc2hs-ghc-" + ver)
     out_haddock = ctx.actions.declare_file(prefix + "/bin/haddock-ghc-" + ver)
+    out_runghc = ctx.actions.declare_file(prefix + "/bin/runghc-" + ver)
     out_unlit = ctx.actions.declare_file(prefix + "/bin/unlit")
     out_lib = ctx.actions.declare_directory(prefix + "/lib")
 
-    outputs = [out_ghc, out_ghc_pkg, out_hsc2hs, out_haddock, out_unlit, out_lib]
-    inputs = [ctx.file.ghc, ctx.file.ghc_pkg, ctx.file.hsc2hs, ctx.file.haddock, ctx.file.unlit] + stage_extra_inputs
+    outputs = [out_ghc, out_ghc_pkg, out_hsc2hs, out_haddock, out_runghc, out_unlit, out_lib]
+    inputs = [ctx.file.ghc, ctx.file.ghc_pkg, ctx.file.hsc2hs, ctx.file.haddock, ctx.file.runghc, ctx.file.unlit] + stage_extra_inputs
 
     out_iserv = None
+    out_iserv_alias = None
     iserv_src = ""
     iserv_dst = ""
+    iserv_alias_dst = ""
     if ctx.file.ghc_iserv:
         out_iserv = ctx.actions.declare_file(prefix + "/bin/ghc-iserv-dyn-ghc-" + ver)
-        outputs.append(out_iserv)
+        out_iserv_alias = ctx.actions.declare_file(prefix + "/bin/ghc-iserv-dyn")
+        outputs.extend([out_iserv, out_iserv_alias])
         inputs.append(ctx.file.ghc_iserv)
         iserv_src = ctx.file.ghc_iserv.path
         iserv_dst = out_iserv.path
+        iserv_alias_dst = out_iserv_alias.path
 
     # Locate bindist lib root from template-hsc.h (always at <bindist>/lib/template-hsc.h).
     src_lib_dir = ctx.file.template_hsc_h.dirname
@@ -212,25 +217,31 @@ HSC2HS_SRC="$8"
 HSC2HS_DST="$9"
 HADDOCK_SRC="${10}"
 HADDOCK_DST="${11}"
-UNLIT_SRC="${12}"
-UNLIT_DST="${13}"
-ISERV_SRC="${14}"
-ISERV_DST="${15}"
-GMP_SO="${16}"
-TINFO_SO="${17}"
+RUNGHC_SRC="${12}"
+RUNGHC_DST="${13}"
+UNLIT_SRC="${14}"
+UNLIT_DST="${15}"
+ISERV_SRC="${16}"
+ISERV_DST="${17}"
+ISERV_ALIAS_DST="${18}"
+GMP_SO="${19}"
+TINFO_SO="${20}"
 
 cp -L "$GHC_SRC" "$GHC_DST" && chmod +x "$GHC_DST"
 cp -L "$GHCPKG_SRC" "$GHCPKG_DST" && chmod +x "$GHCPKG_DST"
 cp -L "$HSC2HS_SRC" "$HSC2HS_DST" && chmod +x "$HSC2HS_DST"
 cp -L "$HADDOCK_SRC" "$HADDOCK_DST" && chmod +x "$HADDOCK_DST"
+cp -L "$RUNGHC_SRC" "$RUNGHC_DST" && chmod +x "$RUNGHC_DST"
 cp -L "$UNLIT_SRC" "$UNLIT_DST" && chmod +x "$UNLIT_DST"
 if [ -n "$ISERV_SRC" ]; then
     cp -L "$ISERV_SRC" "$ISERV_DST" && chmod +x "$ISERV_DST"
+    cp -L "$ISERV_SRC" "$ISERV_ALIAS_DST" && chmod +x "$ISERV_ALIAS_DST"
 fi
 
 mkdir -p "$OUT_LIB"
-# Copy bindist lib/ preserving internal symlinks so the TreeArtifact is 100% self-contained.
-cp -R -P "$SRC_LIB"/. "$OUT_LIB"/
+# Dereference sandbox input symlinks (`cp -R -L`) so the TreeArtifact contains real
+# files and remains self-contained inside `bazel run` runfiles and remote caches.
+cp -R -L "$SRC_LIB"/. "$OUT_LIB"/
 chmod -R u+w "$OUT_LIB"
 
 if [ -n "$GMP_SO" ]; then
@@ -260,10 +271,13 @@ rm -f "$OUT_LIB/package.conf.d/package.cache.lock"
             out_hsc2hs.path,
             ctx.file.haddock.path,
             out_haddock.path,
+            ctx.file.runghc.path,
+            out_runghc.path,
             ctx.file.unlit.path,
             out_unlit.path,
             iserv_src,
             iserv_dst,
+            iserv_alias_dst,
             gmp_shared_so.path if gmp_shared_so else "",
             tinfo_so.path if tinfo_so else "",
         ],
@@ -285,9 +299,11 @@ rm -f "$OUT_LIB/package.conf.d/package.cache.lock"
             pkg_name = f.basename[:-len(".haddock")]
             boot_haddocks[pkg_name] = f
 
-    all_files_list = [out_ghc, out_ghc_pkg, out_hsc2hs, out_haddock, out_unlit, out_lib, ctx.file.template_hsc_h]
+    all_files_list = [out_ghc, out_ghc_pkg, out_hsc2hs, out_haddock, out_runghc, out_unlit, out_lib, ctx.file.template_hsc_h]
     if out_iserv:
         all_files_list.append(out_iserv)
+    if out_iserv_alias:
+        all_files_list.append(out_iserv_alias)
     if gmp_static_lib:
         all_files_list.append(gmp_static_lib)
     if tinfo_static_lib:
@@ -301,6 +317,7 @@ rm -f "$OUT_LIB/package.conf.d/package.cache.lock"
             ghc_pkg = out_ghc_pkg,
             hsc2hs = out_hsc2hs,
             haddock = out_haddock,
+            runghc = out_runghc,
             ghc_iserv = out_iserv,
             libdir = out_lib,
             template_hsc_h = ctx.file.template_hsc_h,
@@ -333,6 +350,7 @@ staged_ghc = rule(
         "ghc_pkg": attr.label(mandatory = True, allow_single_file = True),
         "hsc2hs": attr.label(mandatory = True, allow_single_file = True),
         "haddock": attr.label(mandatory = True, allow_single_file = True),
+        "runghc": attr.label(mandatory = True, allow_single_file = True),
         "unlit": attr.label(mandatory = True, allow_single_file = True),
         "ghc_iserv": attr.label(allow_single_file = True),
         "template_hsc_h": attr.label(mandatory = True, allow_single_file = True),

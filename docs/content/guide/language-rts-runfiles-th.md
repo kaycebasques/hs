@@ -6,7 +6,7 @@ nav_title: "Language, RTS, Runfiles & TH"
 order: 40
 ---
 
-This guide covers day-to-day Haskell language settings, module visibility, `.hs-boot` mutually recursive modules, batch compilation vs. planned `ghci`, GHC runtime system (RTS) threading, Bazel `data` runfiles, Template Haskell, and Haddock API documentation ([`hs_haddock`](../reference/rules.md#hs_haddock)), based on the test suites under `tests/rules/` and `tests/basic/`.
+This guide covers day-to-day Haskell language settings, interactive `ghci` interpreter sessions ([`hs_repl`](../reference/rules.md#hs_repl) and `@rules_hs//tools/ghci`), module visibility, `.hs-boot` mutually recursive modules, GHC runtime system (RTS) threading, Bazel `data` runfiles, Template Haskell, and Haddock API documentation ([`hs_haddock`](../reference/rules.md#hs_haddock)), based on the test suites under `tests/rules/` and `tests/basic/`.
 
 ## Language Editions (`GHC2021` vs. `GHC2024`) & Extensions
 
@@ -92,11 +92,67 @@ hs_library(
 
 ---
 
-## Batch Compilation Today vs. Interactive `ghci` REPL (Planned)
+## Interactive `ghci` REPL & Interpreter Modes (`hs_repl` and `//tools/ghci`) {#interactive-ghci-repl}
 
-**Is interactive `ghci` supported today?** No. Today `rules_hs` invokes GHC in batch compilation mode only (`ghc --make -c` for libraries and `ghc --make` for executables and tests). You cannot yet run `bazel run` on a rule to open an interactive `ghci` prompt preloaded with a target's modules and dependencies, and automatic `hie.yaml` generation for `haskell-language-server` editor tooling is not implemented yet.
+`rules_hs` supports GHC's interactive and non-interactive interpreter execution modes alongside batch compilation:
 
-Both an interactive `hs_repl` rule and `hie.yaml` IDE setup are planned (see [What Is Supported, Planned, and Out of Scope](../index.md#project-scope)). Today, the quickest feedback loop during development is running fine-grained [`hs_test`](../reference/rules.md#hs_test) targets (`bazel test //path/to:my_test`).
+### 1. Project REPL Targets (`hs_repl`)
+
+Declare an [`hs_repl`](../reference/rules.md#hs_repl) target in `BUILD.bazel` pointing at one or more [`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), or [`hs_test`](../reference/rules.md#hs_test) targets:
+
+```starlark
+load("@rules_hs//hs:defs.bzl", "hs_library", "hs_repl")
+
+hs_library(
+    name = "math_lib",
+    srcs = [
+        "Math/Core.hs",
+        "Math/Internal.hs",
+    ],
+    hidden_modules = ["Math.Internal"],
+    deps = ["@hs_boot//:base"],
+)
+
+hs_repl(
+    name = "math_repl",
+    ghci_commands = [":set +t"],
+    deps = [":math_lib"],
+)
+```
+
+Launch an interactive `ghci` session with `bazel run`:
+
+```bash
+bazel run //:math_repl
+```
+
+Inside the session:
+
+- **Bytecode scope (`*Module`)**: Workspace targets in `deps` are loaded from source into GHCi bytecode (`interpret_deps = True` by default), placing all target modules (including `hidden_modules` and unexported top-level helpers) in scope at the `ghci>` prompt. External `@hs_boot` and `@hackage` packages (plus any targets listed in `compiled_deps`) load from precompiled `.so` shared libraries.
+- **Live `:reload` without re-running Bazel**: When launched via `bazel run`, workspace source files and `-i` search paths resolve against `$BUILD_WORKSPACE_DIRECTORY`. Edit any loaded `.hs` file in your editor and run `:reload` (`:r`) at the `ghci>` prompt to recompile in place.
+- **Line editing, completion, `Ctrl-C`, and `:break` debugging**: GHC's `haskeline` prompt runs against `rules_hs`'s C11 `libtinfo.so.6` implementation (supporting arrow-key history, Tab identifier completion, `Ctrl-C` evaluation interruption, and GHCi's `:break` / `:step` / `:continue` bytecode debugger).
+- **C/C++ FFI, `CApiFFI`, Template Haskell, and `data` runfiles**: Native C and C++ archives in `c_sources` and `cc_deps` are linked automatically into a shared helper library (`HsLinkReplCbits`), `ghc_cc_wrapper` compiles `CApiFFI` stubs on demand, cross-library Template Haskell splices run in-process (or out-of-process when passing `-- -fexternal-interpreter`), and `RUNFILES_DIR` remains exported for `data` files.
+
+### 2. One-Shot Expression Evaluation (`-e`) and Standalone `//tools/ghci`
+
+Pass `-e '<expr>'` after `--` to evaluate an expression in the loaded module context and exit:
+
+```bash
+bazel run //:math_repl -- -e 'computeValue 5'
+```
+
+To open a standalone `ghci` prompt or run a single `.hs` script via `runghc` without declaring a rule in `BUILD.bazel`, use `@rules_hs//tools/ghci`:
+
+```bash
+# Standalone ghci prompt with GHC's boot packages visible:
+bazel run @rules_hs//tools/ghci
+
+# Evaluate an expression directly:
+bazel run @rules_hs//tools/ghci -- -e '2 ^ 64 :: Integer'
+
+# Execute a standalone Haskell script via staged runghc:
+bazel run @rules_hs//tools/ghci:runghc -- ./script.hs arg1 arg2
+```
 
 ---
 

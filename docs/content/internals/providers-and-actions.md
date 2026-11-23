@@ -1,12 +1,12 @@
 ---
 title: "Providers, Visibility & Build Action Graph"
-description: "Detailed plain-English guide to HsPackageInfo, HsLinkInfo, HsToolchainInfo, HsHaddockInfo, end-to-end hs_binary build steps, strict direct-dependency visibility, relocatable ${pkgroot} package databases, C archive linking flags, runfiles, Template Haskell, and hs_haddock."
+description: "Detailed plain-English guide to HsPackageInfo, HsLinkInfo, HsToolchainInfo, HsHaddockInfo, HsReplInfo, end-to-end hs_binary build steps, strict direct-dependency visibility, relocatable ${pkgroot} package databases, C archive linking flags, runfiles, Template Haskell, hs_repl, and hs_haddock."
 section: internals
 nav_title: "Providers & Action Graph"
 order: 30
 ---
 
-Every rule in `rules_hs` ([`hs_toolchain_library`](../reference/rules.md#hs_toolchain_library), [`hs_library`](../reference/rules.md#hs_library), [`hs_cabal_library`](../reference/rules.md#hs_cabal_library), [`hs_binary`](../reference/rules.md#hs_binary), [`hs_test`](../reference/rules.md#hs_test), and [`hs_haddock`](../reference/rules.md#hs_haddock)) is built from a small set of Starlark providers and action helpers across `hs/providers.bzl`, `hs/toolchain.bzl`, `hs/private/actions.bzl`, `hs/private/rules.bzl`, and `hs/private/haddock.bzl`.
+Every rule in `rules_hs` ([`hs_toolchain_library`](../reference/rules.md#hs_toolchain_library), [`hs_library`](../reference/rules.md#hs_library), [`hs_cabal_library`](../reference/rules.md#hs_cabal_library), [`hs_binary`](../reference/rules.md#hs_binary), [`hs_test`](../reference/rules.md#hs_test), [`hs_repl`](../reference/rules.md#hs_repl), and [`hs_haddock`](../reference/rules.md#hs_haddock)) is built from a small set of Starlark providers and action helpers across `hs/providers.bzl`, `hs/toolchain.bzl`, `hs/private/actions.bzl`, `hs/private/rules.bzl`, `hs/private/repl.bzl`, and `hs/private/haddock.bzl`.
 
 Following the same separation used in Buck2's Haskell rules (`facebook/buck2/prelude/haskell`), `rules_hs` keeps **direct dependency identity** separate from **indirect (transitive) compilation and link inputs**:
 
@@ -65,7 +65,7 @@ That three-way split is the reason `HsLinkInfo` carries **both** `pkg_dbs` (cont
 
 ## Provider Architecture {#provider-architecture}
 
-`hs/providers.bzl` defines four public providers (alongside an internal `HsDocSourceInfo` provider in `hs/private/actions.bzl`, Bazel's built-in `DefaultInfo` and `OutputGroupInfo`, and `rules_cc`'s `CcInfo`). Every field of each provider is explained below.
+`hs/providers.bzl` defines five public providers (alongside an internal `HsDocSourceInfo` provider in `hs/private/actions.bzl`, Bazel's built-in `DefaultInfo` and `OutputGroupInfo`, and `rules_cc`'s `CcInfo`). Every field of each provider is explained below.
 
 ### 1. `HsPackageInfo` — Direct Package Identity (8 Fields)
 
@@ -99,29 +99,34 @@ GHC requires every library in a build to have a distinct `unit_id` string contai
 - **`headers`** (`depset[File]`): All upstream `.h` header `File` objects that Bazel must symlink into the sandbox whenever a downstream step preprocesses or compiles C/FFI code.
 - **`cc_info`** (`CcInfo`): The merged `rules_cc` `CcInfo` carrying all transitive C/C++ header contexts, compiled `.a` static libraries, and linker flags (`-lm`, `-lstdc++`, `-lpthread`).
 
-### 3. `HsToolchainInfo` — Resolved GHC Toolchain & Companion Tools (21 Fields)
+### 3. `HsToolchainInfo` — Resolved GHC Toolchain & Companion Tools (22 Fields)
 
 [`HsToolchainInfo`](../reference/extensions-and-providers.md#hstoolchaininfo) (`hs/providers.bzl` and `hs/toolchain.bzl`) is built in two steps: `staged_ghc` (`hs/private/staged_ghc.bzl`, built in `cfg = "exec"`) stages the compiler tree and static GMP archive, and [`hs_toolchain`](../reference/rules.md#hs_toolchain) (`hs/toolchain.bzl`) attaches `ghc_cc_wrapper` and parsed boot library metadata before wrapping the record in `platform_common.ToolchainInfo(hs = ...)`.
 
-Its 21 fields group cleanly into four roles:
+Its 22 fields group cleanly into four roles:
 
 | Group | Fields | Plain-English Role |
 |---|---|---|
-| **Compiler & tool executables** | `ghc`, `ghc_pkg`, `hsc2hs`, `haddock`, `ghc_iserv`, `cc_wrapper` | `File` handles for the `$ORIGIN`-staged `ghc`, `ghc-pkg`, `hsc2hs`, `haddock`, and optional `ghc-iserv-dyn` binaries, plus the compiled C11 `ghc_cc_wrapper` adapter that bridges GHC to Bazel's C/C++ toolchain. |
-| **Staged GHC files & C runtime headers** | `libdir`, `template_hsc_h`, `rts_include_dir`, `rts_headers`, `all_files` | `libdir` is the staged `lib/` directory output (containing `settings`, `package.conf.d/`, `html/`, and `libgmp.so.10` / `libtinfo.so.6`); `template_hsc_h` is the C template header required by `hsc2hs`; `rts_include_dir` and `rts_headers` expose GHC's C runtime headers (`HsFFI.h`, `Rts.h`); `all_files` is the `depset` of all toolchain files staged into compile/link sandboxes. |
-| **Static GMP & boot package metadata** | `gmp_static_dir`, `gmp_static_lib`, `boot_packages`, `boot_haddocks`, `bignum` | `gmp_static_dir` and `gmp_static_lib` point to `staged_ghc/gmp_static/libgmp.a` (a folder containing no `.so` files, ensuring user binaries link GMP statically); `boot_packages` maps each of GHC's 41 boot package names (`"base"`, `"text"`, ...) to its parsed `id`, `version`, `depends`, and `exposed_modules`; `boot_haddocks` maps boot package names to bundled `.haddock` interface files; `bignum` records `"gmp"` or `"native"`. |
+| **Compiler & tool executables** | `ghc`, `ghc_pkg`, `hsc2hs`, `haddock`, `runghc`, `ghc_iserv`, `cc_wrapper` | `File` handles for the `$ORIGIN`-staged `ghc`, `ghc-pkg`, `hsc2hs`, `haddock`, `runghc`, and optional `ghc-iserv-dyn` binaries, plus the compiled C11 `ghc_cc_wrapper` adapter that bridges GHC to Bazel's C/C++ toolchain. |
+| **Staged GHC files & C runtime headers** | `libdir`, `template_hsc_h`, `rts_include_dir`, `rts_headers`, `all_files` | `libdir` is the dereferenced staged `lib/` directory output (containing `settings`, `package.conf.d/`, `html/`, and `libgmp.so.10` / `libtinfo.so.6`); `template_hsc_h` is the C template header required by `hsc2hs`; `rts_include_dir` and `rts_headers` expose GHC's C runtime headers (`HsFFI.h`, `Rts.h`); `all_files` is the `depset` of all toolchain files staged into compile/link/REPL sandboxes. |
+| **Static GMP & boot package metadata** | `gmp_static_dir`, `gmp_static_lib`, `boot_packages`, `boot_haddocks`, `bignum` | `gmp_static_dir` and `gmp_static_lib` point to `staged_ghc/gmp_static/libgmp.a` (alongside `libtinfo.a`, in a folder containing no `.so` files so user binaries link GMP and terminfo statically); `boot_packages` maps each of GHC's 41 boot package names (`"base"`, `"text"`, ...) to its parsed `id`, `version`, `depends`, and `exposed_modules`; `boot_haddocks` maps boot package names to bundled `.haddock` interface files; `bignum` records `"gmp"` or `"native"`. |
 | **Platform & compiler properties** | `version`, `is_dynamic_ghc`, `target_os`, `target_cpu`, `arch_libdir` | GHC version (`"9.10.3"`), whether the `ghc` binary itself is dynamically linked (`True` on Linux `deb10`, enabling `-dynamic-too`), normalized OS/CPU strings (`"linux"`, `"x86_64"` / `"arm64"`), and GHC's internal library subfolder name (`"x86_64-linux-ghc-9.10.3"`). |
 
 > **Tip — Platform-Independent `@hs_boot` Targets:** Because [`hs_toolchain_library`](../reference/rules.md#hs_toolchain_library) (`hs/private/rules.bzl`) looks up `hs_tc.boot_packages[pkg_name]` during **Phase 2 Analysis** from whichever platform's `HsToolchainInfo` was selected, `@hs_boot` (`hs_boot_repo` in `hs/private/ghc_bindist.bzl`) writes simple platform-independent `hs_toolchain_library(name = "<pkg>", package_name = "<pkg>")` targets that work identically on `linux_x86_64`, `linux_arm64`, and future target platforms.
 
-### 4. `HsHaddockInfo` (4 Fields) & Internal `HsDocSourceInfo`
+### 4. `HsHaddockInfo` (4 Fields), `HsReplInfo` (4 Fields) & Internal `HsDocSourceInfo`
 
 - **[`HsHaddockInfo`](../reference/extensions-and-providers.md#hshaddockinfo)** (`hs/providers.bzl`) is returned by [`hs_haddock`](../reference/rules.md#hs_haddock) (`hs/private/haddock.bzl`):
   - `html_dir` (`File`): The `<name>/` directory output (`TreeArtifact`) containing `index.html`, `<Module>.html`, `linuwial.css`, QuickJump `doc-index.json`, and hyperlinked source `src/<Module>.html`.
   - `interface` (`File`): The binary `<name>.haddock` cross-reference file written by `--dump-interface` (also available via `OutputGroupInfo.haddock_interface`).
   - `unit_ids` (`depset[str]`): GHC `unit_id` strings documented by this `hs_haddock` target.
   - `transitive_haddocks` (`depset[struct]`): Cumulative `struct(html_dir, interface)` records from this target and its `haddock_deps` so downstream `hs_haddock` targets can hyperlink across multiple documented packages.
-- **Internal `HsDocSourceInfo`** (`hs/private/actions.bzl`): Returned internally by `hs_library` and `hs_cabal_library` so `hs_haddock(deps = [":my_lib"])` automatically receives `:my_lib`'s `.hs` source files (including generated `hsc2hs` / `Paths_*` / `alex` / `happy` outputs), `cabal_macros.h`, `-i` and `-I` directories, language extensions, `hidden_modules`, and direct dependency unit IDs without repeating them in `BUILD.bazel`.
+- **[`HsReplInfo`](../reference/extensions-and-providers.md#hsreplinfo)** (`hs/providers.bzl`) is returned by [`hs_repl`](../reference/rules.md#hs_repl) (`hs/private/repl.bzl`):
+  - `executable` (`File`): Executable bash launcher (`<name>`) running staged `ghc` in `--interactive` or `-e` mode.
+  - `ghci_script` (`File`): Static `<name>.ghci` script written from `ghci_commands`.
+  - `interpreted_srcs` (`depset[File]`): Haskell source files loaded directly into GHCi bytecode.
+  - `package_ids` (`depset[str]`): Direct compiled package unit IDs exposed via `-package-id`.
+- **Internal `HsDocSourceInfo`** (`hs/private/actions.bzl`): Returned internally by `hs_library`, `hs_cabal_library`, `hs_binary`, and `hs_test` so both `hs_haddock(deps = [":my_lib"])` and `hs_repl(deps = [":my_lib_or_bin"])` receive the target's `.hs`/`.lhs`/`.hs-boot` source files (including generated `hsc2hs` / `Paths_*` / `alex` / `happy` outputs), `cabal_macros.h`, `-i` and `-I` directories, language extensions, `hidden_modules`, sanitized compiler flags, and direct dependency unit IDs without repeating them in `BUILD.bazel`.
 
 ### 5. `CcInfo` Forwarding
 
@@ -457,3 +462,14 @@ Because Haddock works by running GHC's parser and typechecker front-end over `.h
    - `<name>` (`TreeArtifact` directory on `DefaultInfo.files` and `HsHaddockInfo.html_dir`), containing `index.html`, per-module `<Module>.html` pages, `linuwial.css`, QuickJump search index `doc-index.json` (when `quickjump = True`), syntax-highlighted source `src/<Module>.html` (when `hyperlinked_source = True`), and an optional Hoogle text database (when `hoogle = True`).
    - `<name>.haddock` (`File` written by `--dump-interface`, exposed on `HsHaddockInfo.interface` and `OutputGroupInfo.haddock_interface`).
    This action is tested by `//tests/rules/haddock:haddock_test`, `//tools/lock:lock_haddock` (mounted in `//docs:site` at `/haddock/lock/`), and `examples/size//:size_haddock`.
+
+---
+
+## Interactive Interpreter Execution (`hs_repl` & `HsLinkReplCbits`) {#repl-actions}
+
+[`hs_repl`](../reference/rules.md#hs_repl) (`hs/private/repl.bzl`) exposes GHC's interactive bytecode interpreter (`--interactive`), expression evaluator (`-e`), and external interpreter server (`-fexternal-interpreter` via `bin/ghc-iserv-dyn`) as a Bazel `executable = True` rule:
+
+1. **Bytecode vs. precompiled dependency split**: When `interpret_deps = True` (the default), `_hs_repl_impl` collects `HsDocSourceInfo` from in-workspace targets in `deps` (excluding `compiled_deps`), omits those targets' `.pkgdb` directories and `unit_id`s from `-package-db` / `-package-id`, and promotes their direct compiled dependencies (`@hs_boot`, `@hackage`, `compiled_deps`) to `-package-id`. Main-workspace source paths resolve via `$BUILD_WORKSPACE_DIRECTORY` under `bazel run` (falling back to `$RUNFILES_DIR/_main` inside `bazel test`), so `:reload` picks up live edits on disk without re-running Bazel.
+2. **Startup `*Module` scope (`session.ghci`)**: Because GHC executes `-ghci-script` files *before* positional `.hs` arguments, passing multiple `.hs` files positionally leaves only the last module in scope. Instead, the launcher extracts each `.hs` / `.lhs` file's module header with an `awk` scanner (handling comments, `#ifdef` lines, and literate Bird/LaTeX blocks) and writes `:load "<f1>" "<f2>" ...` followed by `:module + *Mod1 *Mod2 ...`, `ghci_commands`, and `ghci_script` into a temporary per-session `$SESSION_GHCI` file.
+3. **Shared C/C++ FFI library (`HsLinkReplCbits`)**: Because Linux `ghc` is dynamically linked, interpreted FFI bytecode cannot load raw static C `.a` archives directly when C++ or circular symbol dependencies are present. Whenever `merged_cc_info` contains native C/C++ archives, `_link_repl_cbits_so` runs `HsLinkReplCbits` (`ghc_cc_wrapper -shared -fPIC -Wl,-Bsymbolic -Wl,--whole-archive <cc_archives> -Wl,--no-whole-archive <rt_shims>`) to build `<name>_repl_cbits/lib<safe_id>_cbits.so` and passes `-L... -l<safe_id>_cbits` to GHCi, while `CApiFFI` C wrapper stubs compile on the fly through `-pgmc <ghc_cc_wrapper>` (`RULES_HS_REAL_CC`).
+4. **External interpreter (`-fexternal-interpreter`) & `SIGINT` handling**: On dynamic Linux GHC (`is_dynamic_ghc = True`), GHC searches `$topdir/../bin/ghc-iserv-dyn` only when `-dynamic` is active; `staged_ghc` stages `bin/ghc-iserv-dyn` and the launcher automatically adds `-dynamic` whenever `-fexternal-interpreter` is present. The launcher traps `EXIT` (without trapping `INT`) so pressing `Ctrl-C` at the `ghci>` prompt delivers `SIGINT` directly to GHC's runtime handler (`Interrupted.`) without terminating the session. Tested end-to-end (including a real Linux pseudo-TTY harness driving `haskeline`) by `//tests/rules/repl:pty_repl_test`, `//tests/rules/repl:repl_modes_test`, and `examples/size//:size_repl_test`.

@@ -1,6 +1,6 @@
 ---
 title: "Haskell, GHC, and Cabal for Build Engineers"
-description: "Plain-English guide to Haskell evaluation, GHC's compiler tools, boot libraries, .hi interfaces, package databases, RTS, GMP, the libtinfo stub, FFI, Template Haskell, and Haddock."
+description: "Plain-English guide to Haskell evaluation, GHC's compiler tools, boot libraries, .hi interfaces, package databases, RTS, GMP, the C11 libtinfo reader, FFI, Template Haskell, and Haddock."
 section: internals
 nav_title: "Haskell & GHC Primer"
 order: 8
@@ -85,9 +85,9 @@ Haskell is a statically typed, purely functional, lazily evaluated language comp
 **GHC** is the standard production compiler used across the Haskell ecosystem. An official GHC pre-compiled release archive (called a **binary distribution**, or `bindist`) ships several tools together under `bin/`:
 
 - **`ghc`**: The non-interactive ahead-of-time native-code compiler and linker driver. It compiles `.hs` modules into `.o` object files and `.hi` interface files, and calls the system C linker to produce libraries and executables.
-- **`ghci` (`ghc --interactive`) — and interactive REPL status in `rules_hs`**:
-  - `ghci` is GHC's interactive read-eval-print loop (similar to typing `python` or `node` in a terminal), where developers load `.hs` source files, inspect inferred types, and evaluate expressions interactively.
-  - **Can you run `ghci` interactively through `rules_hs` today? No.** `rules_hs` does not currently provide an interactive REPL rule (such as `bazel run //:my_lib_repl` to launch `ghci` with Bazel dependencies pre-loaded). Interactive `ghci` support and `haskell-language-server` IDE integration are planned future work and are not implemented yet. Today `rules_hs` runs `ghc` strictly in non-interactive batch mode (`bazel build`, `bazel test`, and `bazel run` on compiled `hs_binary` targets).
+- **`ghci` (`ghc --interactive`) and `runghc`**:
+  - `ghci` is GHC's interactive read-eval-print loop (similar to typing `python` or `node` in a terminal), where developers load `.hs` source files into bytecode, inspect inferred types (`:type`, `:info`), set breakpoints (`:break`), and reload edited workspace modules (`:reload`). `runghc` executes standalone `.hs` / `.lhs` scripts in interpreter mode without writing a compiled binary to disk.
+  - **Interactive REPL support in `rules_hs`**: [`hs_repl`](../reference/rules.md#hs_repl) (`bazel run //:my_repl`) launches staged `ghc` in interactive mode (or `-e` expression mode) with workspace modules loaded into `*Module` bytecode scope, precompiled `@hs_boot` and `@hackage` package databases, C/C++ FFI shared stubs, Template Haskell, `data` runfiles, and `haskeline` arrow-key history and Tab completion. `rules_hs` also provides standalone `@rules_hs//tools/ghci` and `@rules_hs//tools/ghci:runghc` targets. (`haskell-language-server` `hie.yaml` editor configuration generation remains planned future work.)
 - **`ghc-pkg`**:
   - GHC does not search directories for `lib*.a` files by filename alone. Instead, every compiled Haskell library has a small `.conf` text registration file — an index card recording the library's package name, version, unique identifier, exported module names, dependencies, and the directory paths of its `.hi` and `.a` files. A directory holding `.conf` files is called a **GHC package database** (commonly named `package.conf.d` or `<target>.pkgdb`).
   - `ghc-pkg` is the utility that validates those `.conf` files and compiles all `.conf` files in a package database directory into a single binary lookup file named `package.cache` (`ghc-pkg recache`) so `ghc` can look up libraries quickly at startup without re-parsing text files.
@@ -302,67 +302,40 @@ As explained in [Core Concepts](#core-concepts), Haskell's standard library (`ba
 1. **Running the `ghc` compiler binary itself (`libgmp.so.10`)**: Because upstream Linux GHC (`deb10`) is dynamically linked, `bin/ghc-9.10.3` carries a Linux ELF `DT_NEEDED` entry (the list of shared libraries the OS loads at startup) for `libgmp.so.10`. `staged_ghc` links a `libgmp.so.10` shared library from BCR `@gmp//:gmp` (`gmp@6.3.0.bcr.5`) and places it in GHC's relative library directory (`$ORIGIN/../lib/...`, where `$ORIGIN` expands to the directory containing the `ghc` binary) so `ghc` starts in minimal containers that do not have `libgmp10` installed.
 2. **Linking user executables (`gmp_static/libgmp.a`)**: Because user binaries link `base` -> `ghc-bignum` (`extra-libraries: gmp`), GHC passes `-lgmp` to the C linker. `rules_hs` points `-L` at an isolated directory (`gmp_static/`) containing *only* static `libgmp.a` and no `.so` files, linking GMP statically into the output binary so deployed executables do not depend on `libgmp.so.10` at runtime ([Hermeticity & Toolchain](hermeticity.md#static-gmp-executables)).
 
-### 2. Why `libtinfo.so.6` and `libtinfo.a` Exist — and How the Fallback Stub Works
+### 2. Why `libtinfo.so.6` and `libtinfo.a` Exist — and How the Self-Contained C11 Reader Works
 
-At first glance, seeing a custom 56-line `tinfo_stub.c` file providing `libtinfo.so.6` and `libtinfo.a` looks unusual. Understanding why `ghc` asks for `libtinfo`, what those 8 functions do, and where the stub's trade-offs lie makes the design straightforward to evaluate.
+At first glance, seeing an in-tree C11 source file (`hs/private/tinfo_stub.c`) providing `libtinfo.so.6` and `libtinfo.a` looks unusual. Understanding why `ghc` asks for `libtinfo`, what those 8 functions do, and how `tinfo_stub.c` serves both batch sandboxes and live interactive `ghci` terminals makes the design straightforward to evaluate.
 
-#### Why a Batch Compiler References `libtinfo` at All
+#### Why Both Batch `ghc` and Interactive `ghci` Reference `libtinfo`
 
-`libtinfo` is the low-level terminal capability library from `ncurses`. At runtime, it reads `/usr/share/terminfo` (indexed by the `$TERM` environment variable, such as `xterm-256color`) to look up terminal escape sequences for moving the cursor, clearing lines, and changing colors.
+`libtinfo` is the low-level terminal capability library from `ncurses`. At runtime, it reads compiled `term(5)` files from `/usr/share/terminfo` (indexed by the `$TERM` environment variable, such as `xterm-256color`) to look up terminal escape sequences for moving the cursor, clearing lines, and changing colors.
 
-A batch compile command (`ghc -c Foo.hs`) never uses interactive cursor movement. However, in GHC's upstream architecture, **the batch compiler `ghc` and the interactive REPL `ghci` (`ghc --interactive`) are compiled into the same executable** (`bin/ghc-9.10.3`, with `bin/ghci` acting as a short wrapper passing `--interactive`). To support `ghci`'s interactive prompt, `bin/ghc-9.10.3` links `libHSghci` -> `libHShaskeline` -> `libHSterminfo` -> **`libtinfo.so.6`**.
+In GHC's upstream architecture, **the batch compiler `ghc` and the interactive REPL `ghci` (`ghc --interactive`) are compiled into the same executable** (`bin/ghc-9.10.3`). To support `ghci`'s interactive prompt, `bin/ghc-9.10.3` links `libHSghci` -> `libHShaskeline` -> `libHSterminfo` -> **`libtinfo.so.6`**.
 
-On Linux, the kernel's dynamic linker (`ld-linux.so`) loads every `DT_NEEDED` shared library **before `main()` runs**. On a minimal Docker or remote-execution container without `libtinfo6` installed, running `ghc -c Foo.hs` fails immediately at process startup (`libtinfo.so.6: cannot open shared object file`) even though batch compilation never calls a single `terminfo` function.
+On Linux, the kernel's dynamic linker (`ld-linux.so`) loads every `DT_NEEDED` shared library **before `main()` runs**. On a minimal Docker or remote-execution container without `libtinfo6` installed, running `ghc -c Foo.hs` or `bazel run //:my_repl` would fail immediately at process startup (`libtinfo.so.6: cannot open shared object file`) unless `rules_hs` stages `libtinfo.so.6` itself.
 
 #### How the Exact Symbol Surface Was Verified
 
-Auditing every executable (`ghc`, `ghc-pkg`, `hsc2hs`, `haddock`, `ghc-iserv-dyn`, `unlit`) and every `libHS*.so` shared library across the GHC `9.10.3` and `9.12.4` Linux (`x86_64` and `aarch64`) binary distributions with `readelf -Ws` confirms two facts:
+Auditing every executable (`ghc`, `runghc`, `ghc-pkg`, `hsc2hs`, `haddock`, `ghc-iserv-dyn`, `unlit`) and every `libHS*.so` shared library across the GHC `9.10.3` and `9.12.4` Linux (`x86_64` and `aarch64`) binary distributions with `readelf -Ws` confirms two facts:
 
 1. `libHSterminfo` is the **only** library in the entire GHC distribution that imports symbols from `libtinfo.so.6`.
 2. It imports **strictly 8 C functions**, each carrying the Debian/Ubuntu ELF symbol version label `NCURSES6_TINFO_5.0.19991023`: `setupterm`, `set_curterm`, `del_curterm`, `tigetflag`, `tigetnum`, `tigetstr`, `tparm`, and `tputs`.
 
-#### Why Returning Error Sentinels Matches the Standard X/Open Curses Contract
+#### How `hs/private/tinfo_stub.c` Implements Those 8 Functions in Pure C11
 
-`hs/private/tinfo_stub.c` is 56 lines of standard C11 implementing those 8 functions with the standard X/Open Curses "no terminal database available" return values:
+Rather than pulling an external `ncurses` autoconf + `gawk` build into every consumer's `MODULE.bazel` graph, `hs/private/tinfo_stub.c` implements those 8 X/Open Curses functions directly in self-contained C11:
 
-```c
-int setupterm(const char *term, int fildes, int *errret) {
-    (void)term;
-    (void)fildes;
-    if (errret != NULL) {
-        *errret = -1;   /* X/Open Curses: -1 = terminfo database could not be found */
-    }
-    return -1;          /* ERR */
-}
-
-int del_curterm(void *oterm)  { (void)oterm;   return 0; }
-void *set_curterm(void *nterm){ (void)nterm;   return NULL; }
-int tigetflag(const char *s)  { (void)s;       return -1; }          /* absent boolean capability */
-int tigetnum(const char *s)   { (void)s;       return -2; }          /* absent numeric capability */
-char *tigetstr(const char *s) { (void)s;       return (char *)-1; }  /* absent string capability */
-char *tparm(const char *s, ...){ (void)s;      return NULL; }
-int tputs(const char *s, int n, int (* fn)(int)) { (void)s; (void)n; (void)fn; return 0; }
-```
-
-These return values are not arbitrary placeholders:
-
-- In the X/Open Curses and `ncurses` specification, `setupterm` setting `*errret = -1` and returning `-1` (`ERR`) is the documented return code meaning *"the terminfo database could not be found."* Similarly, `-1`, `-2`, and `(char *)-1` are the specified error sentinels for `tigetflag`, `tigetnum`, and `tigetstr`.
-- Notably, **this is the exact same return value real `libtinfo.so.6` produces inside a Bazel build sandbox or headless CI pipe**, where `$TERM` is unset or `/usr/share/terminfo` is not mounted inside the sandbox.
-- Inside GHC's `terminfo` boot library (`System.Console.Terminfo.Base.setupTerm`), the Haskell binding checks whether `setupterm` returned `-1` and immediately raises a structured `SetupTermError` exception without ever dereferencing a `TERMINAL *` pointer or calling `tigetstr` / `tputs`. Callers such as `haskeline` and GHC catch `SetupTermError` and fall back cleanly to plain line-oriented ("dumb terminal") input/output.
+- **Binary `term(5)` parser**: Searches `$TERMINFO`, `$TERMINFO_DIRS`, `$HOME/.terminfo`, `/etc/terminfo`, `/lib/terminfo`, and `/usr/share/terminfo` (checking both `<first-char>/<term>` on Linux and `<two-digit-hex>/<term>` on macOS/BSD layouts) and parses compiled binary terminfo files directly — supporting classic 16-bit (`0432`), ncurses extended 32-bit (`01036`), and extended user-defined capability sections (`AX`, `XT`, `RGB`, `Smulx`, `Setulc`).
+- **Built-in terminal fallback profiles**: When running inside a minimal container or Bazel sandbox that has no `/usr/share/terminfo` directory on disk, `setupterm` falls back to built-in capability tables for common `$TERM` families (`xterm-256color`/`xterm`/`screen`/`tmux`/`rxvt`/`alacritty`/`kitty`, `vt100`/`ansi`/`linux`, and `dumb`). Passing `NULL`, `""`, or an unknown terminal name with no matching database file sets `*errret = -1` and returns `-1` (`ERR`), which `System.Console.Terminfo.Base.setupTerm` converts into `SetupTermError`.
+- **Live window dimensions and parameterized formatting**: `setupterm` queries live terminal dimensions (`lines` and `cols`) via `ioctl(fildes, TIOCGWINSZ, ...)` (and `$LINES`/`$COLUMNS` overrides), `tparm` evaluates stack-based terminfo format strings (`%p1..%p9`, `%d`/`%s`/`%c`, `%i`, arithmetic/bitwise operators, `%?`/`%t`/`%e`/`%;` conditionals, and `%P`/`%g` variables), and `tputs` emits capability strings while stripping `$<delay>` padding markers.
 
 #### Why `hs/private/tinfo_stub.lds` Is Required
 
 On Debian and Ubuntu, `ld-linux.so` verifies not only that `libtinfo.so.6` exports a function named `setupterm`, but also that the symbol carries the version label `NCURSES6_TINFO_5.0.19991023` recorded in `libHSterminfo` when GHC was built on Debian 10. Compiling `tinfo_stub.c` without a version script would export unversioned symbols and `ld-linux.so` would reject the library at startup. The 13-line linker script `hs/private/tinfo_stub.lds` attaches `NCURSES6_TINFO_5.0.19991023` to those 8 exported symbols (see [Hermeticity & Toolchain](hermeticity.md#origin-staging) for the exact ELF mechanics).
 
-#### Why a 56-Line Stub Was Chosen Instead of Building Full `ncurses`
+#### Why Self-Contained C11 Was Chosen Over Building Full `ncurses`
 
-Building `ncurses` from source inside Bazel requires running autoconf `./configure` probes, invoking host `gawk` and shell scripts to generate capability tables, and compiling hundreds of C files — only for real `libtinfo` to still return `*errret = -1` inside a hermetic Bazel sandbox lacking `/usr/share/terminfo`. Compiling 56 lines of C11 with Bazel's `cc_toolchain` takes milliseconds, adds no external dependencies to `MODULE.bazel`, and behaves identically across hosts regardless of whether `/usr/share/terminfo` exists on the machine.
-
-#### Limitations and When You Need Real `ncurses`
-
-- **Where the stub is sufficient**: All batch `ghc` compilations, `haddock` documentation builds, unit/integration tests, backend services, compilers, and CLI tools that either do not call `System.Console.Terminfo` or gracefully fall back when no terminfo database is present. (Libraries like `ansi-terminal`, used by test runners such as `tasty` and `hspec` for colored output, emit standard ANSI escape sequences directly without using `terminfo` or `libtinfo`.)
-- **Trade-off for interactive full-screen terminal UI (TUI) binaries**: `staged_ghc` also places a static archive of the stub at `gmp_static/libtinfo.a` so user executables that depend on `haskeline` or the `ghc` API library link statically without requiring `libtinfo-dev` on the build host or `libtinfo.so.6` on target machines. However, if you build an **interactive full-screen terminal UI application** in Haskell — for example with Hackage's **`vty`** or **`brick`** libraries, which call `setupTermFromEnv` at runtime in a user's terminal and require real capability strings — linking the stub `libtinfo.a` will cause `setupTermFromEnv` to report that terminfo is unavailable.
-- **How to supply real `ncurses` for a TUI binary**: A TUI target can attach a real `ncurses` / `tinfo` `cc_library` via `cc_deps` on [`hs_binary`](../reference/rules.md#hs_binary) or via [`hackage.override`](../reference/extensions-and-providers.md#hackage-override) (`extra_cc_deps`), linking the real archive with `-Wl,--whole-archive` (or placing its `-L` directory ahead of `gmp_static` via `ghc_opts = ["-optl-L..."]`) so the linker resolves `setupterm` and the `tiget*` functions from real `ncurses` rather than `gmp_static/libtinfo.a` (and ensuring `/usr/share/terminfo` and `$TERM` are present in the runtime environment). Adding an interactive `hs_repl` rule with terminal line editing is the planned catalyst for built-in optional `ncurses` toolchain support.
+Building `ncurses` from source inside Bazel requires running autoconf `./configure` probes, invoking host `gawk` and shell scripts to generate capability tables, and adding an external dependency to every consumer's `MODULE.bazel`. Compiling `tinfo_stub.c` directly with Bazel's `cc_toolchain` takes milliseconds, keeps `MODULE.bazel` at 4 non-dev modules, supports `haskeline` arrow-key history, Tab completion, and 256-color output in [`hs_repl`](../reference/rules.md#hs_repl) and `terminfo`-linked [`hs_binary`](../reference/rules.md#hs_binary) targets (`gmp_static/libtinfo.a`), and still allows C applications that call higher-level `ncurses` windowing APIs (`initscr`, `newwin`, `wgetch`, which live outside `libHSterminfo`'s 8-symbol `tinfo` surface) to link a full `ncurses` `cc_library` via `cc_deps`.
 
 ---
 

@@ -238,7 +238,7 @@ def _hs_executable_impl(ctx):
     dep_info = collect_deps(ctx.attr.deps, ctx.attr.cc_deps)
 
     # Compile any C sources attached directly to the executable target.
-    merged_cc_info, _, _ = compile_c_sources(
+    merged_cc_info, pub_inc_dirs, pub_hdrs = compile_c_sources(
         ctx = ctx,
         hs_tc = hs_tc,
         cc_tools = cc_tools,
@@ -286,9 +286,11 @@ def _hs_executable_impl(ctx):
         ghc_args.add("-package-db", db.path)
 
     seen_uid = {}
+    direct_unit_ids = []
     for pkg in dep_info.direct_pkgs:
         if pkg.unit_id and pkg.unit_id not in seen_uid:
             seen_uid[pkg.unit_id] = True
+            direct_unit_ids.append(pkg.unit_id)
             ghc_args.add("-package-id", pkg.unit_id)
 
     if ctx.attr.default_language:
@@ -412,12 +414,44 @@ fi
         for dep in ctx.attr.deps + ctx.attr.cc_deps + ctx.attr.data
     ])
 
+    local_c_inc_dirs = [resolve_package_dir(ctx, x) for x in ctx.attr.include_dirs]
+    doc_info = HsDocSourceInfo(
+        package_name = ctx.label.name.replace("_", "-"),
+        version = "0.0.0",
+        unit_id = None,
+        pkg_db = None,
+        all_hs_srcs = list(ctx.files.srcs),
+        doc_src_files = compile_src_files,
+        import_dirs = resolved_src_dirs,
+        c_include_dirs = local_c_inc_dirs,
+        headers = depset(ctx.files.hdrs),
+        cabal_macros_h = None,
+        hidden_modules = [],
+        default_language = ctx.attr.default_language,
+        default_extensions = list(ctx.attr.default_extensions),
+        ghc_opts = list(ctx.attr.ghc_opts),
+        cpp_options = list(ctx.attr.cpp_options),
+        cc_options = list(ctx.attr.cc_options),
+        direct_unit_ids = direct_unit_ids,
+        compile_data = list(ctx.files.data),
+        pkg_root = resolve_package_dir(ctx, "."),
+        boot_pkg_names = dep_info.boot_pkg_names,
+    )
+
     return [
         DefaultInfo(
             executable = out_exe,
             files = depset([out_exe]),
             runfiles = runfiles,
         ),
+        HsLinkInfo(
+            pkg_dbs = dep_info.pkg_dbs,
+            hs_libs = dep_info.hs_libs,
+            include_dirs = depset(pub_inc_dirs, transitive = [dep_info.include_dirs]),
+            headers = depset(transitive = [pub_hdrs, dep_info.headers]),
+            cc_info = merged_cc_info,
+        ),
+        doc_info,
     ]
 
 _EXECUTABLE_ATTRS = {

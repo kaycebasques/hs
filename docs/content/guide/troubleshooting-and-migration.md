@@ -12,7 +12,7 @@ This guide covers migrating existing Haskell builds from `tweag/rules_haskell`, 
 
 `rules_hs` targets Bazel 9 with Bzlmod (`MODULE.bazel`), replacing `WORKSPACE` files, `rules_nixpkgs`, Python `cc_wrapper` scripts, and manual `haskell_toolchain_library` rules. (For a full comparison across `rules_hs`, `tweag/rules_haskell`, Buck2's Haskell rules, Please Build, and `haskell.nix`, see [Comparison with Other Rulesets](../internals/rulesets-comparison.md).)
 
-Before starting a migration, check [What Is Supported, Planned, and Out of Scope](../index.md#project-scope): if your existing `rules_haskell` build currently depends on macOS or Windows execution, interactive `ghci` REPL targets (`@rules_haskell//tools/ghci`), `-prof` profiling builds, `c2hs`, GHC plugins, or third-party Hackage packages with arbitrary `build-type: Custom` `Setup.hs` code generators, note that the first five are planned (not yet wired) and arbitrary `Custom` `Setup.hs` execution is out of scope (see Troubleshooting item 8 below for workarounds).
+Before starting a migration, check [What Is Supported, Planned, and Out of Scope](../index.md#project-scope): if your existing `rules_haskell` build currently depends on macOS or Windows execution, `-prof` profiling builds, `c2hs`, GHC plugins, or third-party Hackage packages with arbitrary `build-type: Custom` `Setup.hs` code generators, note that the first four are planned (not yet wired) and arbitrary `Custom` `Setup.hs` execution is out of scope (see Troubleshooting item 8 below for workarounds).
 
 ### Concept and Rule Mapping
 
@@ -25,6 +25,7 @@ Before starting a migration, check [What Is Supported, Planned, and Out of Scope
 | `haskell_library` | [`hs_library`](../reference/rules.md#hs_library) | Defaults to `GHC2021`; separates `deps` and `cc_deps`; uses `hs_source_dirs` instead of `src_strip_prefix` |
 | `haskell_binary` | [`hs_binary`](../reference/rules.md#hs_binary) | Links `libgmp.a` statically; defaults to `threaded = True` and `main_module = "Main"` |
 | `haskell_test` | [`hs_test`](../reference/rules.md#hs_test) | Same attributes as [`hs_binary`](../reference/rules.md#hs_binary) |
+| `haskell_repl` / `@rules_haskell//tools/ghci` | [`hs_repl`](../reference/rules.md#hs_repl) / `@rules_hs//tools/ghci` | Loads workspace targets into GHCi bytecode (`interpret_deps = True`, `:reload`, `:break`) and external packages from `.pkgdb/dyn/`; `@rules_hs//tools/ghci:runghc` runs standalone scripts |
 | `haskell_doc` | [`hs_haddock`](../reference/rules.md#hs_haddock) | Runs GHC's bundled `haddock` inside Bazel's sandbox with hyperlinked source and QuickJump (`doc-index.json`) |
 | `ghcopts = [...]` | `ghc_opts = [...]` | Snake-case attribute names (`ghc_opts`, `cpp_options`, `cc_options`) |
 | `src_strip_prefix = "src"` | `hs_source_dirs = ["src"]` | Matches Cabal's `hs-source-dirs` list (supports multiple source roots) |
@@ -169,8 +170,8 @@ bazel run @rules_hs//tools/lock:lock -- \
 
 ---
 
-### 10. Full-Screen Terminal UI (`vty` / `brick`) Fails to Initialize `terminfo`
+### 10. Custom Terminal Name (`TERM`) Fails to Initialize `terminfo`
 
-**Cause**: So batch compilation and CLI tools do not depend on host `ncurses` packages, `rules_hs` links GHC and the `terminfo` boot package against a minimal 8-symbol `libtinfo` stub that reports a basic non-ANSI terminal.
+**Cause**: `rules_hs` links GHC and the `terminfo` boot package against a self-contained C11 `libtinfo` reader that searches `$TERMINFO`, `$HOME/.terminfo`, `$TERMINFO_DIRS`, and `/usr/share/terminfo` (and falls back to built-in `xterm-256color`, `xterm`, `tmux`, `screen`, `vt100`, `ansi`, `linux`, and `dumb` capability sets when no terminfo files exist on disk). If `$TERM` is set to an uncommon custom terminal name that has no compiled `term(5)` entry in those directories, `setupTermFromEnv` raises `SetupTermError`.
 
-**Fix**: For interactive full-screen terminal applications (`vty`, `brick`), provide a real `ncurses` `cc_library` target via `cc_deps` on your [`hs_binary`](../reference/rules.md#hs_binary) or via `extra_cc_deps` in [`hackage.override`](../reference/extensions-and-providers.md#hackage-override).
+**Fix**: Set `TERMINFO` (or `TERMINFO_DIRS`) to the directory containing your custom compiled `term(5)` file, or set `TERM=xterm-256color` when running inside minimal containers without `/usr/share/terminfo`.
