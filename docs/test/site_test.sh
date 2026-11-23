@@ -83,10 +83,10 @@ echo "OK: both //docs:docs_gen and //docs:serve link strictly base glibc"
 
 echo "=== 3. Verifying execution under env -i PATH=/nonexistent ==="
 HELP_GEN="$(env -i PATH=/nonexistent "$DOCS_GEN_BIN" --help)"
-echo "$HELP_GEN" | grep -qi "hakyll"
+grep -qi "hakyll" <<< "$HELP_GEN"
 
 HELP_SERVE="$(env -i PATH=/nonexistent "$SERVE_BIN" --help)"
-echo "$HELP_SERVE" | grep -qF "Usage: serve"
+grep -qF "Usage: serve" <<< "$HELP_SERVE"
 
 echo "=== 4. Verifying //docs:serve HTTP/1.1 static server for Hakyll & Haddock ==="
 SERVE_LOG="${TEST_TMPDIR:-/tmp}/serve_test.$$.log"
@@ -119,16 +119,16 @@ printf 'GET /internals/docs-engine.html HTTP/1.1\r\nHost: 127.0.0.1\r\nConnectio
 HTTP_RESP_HAKYLL="$(cat <&3)"
 exec 3>&-
 
-echo "$HTTP_RESP_HAKYLL" | grep -qF "HTTP/1.1 200 OK"
-echo "$HTTP_RESP_HAKYLL" | grep -qF "Hakyll"
+grep -qF "HTTP/1.1 200 OK" <<< "$HTTP_RESP_HAKYLL"
+grep -qF "Hakyll" <<< "$HTTP_RESP_HAKYLL"
 
 exec 4<>"/dev/tcp/127.0.0.1/${ACTUAL_PORT}"
 printf 'GET /haddock/lock/index.html HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n' >&4
 HTTP_RESP_HADDOCK="$(cat <&4)"
 exec 4>&-
 
-echo "$HTTP_RESP_HADDOCK" | grep -qF "HTTP/1.1 200 OK"
-echo "$HTTP_RESP_HADDOCK" | grep -qF "CabalExtract"
+grep -qF "HTTP/1.1 200 OK" <<< "$HTTP_RESP_HADDOCK"
+grep -qF "CabalExtract" <<< "$HTTP_RESP_HADDOCK"
 
 echo "OK: //docs:serve served both Hakyll and /haddock/lock/index.html over HTTP/1.1 on port $ACTUAL_PORT"
 echo "DOCS SITE & ELF HERMETICITY TEST PASSED!"
