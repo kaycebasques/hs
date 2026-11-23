@@ -560,6 +560,11 @@ def _hs_haddock_action_test_impl(ctx):
     asserts.true(env, "--hyperlinked-source" in argv, "expected --hyperlinked-source in HsHaddock argv")
     asserts.true(env, "--optghc=-hide-all-packages" in argv, "expected --optghc=-hide-all-packages in HsHaddock argv")
 
+    if ctx.attr.expect_hoogle:
+        asserts.true(env, "--hoogle" in argv, "expected --hoogle in HsHaddock argv")
+    else:
+        asserts.false(env, "--hoogle" in argv, "did not expect --hoogle in HsHaddock argv")
+
     if ctx.attr.upstream_haddock != None:
         up_info = ctx.attr.upstream_haddock[HsHaddockInfo]
         expected_read_iface = "--read-interface=../{},{}".format(
@@ -578,5 +583,44 @@ hs_haddock_action_test = analysistest.make(
     _hs_haddock_action_test_impl,
     attrs = {
         "upstream_haddock": attr.label(providers = [HsHaddockInfo]),
+        "expect_hoogle": attr.bool(default = False),
     },
 )
+
+# ==============================================================================
+# 8. GHC2024 language flag & multi-platform toolchain registration checks
+# ==============================================================================
+
+def _hs_library_language_flag_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    actions = analysistest.target_actions(env)
+
+    compile_actions = _find_actions_by_mnemonic(actions, "HsCompileLibrary")
+    asserts.equals(env, 1, len(compile_actions), "expected one HsCompileLibrary action")
+    argv = compile_actions[0].argv
+    expected_flag = "-X" + ctx.attr.expected_language
+    asserts.true(
+        env,
+        expected_flag in argv,
+        "expected '{}' in HsCompileLibrary argv".format(expected_flag),
+    )
+    return analysistest.end(env)
+
+hs_library_language_flag_test = analysistest.make(
+    _hs_library_language_flag_test_impl,
+    attrs = {
+        "expected_language": attr.string(mandatory = True),
+    },
+)
+
+def _toolchain_registration_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    asserts.true(
+        env,
+        platform_common.ToolchainInfo in target or DefaultInfo in target,
+        "registered toolchain target must resolve cleanly",
+    )
+    return analysistest.end(env)
+
+toolchain_registration_test = analysistest.make(_toolchain_registration_test_impl)

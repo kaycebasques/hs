@@ -1,0 +1,55 @@
+load("@rules_hs//hs:defs.bzl", "hs_library", "hs_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+hs_library(
+    name = "quotes_lib",
+    srcs = ["QuotesLib.hs"],
+    ghc_opts = ["-Wall"],
+    deps = [
+        "@hs_boot//:base",
+        "@hs_boot//:template-haskell",
+    ],
+)
+
+hs_library(
+    name = "splice_lib",
+    srcs = ["SpliceLib.hs"],
+    ghc_opts = ["-Wall"],
+    deps = [
+        ":quotes_lib",
+        "@hs_boot//:base",
+    ],
+)
+
+hs_library(
+    name = "embedded_lib",
+    srcs = ["EmbeddedLib.hs"],
+    data = ["banner.txt"],
+    ghc_opts = ["-Wall"],
+    deps = [
+        "@hackage//:base",
+        "@hackage//:file-embed",
+    ],
+)
+
+hs_test(
+    name = "th_test",
+    size = "small",
+    srcs = ["ThTest.hs"],
+    ghc_opts = ["-Wall"],
+    deps = [
+        ":embedded_lib",
+        ":quotes_lib",
+        ":splice_lib",
+        "@hs_boot//:base",
+        "@hs_boot//:template-haskell",
+    ],
+)
+
+sh_test(
+    name = "th_elf_test",
+    size = "small",
+    srcs = ["elf_test.sh"],
+    args = ["$(rootpath :th_test)"],
+    data = [":th_test"],
+)

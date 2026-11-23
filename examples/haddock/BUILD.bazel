@@ -1,0 +1,55 @@
+load("@rules_hs//hs:defs.bzl", "hs_haddock", "hs_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+hs_library(
+    name = "core",
+    srcs = [
+        "src/DocCore.hs",
+        "src/DocInternal.hs",
+    ],
+    ghc_opts = ["-Wall"],
+    hidden_modules = ["DocInternal"],
+    hs_source_dirs = ["src"],
+    deps = ["@hs_boot//:base"],
+)
+
+hs_library(
+    name = "app",
+    srcs = ["src/DocApp.hs"],
+    ghc_opts = ["-Wall"],
+    hs_source_dirs = ["src"],
+    deps = [
+        ":core",
+        "@hs_boot//:base",
+        "@hs_boot//:text",
+    ],
+)
+
+hs_haddock(
+    name = "core_haddock",
+    hoogle = True,
+    prologue = "prologue.txt",
+    title = "Core Counter API",
+    deps = [":core"],
+)
+
+hs_haddock(
+    name = "app_haddock",
+    haddock_deps = [":core_haddock"],
+    title = "App Counter API",
+    deps = [":app"],
+)
+
+sh_test(
+    name = "haddock_test",
+    size = "small",
+    srcs = ["test/haddock_test.sh"],
+    args = [
+        "$(rootpath :core_haddock)",
+        "$(rootpath :app_haddock)",
+    ],
+    data = [
+        ":app_haddock",
+        ":core_haddock",
+    ],
+)

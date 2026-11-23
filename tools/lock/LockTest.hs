@@ -316,6 +316,25 @@ testCxxSourcesAndOldExtensions = do
   assertEq "cxx-sources extracted into c_sources" ["external/crc32c/src/crc32c.cc"] (csCSources lib)
   assertEq "cxx-options extracted into cc_options" ["-std=c++11"] (csCcOptions lib)
 
+testCmmSources :: TestResult
+testCmmSources = do
+  let cabal =
+        BS8.unlines
+          [ "cabal-version: 3.0"
+          , "name: atomic-counter-sample"
+          , "version: 0.1.2.4"
+          , "build-type: Simple"
+          , "library"
+          , "  default-language: Haskell2010"
+          , "  exposed-modules: Control.Concurrent.Counter"
+          , "  cmm-sources: Counter.cmm"
+          , "  build-depends: base"
+          ]
+  gpd <- parseCabalBytes cabal
+  ep <- extractComponentSpecs "9.10.3" availBase bootBase Map.empty [] [] gpd
+  lib <- maybe (Left "missing library") Right (epLibrary ep)
+  assertEq "cmm-sources extracted into c_sources" ["Counter.cmm"] (csCSources lib)
+
 testMultiTokenFlagsPreserved :: TestResult
 testMultiTokenFlagsPreserved = do
   let cabal =
@@ -422,6 +441,7 @@ allTests =
   , ("configure_package", testConfigurePackage)
   , ("reexported_modules", testReexportedModules)
   , ("cxx_sources_and_old_extensions", testCxxSourcesAndOldExtensions)
+  , ("cmm_sources", testCmmSources)
   , ("multi_token_flags_preserved", testMultiTokenFlagsPreserved)
   , ("public_and_external_sublibraries", testPublicAndExternalSublibraries)
   , ("stackage_yaml_parser", testStackageYamlParser)

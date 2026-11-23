@@ -33,6 +33,8 @@ Before adopting `rules_hs`, use the breakdown below to check what works today, w
   - C-only Cabal packages (`zlib-clib`, `libyaml-clib`), internal sublibraries and Cabal 3.0 public sublibraries, `reexported-modules`, generated `Paths_<pkg>` modules and compile-time `data-files`, `.hsc` C-binding templates (`hsc2hs`), and automatic source-bootstrapped `.x` (`alex`) lexer and `.y`/`.ly` (`happy`) parser generation.
 - **API documentation**: Haddock HTML pages, syntax-highlighted hyperlinked source views, QuickJump search indexes (`doc-index.json`), and cross-target `.haddock` interface linking via [`hs_haddock`](reference/rules.md#hs_haddock).
 
+> **Minimal runnable examples and tests:** Every feature listed above has a standalone Bazel 9 workspace and test suite under [`examples/`](https://github.com/kaycebasques/hs/tree/main/examples) (`quickstart`, `ghc_9_12`, `language_features`, `c_interop`, `llvm_toolchain`, `system_cc_toolchain`, `hackage`, `haddock`, and `size`) alongside unit and integration tests under [`tests/`](https://github.com/kaycebasques/hs/tree/main/tests).
+
 ### Not Supported Today — Planned
 
 - **macOS (`macos_arm64`, `macos_x86_64`) and Windows (`windows_x86_64`) execution**: Official GHC download URLs, SHA-256 digests, and multi-OS lockfile `select()` branches are already generated, but macOS Mach-O shared-library staging and Windows `.exe` wrapper and action support are not wired yet.

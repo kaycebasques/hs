@@ -49,8 +49,9 @@ jobs:
         with:
           path: |
             ~/.cache/bazel-repo
+            ~/.cache/bazel-disk
             ~/.cache/bazelisk
-          key: bazel-native-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'hs/private/ghc_versions.bzl', 'docs/hackage.lock.json', 'examples/size/MODULE.bazel', 'examples/size/hackage.lock.json') }}
+          key: bazel-native-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'hs/private/ghc_versions.bzl', 'docs/hackage.lock.json', 'examples/**/MODULE.bazel', 'examples/**/hackage.lock.json') }}
           restore-keys: |
             bazel-native-${{ runner.os }}-
 
@@ -61,13 +62,39 @@ jobs:
         run: |
           bazel test //... \
             --repository_cache="$HOME/.cache/bazel-repo" \
+            --disk_cache="$HOME/.cache/bazel-disk" \
             --test_output=errors
 
       - name: Smoke-test lockfile generator CLI
         run: |
           bazel run //tools/lock:lock \
             --repository_cache="$HOME/.cache/bazel-repo" \
+            --disk_cache="$HOME/.cache/bazel-disk" \
             -- --help
+          bazel shutdown
+
+      - name: Run standalone feature example workspaces
+        run: |
+          set -euo pipefail
+          for ex in \
+            examples/quickstart \
+            examples/ghc_9_12 \
+            examples/language_features \
+            examples/c_interop \
+            examples/llvm_toolchain \
+            examples/system_cc_toolchain \
+            examples/hackage \
+            examples/haddock; do
+            echo "=== Testing $ex ==="
+            (
+              cd "$ex"
+              bazel test //... \
+                --repository_cache="$HOME/.cache/bazel-repo" \
+                --disk_cache="$HOME/.cache/bazel-disk" \
+                --test_output=errors
+              bazel shutdown
+            )
+          done
 
       - name: Inspect examples/size Bzlmod dependency graph
         working-directory: examples/size
@@ -78,6 +105,7 @@ jobs:
         run: |
           bazel test //... \
             --repository_cache="$HOME/.cache/bazel-repo" \
+            --disk_cache="$HOME/.cache/bazel-disk" \
             --test_output=errors
 
       - name: Live HTTPS smoke test (examples/size)
@@ -86,10 +114,12 @@ jobs:
           set -euo pipefail
           OUT="$(bazel run //:size \
             --repository_cache="$HOME/.cache/bazel-repo" \
+            --disk_cache="$HOME/.cache/bazel-disk" \
             -- https://docs.stripe.com/sitemap.xml)"
           echo "$OUT"
           echo "$OUT" | grep -qF "pages"
           echo "$OUT" | grep -qF "https://docs.stripe.com/sitemap.xml"
+          bazel shutdown
 
   hermetic-containers:
     name: Clean Container (${{ matrix.name }})
@@ -198,8 +228,9 @@ jobs:
         with:
           path: |
             ~/.cache/bazel-repo
+            ~/.cache/bazel-disk
             ~/.cache/bazelisk
-          key: bazel-container-${{ matrix.name }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'hs/private/ghc_versions.bzl', 'docs/hackage.lock.json', 'examples/size/MODULE.bazel', 'examples/size/hackage.lock.json') }}
+          key: bazel-container-${{ matrix.name }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'hs/private/ghc_versions.bzl', 'docs/hackage.lock.json', 'examples/**/MODULE.bazel', 'examples/**/hackage.lock.json') }}
           restore-keys: |
             bazel-container-${{ matrix.name }}-
 
@@ -212,12 +243,30 @@ jobs:
           bazel test //... \
             --spawn_strategy=processwrapper-sandbox \
             --repository_cache="$HOME/.cache/bazel-repo" \
+            --disk_cache="$HOME/.cache/bazel-disk" \
             --test_output=errors
+          bazel shutdown
 
-      - name: Run examples/size test suite in clean ${{ matrix.name }} container
-        working-directory: examples/size
+      - name: Run hermetic feature example workspaces in clean ${{ matrix.name }} container
         run: |
-          bazel test //... \
-            --spawn_strategy=processwrapper-sandbox \
-            --repository_cache="$HOME/.cache/bazel-repo" \
-            --test_output=errors
+          set -euo pipefail
+          for ex in \
+            examples/quickstart \
+            examples/ghc_9_12 \
+            examples/language_features \
+            examples/c_interop \
+            examples/llvm_toolchain \
+            examples/hackage \
+            examples/haddock \
+            examples/size; do
+            echo "=== Testing $ex in ${{ matrix.name }} ==="
+            (
+              cd "$ex"
+              bazel test //... \
+                --spawn_strategy=processwrapper-sandbox \
+                --repository_cache="$HOME/.cache/bazel-repo" \
+                --disk_cache="$HOME/.cache/bazel-disk" \
+                --test_output=errors
+              bazel shutdown
+            )
+          done

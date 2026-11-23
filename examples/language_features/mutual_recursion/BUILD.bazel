@@ -1,0 +1,23 @@
+load("@rules_hs//hs:defs.bzl", "hs_library", "hs_test")
+
+hs_library(
+    name = "ping_pong_lib",
+    srcs = [
+        "Ping.hs",
+        "Ping.hs-boot",
+        "Pong.hs",
+    ],
+    ghc_opts = ["-Wall"],
+    deps = ["@hs_boot//:base"],
+)
+
+hs_test(
+    name = "mutual_recursion_test",
+    size = "small",
+    srcs = ["MutualRecursionTest.hs"],
+    ghc_opts = ["-Wall"],
+    deps = [
+        ":ping_pong_lib",
+        "@hs_boot//:base",
+    ],
+)

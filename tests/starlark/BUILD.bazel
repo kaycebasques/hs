@@ -15,9 +15,11 @@ load(
     "hs_cabal_library_test",
     "hs_haddock_action_test",
     "hs_library_cc_propagation_test",
+    "hs_library_language_flag_test",
     "hs_library_providers_test",
     "strict_direct_dep_visibility_test",
     "toolchain_library_test",
+    "toolchain_registration_test",
 )
 
 # ------------------------------------------------------------------------------
@@ -151,8 +153,16 @@ hs_binary(
     deps = ["@hs_boot//:base"],
 )
 
+hs_library(
+    name = "lib_ghc2024",
+    srcs = ["LibA.hs"],
+    default_language = "GHC2024",
+    deps = ["@hs_boot//:base"],
+)
+
 hs_haddock(
     name = "lib_a_haddock",
+    hoogle = True,
     title = "LibA Docs",
     deps = [":lib_a"],
 )
@@ -278,6 +288,33 @@ hs_binary_cc_propagation_test(
 hs_haddock_action_test(
     name = "hs_haddock_action_test",
     size = "small",
+    expect_hoogle = False,
     target_under_test = ":lib_b_haddock",
     upstream_haddock = ":lib_a_haddock",
+)
+
+hs_haddock_action_test(
+    name = "hs_haddock_hoogle_action_test",
+    size = "small",
+    expect_hoogle = True,
+    target_under_test = ":lib_a_haddock",
+)
+
+hs_library_language_flag_test(
+    name = "hs_library_ghc2024_flag_test",
+    size = "small",
+    expected_language = "GHC2024",
+    target_under_test = ":lib_ghc2024",
+)
+
+toolchain_registration_test(
+    name = "toolchain_linux_x86_64_registered_test",
+    size = "small",
+    target_under_test = "@hs_toolchains//:ghc_linux_x86_64",
+)
+
+toolchain_registration_test(
+    name = "toolchain_linux_arm64_registered_test",
+    size = "small",
+    target_under_test = "@hs_toolchains//:ghc_linux_arm64",
 )

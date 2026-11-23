@@ -244,29 +244,36 @@ build:linux --sandbox_add_mount_pair=/tmp
 >
 > Listing `linux_amd64_gnu.2.32` and `linux_arm64_gnu.2.32` first satisfies both requirements while keeping compiled binaries runnable across Debian 12 (`glibc` 2.36), Ubuntu 22.04 (2.35), Ubuntu 24.04 (2.39), and Rocky Linux 9 (2.34).
 
-### Option B: `toolchains_llvm` (Clang + `lld` + Sysroot)
+### Option B: `toolchains_llvm` (Clang + `mold` / `lld` + Sysroot)
 
-If your workspace uses `toolchains_llvm` with a Debian `>= 10` (`glibc >= 2.28`) sysroot (a directory tree containing target Linux headers and `libc` libraries), `rules_hs` builds with Clang and `lld` without needing `/tmp` sandbox mounts in `.bazelrc`:
+If your workspace uses `toolchains_llvm` with a Debian `>= 10` (`glibc >= 2.28`) sysroot (a directory tree containing target Linux headers and `libc` libraries), `rules_hs` builds with Clang without needing `/tmp` sandbox mounts in `.bazelrc`:
 
 ```starlark
-bazel_dep(name = "toolchains_llvm", version = "1.4.0")
+bazel_dep(name = "toolchains_llvm", version = "1.13.0")
 
 llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm")
 llvm.toolchain(
     name = "llvm_toolchain",
-    llvm_version = "19.1.0",
+    # Optional: select toolchains_llvm's self-contained mold binary so link
+    # actions do not depend on host libxml2.so.2 (linked by upstream ld.lld).
+    linker = {
+        "linux-x86_64": "mold",
+        "linux-aarch64": "mold",
+    },
+    linker_version = "2.42.1",
+    llvm_version = "22.1.8",
 )
-# Optional: attach a Debian >= 10 sysroot via llvm.sysroot(...)
+# Attach a Debian >= 10 sysroot via llvm.sysroot(...) — see examples/llvm_toolchain
 use_repo(llvm, "llvm_toolchain")
 
 register_toolchains("@llvm_toolchain//:all")
 ```
 
-`resolve_cc_tools` in `hs/private/actions.bzl` reads `--sysroot` and `--target` flags from `toolchains_llvm`'s `cc_toolchain` configuration and forwards them to `ghc_cc_wrapper` through `RULES_HS_CC_EXTRA_ARGS`.
+`resolve_cc_tools` in `hs/private/actions.bzl` reads `--sysroot`, `--target`, `-B`, `-resource-dir`, `-fuse-ld`, and `--ld-path` flags from `toolchains_llvm`'s `cc_toolchain` configuration and forwards them to `ghc_cc_wrapper` through `RULES_HS_CC_EXTRA_ARGS`.
 
 ### Option C: System or Remote-Execution GCC / Clang Toolchain
 
-If you omit `hermetic_cc_toolchain` and `toolchains_llvm`, `rules_cc` detects the host or remote-execution container's GCC or Clang toolchain. Because `rules_hs` replaces GHC's hardcoded `lib/settings` paths (`/usr/bin/gcc` -> `/nonexistent/gcc`) and passes every tool path explicitly from `@bazel_tools//tools/cpp:toolchain_type`, GHC uses the exact `cc`, `ar`, and `ld` configured by Bazel.
+If you omit `hermetic_cc_toolchain` and `toolchains_llvm`, `rules_cc` detects the host or remote-execution container's GCC or Clang toolchain (see `examples/system_cc_toolchain`). Because `rules_hs` replaces GHC's hardcoded `lib/settings` paths (`/usr/bin/gcc` -> `/nonexistent/gcc`) and passes every tool path and `-B` search directory explicitly from `@bazel_tools//tools/cpp:toolchain_type`, GHC uses the exact `cc`, `ar`, and `ld` configured by Bazel even under `--incompatible_strict_action_env`. On Linux hosts using GNU `ld.bfd`, add `build:linux --features=-supports_start_end_lib` and `build:linux --host_features=-supports_start_end_lib` to `.bazelrc` so C/C++ dependencies link `.a` archives rather than `--start-lib`/`--end-lib` object lists.
 
 ## What `ghc_cc_wrapper` Translates Between GHC and C Toolchains
 

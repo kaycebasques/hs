@@ -476,7 +476,7 @@ hs_happy_gen(
     lines.append("    deps = {},".format(_format_selectable_list(base_deps, deps_select)))
 
     if extra_cc_deps:
-        lines.append("    extra_cc_deps = {},".format(_format_str_list(extra_cc_deps)))
+        lines.append("    extra_cc_deps = resolve_override_labels({}),".format(_format_str_list(extra_cc_deps)))
 
     raw_dep_names = list(comp.get("deps", []))
     for plat_key, _, _ in _PLATFORM_CONFIGS:
@@ -609,6 +609,8 @@ def _hackage_package_repo_impl(repository_ctx):
         sections.append(blk)
 
     loads = ['load("@rules_hs//hs:defs.bzl", "hs_cabal_library")']
+    if overrides.get("extra_cc_deps", []):
+        loads.append('load("@rules_hs//hs/private:cabal_library.bzl", "resolve_override_labels")')
     codegen_syms = []
     if used_alex:
         codegen_syms.append('"hs_alex_gen"')
@@ -634,6 +636,7 @@ def _hackage_hub_repo_impl(repository_ctx):
     hub_name = repository_ctx.attr.hub_name
     boot_pkgs = json.decode(repository_ctx.attr.boot_packages_json)
     pkg_names = repository_ctx.attr.package_names
+    main_pkg_names = repository_ctx.attr.main_package_names
     sublib_entries = json.decode(repository_ctx.attr.sublibraries_json)
 
     pkg_set = {p: True for p in pkg_names}
@@ -657,7 +660,7 @@ def _hackage_hub_repo_impl(repository_ctx):
 
     sections.append("")
     sections.append("# Pinned Hackage packages (lazy per-package repositories).")
-    for pkg_name in sorted(pkg_names):
+    for pkg_name in sorted(main_pkg_names):
         repo = _pkg_repo_name(hub_name, pkg_name)
         sections.append(
             "alias(\n    name = {},\n    actual = {},\n)".format(
@@ -668,7 +671,7 @@ def _hackage_hub_repo_impl(repository_ctx):
 
     if sublib_entries:
         sections.append("")
-        sections.append("# Internal sublibraries exposed for explicit reference.")
+        sections.append("# Internal and public Cabal sublibraries exposed for explicit reference.")
         for entry in sorted(sublib_entries):
             pkg_name, sub_name = entry[0], entry[1]
             repo = _pkg_repo_name(hub_name, pkg_name)
@@ -688,6 +691,7 @@ _hackage_hub_repo = repository_rule(
         "hub_name": attr.string(mandatory = True),
         "boot_packages_json": attr.string(mandatory = True),
         "package_names": attr.string_list(mandatory = True),
+        "main_package_names": attr.string_list(mandatory = True),
         "sublibraries_json": attr.string(default = "[]"),
     },
     doc = "Hub repository exposing uniform targets for GHC boot and pinned Hackage packages.",
@@ -766,6 +770,7 @@ def _hackage_impl(module_ctx):
             hub_name = hub_name,
             boot_packages_json = json.encode(boot_pkgs),
             package_names = sorted(pkgs.keys()),
+            main_package_names = sorted([p for p in pkgs.keys() if pkgs[p].get("library") != None]),
             sublibraries_json = json.encode(sublib_entries),
         )
 

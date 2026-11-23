@@ -1,5 +1,8 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Main where
 
+import AsmFfi (asmAddOffset, asmDouble)
+import BcrZlibFfi (bcrZlibCrc32, bcrZlibVernum)
 import CcDepsFfi
     ( Vec2 (..)
     , addVec2
@@ -55,7 +58,18 @@ main = do
     -- sorted(9, 2, 5) = [2, 5, 9] -> 2*1 + 5*2 + 9*3 + 9 = 48
     assertEq "cxxSortedWeightedSum" 48 (cxxSortedWeightedSum 9 2 5)
 
-    -- 4. hs_cabal_library extra_libraries = ["m"]
+    -- 4. Inline assembly c_sources (.S preprocessed with -DASM_OFFSET=22 + .s raw)
+    assertEq "asmAddOffset 20" 42 (asmAddOffset 20)
+    assertEq "asmDouble 21" 42 (asmDouble 21)
+
+    -- 5. Bazel Central Registry cc_deps (@zlib//:zlib via CApiFFI + ccall)
+    unless (bcrZlibVernum >= 0x1300) $ do
+        putStrLn ("FAIL [bcrZlibVernum]: expected >= 0x1300, got " ++ show bcrZlibVernum)
+        exitFailure
+    -- Standard IEEE CRC-32 of "123456789" is 0xCBF43926
+    assertEq "bcrZlibCrc32 123456789" 0xCBF43926 (bcrZlibCrc32 "123456789")
+
+    -- 6. hs_cabal_library extra_libraries = ["m"]
     assertEq "extHypot 3 4" 5.0 (extHypot 3.0 4.0)
 
     putStrLn "C INTEROP FFI TEST PASSED!"

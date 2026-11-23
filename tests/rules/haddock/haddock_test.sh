@@ -9,11 +9,14 @@ echo "=== 1. Verifying core_haddock HTML, prologue, QuickJump, and hyperlinked s
 for f in \
     "index.html" \
     "HaddockCore.html" \
+    "HaddockLiterate.html" \
+    "core-lib.txt" \
     "doc-index.json" \
     "linuwial.css" \
     "quick-jump.min.js" \
     "haddock-bundle.min.js" \
     "src/HaddockCore.html" \
+    "src/HaddockLiterate.html" \
     "src/highlight.js" \
     "src/style.css"; do
     if [ ! -s "$CORE_DIR/$f" ]; then
@@ -36,9 +39,11 @@ fi
 # Boot package types hyperlink to Hackage base docs via bundled boot .haddock interfaces
 grep -qF "https://hackage.haskell.org/package/" "$CORE_DIR/HaddockCore.html"
 
-# QuickJump JSON contains documented symbols
+# QuickJump JSON and Hoogle database contain documented symbols
 grep -qF "renderCoreValue" "$CORE_DIR/doc-index.json"
 grep -qF "CoreValue" "$CORE_DIR/doc-index.json"
+grep -qF "literateGreeting" "$CORE_DIR/doc-index.json"
+grep -qF "renderCoreValue ::" "$CORE_DIR/core-lib.txt"
 
 # Hyperlinked source links back from HaddockCore.html -> src/HaddockCore.html
 grep -qF "src/HaddockCore.html" "$CORE_DIR/HaddockCore.html"

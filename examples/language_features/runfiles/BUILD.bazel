@@ -1,0 +1,26 @@
+load("@rules_hs//hs:defs.bzl", "hs_library", "hs_test")
+
+hs_library(
+    name = "asset_lib",
+    srcs = ["AssetLib.hs"],
+    data = ["lib_asset.txt"],
+    ghc_opts = ["-Wall"],
+    deps = [
+        "@hs_boot//:base",
+        "@hs_boot//:directory",
+        "@hs_boot//:filepath",
+        "@hs_boot//:template-haskell",
+    ],
+)
+
+hs_test(
+    name = "runfiles_test",
+    size = "small",
+    srcs = ["RunfilesTest.hs"],
+    data = ["test_asset.txt"],
+    ghc_opts = ["-Wall"],
+    deps = [
+        ":asset_lib",
+        "@hs_boot//:base",
+    ],
+)

@@ -1,0 +1,62 @@
+load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_library", "hs_test", "hs_toolchain_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# Explicit hs_toolchain_library alias alongside automatic @hs_boot targets.
+hs_toolchain_library(
+    name = "boot_containers",
+    package_name = "containers",
+)
+
+hs_library(
+    name = "greet",
+    srcs = ["src/Greet.hs"],
+    ghc_opts = [
+        "-Wall",
+        "-Wcompat",
+    ],
+    hs_source_dirs = ["src"],
+    deps = [
+        ":boot_containers",
+        "@hs_boot//:base",
+        "@hs_boot//:text",
+    ],
+)
+
+hs_binary(
+    name = "hello",
+    srcs = ["src/Main.hs"],
+    ghc_opts = [
+        "-Wall",
+        "-Wcompat",
+    ],
+    hs_source_dirs = ["src"],
+    deps = [
+        ":greet",
+        "@hs_boot//:base",
+        "@hs_boot//:text",
+    ],
+)
+
+hs_test(
+    name = "greet_test",
+    size = "small",
+    srcs = ["test/GreetTest.hs"],
+    ghc_opts = [
+        "-Wall",
+        "-Wcompat",
+    ],
+    hs_source_dirs = ["test"],
+    deps = [
+        ":greet",
+        "@hs_boot//:base",
+        "@hs_boot//:text",
+    ],
+)
+
+sh_test(
+    name = "elf_hermeticity_test",
+    size = "small",
+    srcs = ["test/elf_hermeticity_test.sh"],
+    args = ["$(rootpath :hello)"],
+    data = [":hello"],
+)

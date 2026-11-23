@@ -1,0 +1,44 @@
+load("@rules_hs//hs:defs.bzl", "hs_library", "hs_test")
+
+hs_library(
+    name = "h98_lib",
+    srcs = ["H98.hs"],
+    default_language = "Haskell98",
+    deps = ["@hs_boot//:base"],
+)
+
+hs_library(
+    name = "h2010_lib",
+    srcs = ["H2010.hs"],
+    default_language = "Haskell2010",
+    deps = ["@hs_boot//:base"],
+)
+
+# default_language defaults to "GHC2021" when omitted.
+hs_library(
+    name = "ghc2021_lib",
+    srcs = ["Ghc2021.hs"],
+    deps = ["@hs_boot//:base"],
+)
+
+hs_library(
+    name = "ghc2024_lib",
+    srcs = ["Ghc2024.hs"],
+    default_language = "GHC2024",
+    ghc_opts = ["-Wall"],
+    deps = ["@hs_boot//:base"],
+)
+
+hs_test(
+    name = "editions_test",
+    size = "small",
+    srcs = ["EditionsTest.hs"],
+    ghc_opts = ["-Wall"],
+    deps = [
+        ":ghc2021_lib",
+        ":ghc2024_lib",
+        ":h2010_lib",
+        ":h98_lib",
+        "@hs_boot//:base",
+    ],
+)

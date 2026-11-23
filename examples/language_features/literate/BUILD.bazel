@@ -1,0 +1,29 @@
+load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_library", "hs_test")
+
+hs_library(
+    name = "literate_calc",
+    srcs = ["LiterateCalc.lhs"],
+    ghc_opts = ["-Wall"],
+    deps = ["@hs_boot//:base"],
+)
+
+hs_binary(
+    name = "literate_demo",
+    srcs = ["LiterateMain.lhs"],
+    ghc_opts = ["-Wall"],
+    deps = [
+        ":literate_calc",
+        "@hs_boot//:base",
+    ],
+)
+
+hs_test(
+    name = "literate_test",
+    size = "small",
+    srcs = ["LiterateTest.hs"],
+    ghc_opts = ["-Wall"],
+    deps = [
+        ":literate_calc",
+        "@hs_boot//:base",
+    ],
+)

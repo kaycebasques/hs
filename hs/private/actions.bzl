@@ -75,8 +75,8 @@ def resolve_cc_tools(ctx):
     if ld_bin.endswith("/false"):
         ld_bin = ""
 
-    # Extract any --sysroot / --target flags configured by rules_cc / toolchains_llvm / Pigweed
-    # so ghc_cc_wrapper stays 100% C-toolchain-agnostic.
+    # Extract any --sysroot / --target / -B / -fuse-ld / --ld-path flags configured by
+    # rules_cc / toolchains_llvm / hermetic_cc_toolchain so ghc_cc_wrapper stays C-toolchain-agnostic.
     compile_vars = cc_common.create_compile_variables(
         feature_configuration = feature_configuration,
         cc_toolchain = cc_toolchain,
@@ -87,30 +87,9 @@ def resolve_cc_tools(ctx):
         action_name = ACTION_NAMES.c_compile,
         variables = compile_vars,
     )
-    extra_cc_args = []
-    skip_next = False
-    for idx in range(len(raw_flags)):
-        if skip_next:
-            skip_next = False
-            continue
-        flag = raw_flags[idx]
-        if flag.startswith("--sysroot=") or flag.startswith("--target="):
-            extra_cc_args.append(flag)
-        elif (flag == "--sysroot" or flag == "-target" or flag == "--target") and idx + 1 < len(raw_flags):
-            extra_cc_args.append(flag)
-            extra_cc_args.append(raw_flags[idx + 1])
-            skip_next = True
 
-    # Fall back to cc_toolchain.sysroot if present and not already in flags.
-    if cc_toolchain.sysroot and not any([f.startswith("--sysroot") for f in extra_cc_args]):
-        extra_cc_args.append("--sysroot=" + cc_toolchain.sysroot)
-
-    # If ld tool_path is missing or /usr/bin/false (e.g. macOS zig), fall back to cc_bin.
-    if not ld_bin or ld_bin.endswith("/false"):
-        ld_bin = ""
-
-    # Extract C++ runtime library flags (e.g. -lstdc++, -lc++) from cpp_link_executable
-    # for targets that compile .cc/.cpp sources in c_sources.
+    # Extract C++ runtime library flags (e.g. -lstdc++, -lc++) and linker search paths
+    # from cpp_link_executable for targets that compile .cc/.cpp sources or invoke linkers.
     link_vars = cc_common.create_link_variables(
         feature_configuration = feature_configuration,
         cc_toolchain = cc_toolchain,
@@ -122,13 +101,62 @@ def resolve_cc_tools(ctx):
         action_name = ACTION_NAMES.cpp_link_executable,
         variables = link_vars,
     )
+
+    combined_tc_flags = list(raw_flags) + list(raw_link_flags)
+    extra_cc_args = []
+    skip_next = False
+    for idx in range(len(combined_tc_flags)):
+        if skip_next:
+            skip_next = False
+            continue
+        flag = combined_tc_flags[idx]
+        if (flag.startswith("--sysroot=") or
+            flag.startswith("--target=") or
+            flag.startswith("--ld-path=") or
+            flag.startswith("-resource-dir=") or
+            (flag.startswith("-fuse-ld=") and flag != "-fuse-ld=gold") or
+            (flag.startswith("-B") and len(flag) > 2 and flag not in ("-Bdynamic", "-Bstatic", "-Bsymbolic", "-Bsymbolic-functions"))):
+            if flag not in extra_cc_args:
+                extra_cc_args.append(flag)
+        elif (flag == "--sysroot" or flag == "-target" or flag == "--target" or flag == "-B" or flag == "-resource-dir") and idx + 1 < len(combined_tc_flags):
+            nxt = combined_tc_flags[idx + 1]
+            if flag == "-B":
+                combined_b = "-B" + nxt
+                if combined_b not in extra_cc_args:
+                    extra_cc_args.append(combined_b)
+            elif flag == "-resource-dir":
+                combined_r = "-resource-dir=" + nxt
+                if combined_r not in extra_cc_args:
+                    extra_cc_args.append(combined_r)
+            else:
+                extra_cc_args.append(flag)
+                extra_cc_args.append(nxt)
+            skip_next = True
+
+    # Fall back to cc_toolchain.sysroot if present and not already in flags.
+    if cc_toolchain.sysroot and not any([f.startswith("--sysroot") for f in extra_cc_args]):
+        extra_cc_args.append("--sysroot=" + cc_toolchain.sysroot)
+
+    # If ld tool_path is missing or /usr/bin/false (e.g. macOS zig), fall back to cc_bin.
+    if not ld_bin or ld_bin.endswith("/false"):
+        ld_bin = ""
+
+    compiler_name = (cc_toolchain.compiler or "").lower()
+    cc_base = cc_bin.rsplit("/", 1)[-1].lower()
+    is_gcc = ("clang" not in compiler_name and "zig" not in compiler_name) and (
+        "gcc" in compiler_name or cc_base == "gcc" or cc_base.startswith("gcc-") or "-gcc" in cc_base
+    )
+
     cxx_link_flags = []
     for lf in raw_link_flags:
-        if lf in ("-lstdc++", "-lc++", "-lc++abi", "-lsupc++") or lf.startswith("-stdlib="):
+        if (lf in ("-lstdc++", "-lc++", "-lc++abi", "-lsupc++", "-l:libstdc++.a", "-l:libstdc++.so", "-l:libc++.a", "-l:libc++abi.a", "-l:libunwind.a") or
+            lf.startswith("-stdlib=") or
+            lf.startswith("-rtlib=") or
+            (lf.startswith("-L") and len(lf) > 2)):
             if lf not in cxx_link_flags:
                 cxx_link_flags.append(lf)
-    if not cxx_link_flags:
-        cxx_link_flags = ["-lc++"] if ("macos" in cc_bin or "darwin" in cc_bin) else ["-lstdc++"]
+    if not any([f.startswith("-l") for f in cxx_link_flags]):
+        cxx_link_flags.append("-lc++" if ("macos" in cc_bin or "darwin" in cc_bin) else "-lstdc++")
 
     return struct(
         cc_toolchain = cc_toolchain,
@@ -136,6 +164,7 @@ def resolve_cc_tools(ctx):
         cc = cc_bin,
         ar = ar_bin,
         ld = ld_bin,
+        is_gcc = is_gcc,
         extra_cc_args = extra_cc_args,
         cxx_link_flags = cxx_link_flags,
         all_files = cc_toolchain.all_files,
@@ -364,6 +393,8 @@ def ghc_base_env(cc_tools):
         "RULES_HS_REAL_CC": cc_tools.cc,
         "RULES_HS_FORCE_PIC": "1",
     }
+    if cc_tools.is_gcc:
+        env["RULES_HS_CC_IS_GCC"] = "1"
     if cc_tools.extra_cc_args:
         env["RULES_HS_CC_EXTRA_ARGS"] = "\n".join(cc_tools.extra_cc_args)
     return env
@@ -461,6 +492,8 @@ def run_configure_action(
         cflags_list.append("-I" + _execroot_or_abs(d))
 
     cfg_env = {}
+    if cc_tools.is_gcc:
+        cfg_env["RULES_HS_CC_IS_GCC"] = "1"
     if cc_tools.extra_cc_args:
         cfg_env["RULES_HS_CC_EXTRA_ARGS"] = "\n".join(cc_tools.extra_cc_args)
 
@@ -495,6 +528,11 @@ if [ -n "${{RULES_HS_CC_EXTRA_ARGS:-}}" ]; then
             case "$arg" in
                 --sysroot=/*) ;;
                 --sysroot=*) arg="--sysroot=$EXECROOT/${{arg#--sysroot=}}" ;;
+                -resource-dir=/*) ;;
+                -resource-dir=*) arg="-resource-dir=$EXECROOT/${{arg#-resource-dir=}}" ;;
+                -B/*) ;;
+                -B*) arg="-B$EXECROOT/${{arg#-B}}" ;;
+                --ld-path=external/*|--ld-path=bazel-out/*) arg="--ld-path=$EXECROOT/${{arg#--ld-path=}}" ;;
             esac
         fi
         if [ -n "$RESOLVED_EXTRA" ]; then
@@ -513,7 +551,7 @@ export CXX="{cc_wrapper}"
 export AR="{ar}"
 {ld_export}
 export CFLAGS="{cflags}"
-export LDFLAGS="-Wno-unused-command-line-argument"
+export LDFLAGS="{ldflags}"
 export CONFIG_SHELL="/bin/sh"
 
 chmod +x "$WORK/{script_rel}"
@@ -532,6 +570,7 @@ done
         ar = _execroot_or_abs(cc_tools.ar),
         ld_export = 'export LD="{}"'.format(_execroot_or_abs(cc_tools.ld)) if cc_tools.ld else "",
         cflags = " ".join(cflags_list),
+        ldflags = "" if cc_tools.is_gcc else "-Wno-unused-command-line-argument",
         script_rel = script_rel,
         cfg_args = " ".join(["'" + a.replace("'", "'\"'\"'") + "'" for a in configure_args]),
         copy_cmds = "\n".join(copy_cmds),
@@ -696,6 +735,7 @@ def compile_c_sources(
         dep_cc_info,
         extra_libraries = []):
     """Compiles C/C++ sources via rules_cc cc_common and propagates install_includes & extra_libraries."""
+    c_sources = [f for f in c_sources if not f.path.endswith(".cmm")]
     resolved_inc_dirs = [resolve_package_dir(ctx, d) for d in include_dirs]
 
     public_hdrs = _resolve_install_includes(
@@ -756,10 +796,9 @@ def compile_c_sources(
             return dep_cc_info, public_inc_dirs, depset(public_hdrs)
         return cc_common.merge_cc_infos(cc_infos = extra_cc_infos + [dep_cc_info]), public_inc_dirs, depset(public_hdrs)
 
-    user_flags = [
-        "-fPIC",
-        "-Wno-unused-command-line-argument",
-    ]
+    user_flags = ["-fPIC"]
+    if not cc_tools.is_gcc:
+        user_flags.append("-Wno-unused-command-line-argument")
     user_flags.extend(_hsc2hs_ghc_defines(hs_tc))
     for tc_inc in _toolchain_c_include_dirs(hs_tc):
         user_flags.append("-I" + tc_inc)
@@ -893,6 +932,7 @@ def compile_hs_library_action(
         ghc_opts,
         cpp_options,
         cc_options = [],
+        cmm_srcs = [],
         cabal_macros_h = None,
         include_dirs = [],
         headers = depset(),
@@ -937,9 +977,9 @@ def compile_hs_library_action(
         if d and d not in all_import_dirs:
             all_import_dirs.append(d)
 
-    # Collect all -I C include dirs for CPP & CApiFFI.
+    # Collect all -I C include dirs for CPP, C--, & CApiFFI.
     all_c_inc_dirs = []
-    for d in list(include_dirs) + dep_info.include_dirs.to_list() + [hs_tc.rts_include_dir]:
+    for d in list(include_dirs) + dep_info.include_dirs.to_list() + _toolchain_c_include_dirs(hs_tc):
         if d and d not in all_c_inc_dirs:
             all_c_inc_dirs.append(d)
 
@@ -1022,6 +1062,21 @@ def compile_hs_library_action(
     pkg_root = resolve_package_dir(ctx, ".")
 
     action_env = dict(ghc_base_env(cc_tools))
+    if cmm_srcs:
+        cmm_ghc_args = ["-c", "-fPIC", "-this-unit-id", unit_id, "-hide-all-packages"]
+        for db in dep_info.pkg_dbs.to_list():
+            cmm_ghc_args.extend(["-package-db", db.path])
+        for uid in direct_unit_ids:
+            cmm_ghc_args.extend(["-package-id", uid])
+        for d in all_c_inc_dirs:
+            cmm_ghc_args.append("-I" + d)
+        if cabal_macros_h:
+            cmm_ghc_args.extend(["-optCmmP-include", "-optCmmP" + cabal_macros_h.path])
+        for opt in cpp_options:
+            cmm_ghc_args.append("-optCmmP" + opt)
+        cmm_ghc_args.extend(ghc_tool_flags(hs_tc, cc_tools))
+        action_env["RULES_HS_CMM_ARGS"] = "\n".join(cmm_ghc_args)
+        action_env["RULES_HS_CMM_SRCS"] = "\n".join([f.path for f in cmm_srcs])
     if unresolved_reexports:
         action_env["RULES_HS_UNRESOLVED_REEXPORTS"] = "\n".join(unresolved_reexports)
         action_env["RULES_HS_DIRECT_PKG_DBS"] = "\n".join([
@@ -1029,7 +1084,7 @@ def compile_hs_library_action(
             for p in dep_info.direct_pkgs
             if p.unit_id and p.pkg_db
         ])
-    extra_in = list(hs_srcs) + list(generated_hs_srcs) + list(compile_data)
+    extra_in = list(hs_srcs) + list(generated_hs_srcs) + list(cmm_srcs) + list(compile_data)
     if cabal_macros_h:
         extra_in.append(cabal_macros_h)
     if hs_tc.is_dynamic_ghc:
@@ -1142,18 +1197,40 @@ fi
 
 if [ "$HAS_TARGETS" = "1" ]; then
     (cd "$GHC_CWD" && "$GHC_ABS" -odir "$ODIR" -stubdir "$ODIR" "$@")
-    OBJ_LIST="$WORK_ROOT/objects.rsp"
-    find "$ODIR" -name '*.o' | sort > "$OBJ_LIST"
-    if [ -s "$OBJ_LIST" ]; then
-        "$AR" rcs "$HS_LIB" "@$OBJ_LIST"
-    else
-        "$AR" rcs "$HS_LIB"
-    fi
-else
-    "$AR" rcs "$HS_LIB"
 fi
 
-if [ "$IS_DYNAMIC" = "1" ] && [ "$HAS_TARGETS" = "1" ]; then
+if [ -n "${RULES_HS_CMM_SRCS:-}" ]; then
+    CMM_ARGV=()
+    while IFS= read -r carg; do
+        [ -z "$carg" ] && continue
+        CMM_ARGV+=("$carg")
+    done <<EOF_CMM_ARGS
+$RULES_HS_CMM_ARGS
+EOF_CMM_ARGS
+    CMM_IDX=0
+    while IFS= read -r cmm_src; do
+        [ -z "$cmm_src" ] && continue
+        (cd "$GHC_CWD" && "$GHC_ABS" "${CMM_ARGV[@]}" -o "$ODIR/_cmm_${CMM_IDX}.o" "$cmm_src")
+        if [ "$IS_DYNAMIC" = "1" ]; then
+            (cd "$GHC_CWD" && "$GHC_ABS" "${CMM_ARGV[@]}" -dynamic -o "$ODIR/_cmm_${CMM_IDX}.dyn_o" "$cmm_src")
+        fi
+        CMM_IDX=$((CMM_IDX + 1))
+    done <<EOF_CMM_SRCS
+$RULES_HS_CMM_SRCS
+EOF_CMM_SRCS
+fi
+
+OBJ_LIST="$WORK_ROOT/objects.rsp"
+find "$ODIR" -name '*.o' | sort > "$OBJ_LIST"
+if [ -s "$OBJ_LIST" ]; then
+    "$AR" rcs "$HS_LIB" "@$OBJ_LIST"
+    HAS_ARCHIVE_OBJS="1"
+else
+    "$AR" rcs "$HS_LIB"
+    HAS_ARCHIVE_OBJS="$HAS_TARGETS"
+fi
+
+if [ "$IS_DYNAMIC" = "1" ] && [ "$HAS_ARCHIVE_OBJS" = "1" ]; then
     DYN_DIR="$PKG_DB/dyn"
     mkdir -p "$DYN_DIR"
     DYN_LIB="$DYN_DIR/libHS${UNIT_ID}-ghc${GHC_VER}.so"
@@ -1238,10 +1315,10 @@ CONF="$PKG_DB/${UNIT_ID}.conf"
     printf 'import-dirs: ${pkgroot}/%s/hi\n' "$PKG_DB_BASE"
     printf 'library-dirs: ${pkgroot}\n'
     printf 'library-dirs-static: ${pkgroot}\n'
-    if [ "$IS_DYNAMIC" = "1" ] && [ "$HAS_TARGETS" = "1" ]; then
+    if [ "$IS_DYNAMIC" = "1" ] && [ "$HAS_ARCHIVE_OBJS" = "1" ]; then
         printf 'dynamic-library-dirs: ${pkgroot}/%s/dyn\n' "$PKG_DB_BASE"
     fi
-    if [ "$HAS_TARGETS" = "1" ]; then
+    if [ "$HAS_ARCHIVE_OBJS" = "1" ]; then
         printf 'hs-libraries: HS%s\n' "$UNIT_ID"
     fi
     if [ -n "$EXPOSED" ]; then

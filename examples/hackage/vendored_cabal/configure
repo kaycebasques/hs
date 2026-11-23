@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+mkdir -p include
+cat > include/ConfiguredVal.h <<'EOF'
+#ifndef CONFIGURED_VAL_H
+#define CONFIGURED_VAL_H
+#define CONFIGURED_OFFSET 32
+#endif
+EOF

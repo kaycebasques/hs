@@ -35,7 +35,68 @@ def _get_cc_link_tool_and_flags(ctx, cc_toolchain):
         feature_configuration = feature_configuration,
         action_name = ACTION_NAMES.cpp_link_dynamic_library,
     )
-    return cc_bin, feature_configuration
+    compile_vars = cc_common.create_compile_variables(
+        feature_configuration = feature_configuration,
+        cc_toolchain = cc_toolchain,
+        user_compile_flags = [],
+    )
+    raw_compile_flags = cc_common.get_memory_inefficient_command_line(
+        feature_configuration = feature_configuration,
+        action_name = ACTION_NAMES.c_compile,
+        variables = compile_vars,
+    )
+    link_vars = cc_common.create_link_variables(
+        feature_configuration = feature_configuration,
+        cc_toolchain = cc_toolchain,
+        is_using_linker = True,
+        is_linking_dynamic_library = True,
+    )
+    raw_link_flags = cc_common.get_memory_inefficient_command_line(
+        feature_configuration = feature_configuration,
+        action_name = ACTION_NAMES.cpp_link_dynamic_library,
+        variables = link_vars,
+    )
+    combined_flags = list(raw_compile_flags) + list(raw_link_flags)
+    extra_link_args = []
+    skip_next = False
+    for idx in range(len(combined_flags)):
+        if skip_next:
+            skip_next = False
+            continue
+        flag = combined_flags[idx]
+        if (flag.startswith("--sysroot=") or
+            flag.startswith("--target=") or
+            flag.startswith("--ld-path=") or
+            flag.startswith("-resource-dir=") or
+            (flag.startswith("-fuse-ld=") and flag != "-fuse-ld=gold") or
+            (flag.startswith("-B") and len(flag) > 2 and flag not in ("-Bdynamic", "-Bstatic", "-Bsymbolic", "-Bsymbolic-functions"))):
+            if flag not in extra_link_args:
+                extra_link_args.append(flag)
+        elif flag in ("--sysroot", "-target", "--target", "-B", "-resource-dir") and idx + 1 < len(combined_flags):
+            nxt = combined_flags[idx + 1]
+            if flag == "-B":
+                combined_b = "-B" + nxt
+                if combined_b not in extra_link_args:
+                    extra_link_args.append(combined_b)
+            elif flag == "-resource-dir":
+                combined_r = "-resource-dir=" + nxt
+                if combined_r not in extra_link_args:
+                    extra_link_args.append(combined_r)
+            else:
+                extra_link_args.append(flag)
+                extra_link_args.append(nxt)
+            skip_next = True
+    if cc_toolchain.sysroot and not any([f.startswith("--sysroot") for f in extra_link_args]):
+        extra_link_args.append("--sysroot=" + cc_toolchain.sysroot)
+
+    compiler_name = (cc_toolchain.compiler or "").lower()
+    cc_base = cc_bin.rsplit("/", 1)[-1].lower()
+    is_gcc = ("clang" not in compiler_name and "zig" not in compiler_name) and (
+        "gcc" in compiler_name or cc_base == "gcc" or cc_base.startswith("gcc-") or "-gcc" in cc_base
+    )
+    if not is_gcc:
+        extra_link_args.append("-Wno-unused-command-line-argument")
+    return cc_bin, extra_link_args
 
 def _staged_ghc_impl(ctx):
     ver = ctx.attr.version
@@ -43,7 +104,7 @@ def _staged_ghc_impl(ctx):
     prefix = ctx.label.name
 
     cc_toolchain = find_cc_toolchain(ctx)
-    cc_bin, _ = _get_cc_link_tool_and_flags(ctx, cc_toolchain)
+    cc_bin, extra_link_args = _get_cc_link_tool_and_flags(ctx, cc_toolchain)
 
     # 1. Prepare hermetic GMP artifacts when using GMP bignum backend:
     #    - gmp_static/libgmp.a (static ONLY, linked into user executables via -L)
@@ -75,12 +136,16 @@ def _staged_ghc_impl(ctx):
                 command = """\
 set -euo pipefail
 unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY
-"$1" -shared -fPIC -Wno-unused-command-line-argument \
+CC_BIN="$1"
+GMP_A="$2"
+OUT_SO="$3"
+shift 3
+"$CC_BIN" "$@" -shared -fPIC \
     -Wl,-soname,libgmp.so.10 \
-    -Wl,--whole-archive "$2" -Wl,--no-whole-archive \
-    -o "$3"
+    -Wl,--whole-archive "$GMP_A" -Wl,--no-whole-archive \
+    -o "$OUT_SO"
 """,
-                arguments = [cc_bin, gmp_pic_a.path, gmp_shared_so.path],
+                arguments = [cc_bin, gmp_pic_a.path, gmp_shared_so.path] + extra_link_args,
             )
             stage_extra_inputs.append(gmp_shared_so)
 

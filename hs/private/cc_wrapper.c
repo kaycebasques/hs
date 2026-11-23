@@ -461,6 +461,9 @@ int main(int argc, char **argv) {
     const char *force_pic_env = getenv("RULES_HS_FORCE_PIC");
     bool force_pic = (force_pic_env == NULL || strcmp(force_pic_env, "0") != 0);
 
+    const char *is_gcc_env = getenv("RULES_HS_CC_IS_GCC");
+    bool is_gcc = (is_gcc_env != NULL && strcmp(is_gcc_env, "1") == 0);
+
     bool is_version_query = false;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--version") == 0 ||
@@ -476,7 +479,22 @@ int main(int argc, char **argv) {
     StrVec final_args = {0};
     vec_push(&final_args, xstrdup(real_cc));
 
-    /* Optional newline-delimited extra flags from Bazel's cc_toolchain (e.g. --sysroot). */
+    if (!is_version_query && !is_gcc) {
+        vec_push(&final_args, xstrdup("-Wno-unused-command-line-argument"));
+        /*
+         * hermetic_cc_toolchain exposes `zig c++` for C compilation, which places
+         * libcxx/include ahead of C headers. That pulls <features.h> via
+         * libcxx/include/stddef.h (from GHC's template-hsc.h) before user headers
+         * like HsNet.h can `#define _GNU_SOURCE 1`, hiding struct ucred /
+         * struct in6_pktinfo. Dropping C++ includes for C/asm/link invocations
+         * restores standard C header order.
+         */
+        if (!is_cxx) {
+            vec_push(&final_args, xstrdup("-nostdinc++"));
+        }
+    }
+
+    /* Optional newline-delimited extra flags from Bazel's cc_toolchain (e.g. --sysroot, -B). */
     const char *extra = getenv("RULES_HS_CC_EXTRA_ARGS");
     if (extra && *extra) {
         const char *p = extra;
@@ -491,25 +509,15 @@ int main(int argc, char **argv) {
                 }
                 memcpy(tok, p, len);
                 tok[len] = '\0';
-                vec_push(&final_args, tok);
+                if (is_version_query &&
+                    (starts_with(tok, "-fuse-ld=") || starts_with(tok, "--ld-path="))) {
+                    free(tok);
+                } else {
+                    vec_push(&final_args, tok);
+                }
             }
             if (!nl) break;
             p = nl + 1;
-        }
-    }
-
-    if (!is_version_query) {
-        vec_push(&final_args, xstrdup("-Wno-unused-command-line-argument"));
-        /*
-         * hermetic_cc_toolchain exposes `zig c++` for C compilation, which places
-         * libcxx/include ahead of C headers. That pulls <features.h> via
-         * libcxx/include/stddef.h (from GHC's template-hsc.h) before user headers
-         * like HsNet.h can `#define _GNU_SOURCE 1`, hiding struct ucred /
-         * struct in6_pktinfo. Dropping C++ includes for C/asm/link invocations
-         * restores standard C header order.
-         */
-        if (!is_cxx) {
-            vec_push(&final_args, xstrdup("-nostdinc++"));
         }
     }
 

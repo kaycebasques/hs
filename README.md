@@ -29,14 +29,16 @@ Bazel 9 ruleset for Haskell using Bzlmod (`bazel_compatibility = [">=9.0.0"]`).
 
 - **Build, test, and documentation rules**: `hs_library`, `hs_binary`, `hs_test`, `hs_haddock`, `hs_toolchain_library`, and `hs_cabal_library`.
 - **Platforms and GHC versions**: Linux `x86_64` (tested in CI on bare Debian 12, Ubuntu 24.04, and Rocky Linux 9 containers with no host compilers installed) and Linux `arm64`, with official GHC `9.10.3` (default) and `9.12.4` binary distributions.
-- **Language and compiler features**: `Haskell98`, `Haskell2010`, `GHC2021` (default), and `GHC2024` language editions; per-target GHC extensions and flags; `.hs-boot` mutually recursive modules; `.lhs` literate Haskell; single-threaded and `-threaded` GHC runtime; Bazel `data` runfiles; and Template Haskell (including cross-library splices and compile-time file reading such as `file-embed`).
-- **C and C++ interoperability**: `foreign import ccall` and `CApiFFI`, inline `c_sources` (C and C++), `cc_deps` (`cc_library` targets from your repository or the Bazel Central Registry), and compatibility with any Bazel `cc_toolchain` (`hermetic_cc_toolchain` `zig cc`, `toolchains_llvm`, GCC, or Clang).
+- **Language and compiler features**: `Haskell98`, `Haskell2010`, `GHC2021` (default), and `GHC2024` language editions; per-target GHC extensions and flags; private library modules (`hidden_modules`); `.hs-boot` mutually recursive modules; `.lhs` literate Haskell; single-threaded and `-threaded` GHC runtime; Bazel `data` runfiles; and Template Haskell (including cross-library splices and compile-time file reading such as `file-embed`).
+- **C and C++ interoperability**: `foreign import ccall` and `CApiFFI`, inline `c_sources` (C, C++, and assembly), `cc_deps` (`cc_library` targets from your repository or the Bazel Central Registry), and compatibility with any Bazel `cc_toolchain` (`hermetic_cc_toolchain` `zig cc`, `toolchains_llvm`, GCC, or Clang).
 - **Third-party Hackage and Stackage packages**: Lockfile generation via `@rules_hs//tools/lock:lock` and lazy per-package builds via `hackage.from_lock` and `hackage.override`, supporting:
   - Cabal `build-type: Simple` (over 95% of Hackage).
   - Cabal `build-type: Configure` (autoconf `./configure` scripts, such as `network`, `unix-time`, and `old-time`).
   - Cabal `build-type: Custom` packages whose custom setup only existed for `cabal-doctest` (automatically converted to `Simple`, such as `xml-conduit`).
   - C-only Cabal packages (`zlib-clib`, `libyaml-clib`), internal and Cabal 3.0 public sublibraries, `reexported-modules`, `Paths_<pkg>` and compile-time `data-files`, `.hsc` (`hsc2hs`), and automatic source-bootstrapped `.x` (`alex`) and `.y`/`.ly` (`happy`) lexer and parser generation.
 - **API documentation**: Haddock HTML, hyperlinked source views, QuickJump search index (`doc-index.json`), and cross-target `.haddock` interfaces via `hs_haddock`.
+
+> **Minimal runnable examples and tests:** Every supported feature above has a standalone Bazel 9 example workspace and test suite in [`examples/`](examples/README.md) ([`quickstart`](examples/quickstart/README.md), [`ghc_9_12`](examples/ghc_9_12/README.md), [`language_features`](examples/language_features/README.md), [`c_interop`](examples/c_interop/README.md), [`llvm_toolchain`](examples/llvm_toolchain/README.md), [`system_cc_toolchain`](examples/system_cc_toolchain/README.md), [`hackage`](examples/hackage/README.md), [`haddock`](examples/haddock/README.md), and [`size`](examples/size/README.md)) plus rule and analysis tests under `tests/`.
 
 ### Not Supported Today — Planned
 
@@ -358,6 +360,7 @@ bazel test //docs:...
   - [Rules Reference](docs/content/reference/rules.md) · [Extensions & Providers](docs/content/reference/extensions-and-providers.md) · [Lock Generator CLI](docs/content/reference/lock-cli.md)
 - **Internals & Architecture** ([`docs/content/internals/`](docs/content/internals/overview.md)):
   - [Bazel Ruleset Primer](docs/content/internals/bazel-rules-primer.md) · [Haskell & GHC Primer](docs/content/internals/haskell-and-ghc-primer.md) · [Architecture Overview](docs/content/internals/overview.md) · [Comparison with Other Rulesets](docs/content/internals/rulesets-comparison.md) · [Hermeticity & Toolchain](docs/content/internals/hermeticity.md) · [Providers & Action Graph](docs/content/internals/providers-and-actions.md) · [Hackage & Cabal Pipeline](docs/content/internals/ecosystem-and-hackage.md) · [Cross-OS & Platforms](docs/content/internals/cross-os-and-platforms.md) · [Hakyll & Haddock Docs](docs/content/internals/docs-engine.md) · [Dependency Decisions](docs/content/internals/dependencies.md)
+- **Standalone Feature Examples & Index**: [`examples/README.md`](examples/README.md)
 - **Standalone Sitemap Counter Showcase**: [`examples/size/README.md`](examples/size/README.md)
 
 ## License

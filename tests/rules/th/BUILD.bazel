@@ -8,6 +8,8 @@ load("//hs:defs.bzl", "hs_library", "hs_test")
 #    including compile-time CApiFFI + runIO execution via -dynamic-too shared
 #    libraries in <name>.pkgdb/dyn, while preserving base-glibc-only static
 #    linking of final executables (:cross_lib_th_test + :cross_lib_th_elf_test).
+# 4. Compile-time data file embedding via @hackage//:file-embed and runIO across
+#    both hs_library and hs_test targets (:file_embed_th_test).
 
 hs_library(
     name = "th_quotes_lib",
@@ -82,4 +84,27 @@ sh_test(
     srcs = ["cross_lib_th_elf_test.sh"],
     args = ["$(rootpath :cross_lib_th_test)"],
     data = [":cross_lib_th_test"],
+)
+
+hs_library(
+    name = "file_embed_lib",
+    srcs = ["FileEmbedLib.hs"],
+    data = ["lib_embed_fixture.txt"],
+    deps = [
+        "@hackage//:base",
+        "@hackage//:file-embed",
+        "@hackage//:template-haskell",
+    ],
+)
+
+hs_test(
+    name = "file_embed_th_test",
+    size = "small",
+    srcs = ["FileEmbedTest.hs"],
+    data = ["exe_embed_fixture.txt"],
+    deps = [
+        ":file_embed_lib",
+        "@hackage//:base",
+        "@hackage//:file-embed",
+    ],
 )

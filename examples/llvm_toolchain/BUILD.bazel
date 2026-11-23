@@ -1,0 +1,44 @@
+load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_library", "hs_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+hs_library(
+    name = "llvm_bridge",
+    srcs = ["src/LlvmBridge.hs"],
+    c_sources = ["cbits/llvm_check.c"],
+    ghc_opts = ["-Wall"],
+    hdrs = ["cbits/llvm_check.h"],
+    hs_source_dirs = ["src"],
+    include_dirs = ["cbits"],
+    deps = ["@hs_boot//:base"],
+)
+
+hs_binary(
+    name = "llvm_demo",
+    srcs = ["src/Main.hs"],
+    ghc_opts = ["-Wall"],
+    hs_source_dirs = ["src"],
+    deps = [
+        ":llvm_bridge",
+        "@hs_boot//:base",
+    ],
+)
+
+hs_test(
+    name = "llvm_test",
+    size = "small",
+    srcs = ["test/LlvmTest.hs"],
+    ghc_opts = ["-Wall"],
+    hs_source_dirs = ["test"],
+    deps = [
+        ":llvm_bridge",
+        "@hs_boot//:base",
+    ],
+)
+
+sh_test(
+    name = "elf_hermeticity_test",
+    size = "small",
+    srcs = ["test/elf_hermeticity_test.sh"],
+    args = ["$(rootpath :llvm_demo)"],
+    data = [":llvm_demo"],
+)

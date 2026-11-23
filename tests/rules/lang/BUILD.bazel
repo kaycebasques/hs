@@ -1,3 +1,4 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//hs:defs.bzl", "hs_library", "hs_test")
 
 hs_library(
@@ -18,6 +19,27 @@ hs_library(
     name = "lang_ghc2021_lib",
     srcs = ["Ghc2021Lib.hs"],
     default_language = "GHC2021",
+    deps = ["@hs_boot//:base"],
+)
+
+hs_library(
+    name = "lang_ghc2024_lib",
+    srcs = ["Ghc2024Lib.hs"],
+    default_language = "GHC2024",
+    ghc_opts = ["-Wall"],
+    deps = ["@hs_boot//:base"],
+)
+
+hs_library(
+    name = "literate_lib",
+    srcs = [
+        "LitBootA.lhs",
+        "LitBootA.lhs-boot",
+        "LitBootB.lhs",
+        "LiterateBird.lhs",
+        "LiterateLatex.lhs",
+    ],
+    ghc_opts = ["-Wall"],
     deps = ["@hs_boot//:base"],
 )
 
@@ -55,9 +77,19 @@ hs_test(
     deps = [
         ":ext_hier_lib",
         ":lang_ghc2021_lib",
+        ":lang_ghc2024_lib",
         ":lang_h2010_lib",
         ":lang_h98_lib",
+        ":literate_lib",
         "@hs_boot//:base",
         "@hs_boot//:text",
     ],
+)
+
+sh_test(
+    name = "hidden_modules_test",
+    size = "small",
+    srcs = ["hidden_modules_test.sh"],
+    args = ["$(rootpaths :ext_hier_lib)"],
+    data = [":ext_hier_lib"],
 )

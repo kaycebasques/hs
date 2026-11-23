@@ -1,1 +1,9 @@
+examples/c_interop
+examples/ghc_9_12
+examples/hackage
+examples/haddock
+examples/language_features
+examples/llvm_toolchain
+examples/quickstart
 examples/size
+examples/system_cc_toolchain

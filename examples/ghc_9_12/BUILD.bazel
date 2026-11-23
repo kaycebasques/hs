@@ -1,0 +1,66 @@
+load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_haddock", "hs_library", "hs_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+hs_library(
+    name = "file_note",
+    srcs = ["src/FileNote.hs"],
+    default_language = "GHC2024",
+    ghc_opts = [
+        "-Wall",
+        "-Wcompat",
+    ],
+    hs_source_dirs = ["src"],
+    deps = [
+        "@hs_boot//:base",
+        "@hs_boot//:bytestring",
+        "@hs_boot//:file-io",
+        "@hs_boot//:filepath",
+    ],
+)
+
+hs_binary(
+    name = "ghc_9_12_info",
+    srcs = ["src/Main.hs"],
+    default_language = "GHC2024",
+    ghc_opts = ["-Wall"],
+    hs_source_dirs = ["src"],
+    deps = [
+        ":file_note",
+        "@hs_boot//:base",
+    ],
+)
+
+hs_haddock(
+    name = "file_note_haddock",
+    title = "GHC 9.12.4 FileNote API",
+    deps = [":file_note"],
+)
+
+hs_test(
+    name = "ghc_9_12_test",
+    size = "small",
+    srcs = ["test/Ghc912Test.hs"],
+    default_language = "GHC2024",
+    ghc_opts = ["-Wall"],
+    hs_source_dirs = ["test"],
+    deps = [
+        ":file_note",
+        "@hs_boot//:base",
+        "@hs_boot//:bytestring",
+        "@hs_boot//:filepath",
+    ],
+)
+
+sh_test(
+    name = "elf_hermeticity_test",
+    size = "small",
+    srcs = ["test/elf_hermeticity_test.sh"],
+    args = [
+        "$(rootpath :ghc_9_12_info)",
+        "$(rootpath :file_note_haddock)",
+    ],
+    data = [
+        ":file_note_haddock",
+        ":ghc_9_12_info",
+    ],
+)

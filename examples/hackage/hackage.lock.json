@@ -1,0 +1,2146 @@
+{
+  "schema_version": 1,
+  "snapshot": "lts-24.67",
+  "ghc_version": "9.10.3",
+  "boot_packages": {
+    "Cabal": "3.12.1.0",
+    "Cabal-syntax": "3.12.1.0",
+    "array": "0.5.8.0",
+    "base": "4.20.2.0",
+    "binary": "0.8.9.3",
+    "bytestring": "0.12.2.0",
+    "containers": "0.7",
+    "deepseq": "1.5.0.0",
+    "directory": "1.3.8.5",
+    "exceptions": "0.10.9",
+    "filepath": "1.5.4.0",
+    "ghc": "9.10.3",
+    "ghc-bignum": "1.3",
+    "ghc-boot": "9.10.3",
+    "ghc-boot-th": "9.10.3",
+    "ghc-compact": "0.1.0.0",
+    "ghc-experimental": "9.1003.0",
+    "ghc-heap": "9.10.3",
+    "ghc-internal": "9.1003.0",
+    "ghc-platform": "0.1.0.0",
+    "ghc-prim": "0.12.0",
+    "ghc-toolchain": "0.1.0.0",
+    "ghci": "9.10.3",
+    "haskeline": "0.8.2.1",
+    "hpc": "0.7.0.2",
+    "integer-gmp": "1.1",
+    "mtl": "2.3.1",
+    "os-string": "2.0.7",
+    "parsec": "3.1.18.0",
+    "pretty": "1.1.3.6",
+    "process": "1.6.26.1",
+    "rts": "1.0.2",
+    "semaphore-compat": "1.0.0",
+    "stm": "2.5.3.1",
+    "system-cxx-std-lib": "1.0",
+    "template-haskell": "2.22.0.0",
+    "terminfo": "0.4.1.7",
+    "text": "2.1.3",
+    "time": "1.12.2",
+    "transformers": "0.6.1.1",
+    "unix": "2.8.7.0",
+    "xhtml": "3000.2.2.1"
+  },
+  "packages": {
+    "ansi-terminal": {
+      "version": "1.1.5",
+      "url": "https://hackage.haskell.org/package/ansi-terminal-1.1.5/ansi-terminal-1.1.5.tar.gz",
+      "sha256": "9cf083cef2e2ba88a425f132c8a82bfa931eb4b0c38232b2017f8fcea2e23073",
+      "strip_prefix": "ansi-terminal-1.1.5",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "System.Console.ANSI"
+        ],
+        "other_modules": [
+          "System.Console.ANSI.Internal"
+        ],
+        "reexported_modules": [
+          "System.Console.ANSI.Codes",
+          "System.Console.ANSI.Types"
+        ],
+        "hs_source_dirs": [
+          "src",
+          "unix"
+        ],
+        "default_language": "Haskell2010",
+        "default_extensions": [
+          "CPP"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "ansi-terminal-types",
+          "base",
+          "colour"
+        ]
+      }
+    },
+    "ansi-terminal-types": {
+      "version": "1.1.3",
+      "url": "https://hackage.haskell.org/package/ansi-terminal-types-1.1.3/ansi-terminal-types-1.1.3.tar.gz",
+      "sha256": "9fc9ce2157f1889bd99a4d22c9f1c64589590be0f797c3efe71c8fa17a11a689",
+      "strip_prefix": "ansi-terminal-types-1.1.3",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "System.Console.ANSI.Codes",
+          "System.Console.ANSI.Types"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "default_extensions": [
+          "CPP"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "colour"
+        ]
+      }
+    },
+    "async": {
+      "version": "2.2.6",
+      "url": "https://hackage.haskell.org/package/async-2.2.6/async-2.2.6.tar.gz",
+      "sha256": "148571bc188003101241da6c49131d07324e63a88ed283a84def2e9694599619",
+      "strip_prefix": "async-2.2.6",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Control.Concurrent.Async",
+          "Control.Concurrent.Async.Internal",
+          "Control.Concurrent.Async.Warden",
+          "Control.Concurrent.Stream"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell2010",
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "hashable",
+          "stm",
+          "unordered-containers"
+        ]
+      }
+    },
+    "atomic-counter": {
+      "version": "0.1.2.4",
+      "url": "https://hackage.haskell.org/package/atomic-counter-0.1.2.4/atomic-counter-0.1.2.4.tar.gz",
+      "sha256": "b101e8dedc66da051a16022287d9b05c2dcb2f54f973fb09298b3486cd63ec2f",
+      "strip_prefix": "atomic-counter-0.1.2.4",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Control.Concurrent.Counter",
+          "Control.Concurrent.Counter.Lifted.IO",
+          "Control.Concurrent.Counter.Lifted.ST",
+          "Control.Concurrent.Counter.Unlifted"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "c_sources": [
+          "Counter.cmm"
+        ],
+        "cpp_options": [
+          "-DUSE_CMM"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "base"
+        ]
+      }
+    },
+    "attoparsec": {
+      "version": "0.14.4",
+      "url": "https://hackage.haskell.org/package/attoparsec-0.14.4/attoparsec-0.14.4.tar.gz",
+      "sha256": "3f337fe58624565de12426f607c23e60c7b09c86b4e3adfc827ca188c9979e6c",
+      "strip_prefix": "attoparsec-0.14.4",
+      "cabal_revision": 6,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.Attoparsec",
+          "Data.Attoparsec.ByteString",
+          "Data.Attoparsec.ByteString.Char8",
+          "Data.Attoparsec.ByteString.Lazy",
+          "Data.Attoparsec.Char8",
+          "Data.Attoparsec.Combinator",
+          "Data.Attoparsec.Internal",
+          "Data.Attoparsec.Internal.Types",
+          "Data.Attoparsec.Lazy",
+          "Data.Attoparsec.Number",
+          "Data.Attoparsec.Text",
+          "Data.Attoparsec.Text.Lazy",
+          "Data.Attoparsec.Types",
+          "Data.Attoparsec.Zepto"
+        ],
+        "other_modules": [
+          "Data.Attoparsec.ByteString.Internal",
+          "Data.Attoparsec.Text.Internal"
+        ],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell2010",
+        "ghc_opts": [
+          "-O2"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "array",
+          "base",
+          "bytestring",
+          "containers",
+          "deepseq",
+          "ghc-prim",
+          "scientific",
+          "text",
+          "transformers"
+        ],
+        "sublib_deps": [
+          "attoparsec-internal"
+        ]
+      },
+      "sublibraries": {
+        "attoparsec-internal": {
+          "exposed_modules": [
+            "Data.Attoparsec.ByteString.Buffer",
+            "Data.Attoparsec.ByteString.FastSet",
+            "Data.Attoparsec.Internal.Compat",
+            "Data.Attoparsec.Internal.Fhthagn",
+            "Data.Attoparsec.Text.Buffer",
+            "Data.Attoparsec.Text.FastSet"
+          ],
+          "other_modules": [],
+          "hs_source_dirs": [
+            "internal"
+          ],
+          "default_language": "Haskell2010",
+          "ghc_opts": [
+            "-O2"
+          ],
+          "generate_paths_module": false,
+          "deps": [
+            "array",
+            "base",
+            "bytestring",
+            "text"
+          ]
+        }
+      }
+    },
+    "bitvec": {
+      "version": "1.1.6.0",
+      "url": "https://hackage.haskell.org/package/bitvec-1.1.6.0/bitvec-1.1.6.0.tar.gz",
+      "sha256": "1a42d33ce341973f4e4f3f0e10d00760056a0aca0e2a57180994bf2ac26c4e2b",
+      "strip_prefix": "bitvec-1.1.6.0",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.Bit",
+          "Data.Bit.ThreadSafe"
+        ],
+        "other_modules": [
+          "Data.Bit.F2Poly",
+          "Data.Bit.F2PolyTS",
+          "Data.Bit.Immutable",
+          "Data.Bit.ImmutableTS",
+          "Data.Bit.Internal",
+          "Data.Bit.InternalTS",
+          "Data.Bit.Mutable",
+          "Data.Bit.MutableTS",
+          "Data.Bit.PdepPext",
+          "Data.Bit.SIMD",
+          "Data.Bit.Utils"
+        ],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "ghc_opts": [
+          "-O2"
+        ],
+        "c_sources": [
+          "cbits/bitvec_simd.c"
+        ],
+        "include_dirs": [
+          "src"
+        ],
+        "cpp_options": [
+          "-DUseSIMD"
+        ],
+        "cc_options": [
+          "-fopenmp-simd"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "bytestring",
+          "deepseq",
+          "ghc-bignum",
+          "primitive",
+          "vector"
+        ]
+      }
+    },
+    "blaze-builder": {
+      "version": "0.4.4.1",
+      "url": "https://hackage.haskell.org/package/blaze-builder-0.4.4.1/blaze-builder-0.4.4.1.tar.gz",
+      "sha256": "971d360428ac97af9a4e55e4f2c23649f6cedc0ce5d6e94d520e663f33ea5113",
+      "strip_prefix": "blaze-builder-0.4.4.1",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Blaze.ByteString.Builder",
+          "Blaze.ByteString.Builder.ByteString",
+          "Blaze.ByteString.Builder.Char.Utf8",
+          "Blaze.ByteString.Builder.Char8",
+          "Blaze.ByteString.Builder.Compat.Write",
+          "Blaze.ByteString.Builder.HTTP",
+          "Blaze.ByteString.Builder.Html.Utf8",
+          "Blaze.ByteString.Builder.Html.Word",
+          "Blaze.ByteString.Builder.Int",
+          "Blaze.ByteString.Builder.Internal.Write",
+          "Blaze.ByteString.Builder.Word"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell98",
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "bytestring",
+          "text"
+        ]
+      }
+    },
+    "blaze-html": {
+      "version": "0.9.2.0",
+      "url": "https://hackage.haskell.org/package/blaze-html-0.9.2.0/blaze-html-0.9.2.0.tar.gz",
+      "sha256": "65542ef39f7644a3d76afcadeb976d3e334c6947516b7313fcb59165cea1608f",
+      "strip_prefix": "blaze-html-0.9.2.0",
+      "cabal_revision": 1,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Text.Blaze.Html",
+          "Text.Blaze.Html.Renderer.Pretty",
+          "Text.Blaze.Html.Renderer.String",
+          "Text.Blaze.Html.Renderer.Text",
+          "Text.Blaze.Html.Renderer.Utf8",
+          "Text.Blaze.Html4.FrameSet",
+          "Text.Blaze.Html4.FrameSet.Attributes",
+          "Text.Blaze.Html4.Strict",
+          "Text.Blaze.Html4.Strict.Attributes",
+          "Text.Blaze.Html4.Transitional",
+          "Text.Blaze.Html4.Transitional.Attributes",
+          "Text.Blaze.Html5",
+          "Text.Blaze.Html5.Attributes",
+          "Text.Blaze.XHtml1.FrameSet",
+          "Text.Blaze.XHtml1.FrameSet.Attributes",
+          "Text.Blaze.XHtml1.Strict",
+          "Text.Blaze.XHtml1.Strict.Attributes",
+          "Text.Blaze.XHtml1.Transitional",
+          "Text.Blaze.XHtml1.Transitional.Attributes",
+          "Text.Blaze.XHtml5",
+          "Text.Blaze.XHtml5.Attributes"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell98",
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "blaze-builder",
+          "blaze-markup",
+          "bytestring",
+          "text"
+        ]
+      }
+    },
+    "blaze-markup": {
+      "version": "0.8.3.0",
+      "url": "https://hackage.haskell.org/package/blaze-markup-0.8.3.0/blaze-markup-0.8.3.0.tar.gz",
+      "sha256": "8606ac8b4a1f7f8f1bbc0770b2752e9b6f88ccc9fbdcbb33aa20577d0e5930e8",
+      "strip_prefix": "blaze-markup-0.8.3.0",
+      "cabal_revision": 2,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Text.Blaze",
+          "Text.Blaze.Internal",
+          "Text.Blaze.Renderer.Pretty",
+          "Text.Blaze.Renderer.String",
+          "Text.Blaze.Renderer.Text",
+          "Text.Blaze.Renderer.Utf8"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "blaze-builder",
+          "bytestring",
+          "text"
+        ]
+      }
+    },
+    "colour": {
+      "version": "2.3.7",
+      "url": "https://hackage.haskell.org/package/colour-2.3.7/colour-2.3.7.tar.gz",
+      "sha256": "1f3b1055675abe4e3362800cc9bf7ab9b92dfdf21a1f6c82b252611270be9680",
+      "strip_prefix": "colour-2.3.7",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.Colour",
+          "Data.Colour.CIE",
+          "Data.Colour.CIE.Illuminant",
+          "Data.Colour.Names",
+          "Data.Colour.Ok",
+          "Data.Colour.RGBSpace",
+          "Data.Colour.RGBSpace.HSL",
+          "Data.Colour.RGBSpace.HSV",
+          "Data.Colour.SRGB",
+          "Data.Colour.SRGB.Linear"
+        ],
+        "other_modules": [
+          "Data.Colour.CIE.Chromaticity",
+          "Data.Colour.Chan",
+          "Data.Colour.Internal",
+          "Data.Colour.Matrix",
+          "Data.Colour.RGB"
+        ],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell98",
+        "generate_paths_module": false,
+        "deps": [
+          "base"
+        ]
+      }
+    },
+    "conduit": {
+      "version": "1.3.6.1",
+      "url": "https://hackage.haskell.org/package/conduit-1.3.6.1/conduit-1.3.6.1.tar.gz",
+      "sha256": "69902af03ea7e4cb982fa83da42afe36973b62d0a52ea140ae5362e52854ba3f",
+      "strip_prefix": "conduit-1.3.6.1",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Conduit",
+          "Data.Conduit",
+          "Data.Conduit.Combinators",
+          "Data.Conduit.Combinators.Stream",
+          "Data.Conduit.Internal",
+          "Data.Conduit.Internal.Fusion",
+          "Data.Conduit.Internal.List.Stream",
+          "Data.Conduit.Lift",
+          "Data.Conduit.List"
+        ],
+        "other_modules": [
+          "Data.Conduit.Combinators.Unqualified",
+          "Data.Conduit.Internal.Conduit",
+          "Data.Conduit.Internal.Pipe",
+          "Data.Streaming.FileRead",
+          "Data.Streaming.Filesystem"
+        ],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "include_dirs": [
+          "."
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "bytestring",
+          "directory",
+          "exceptions",
+          "filepath",
+          "mono-traversable",
+          "mtl",
+          "primitive",
+          "resourcet",
+          "text",
+          "transformers",
+          "unix",
+          "unliftio-core",
+          "vector"
+        ]
+      }
+    },
+    "conduit-extra": {
+      "version": "1.3.8",
+      "url": "https://hackage.haskell.org/package/conduit-extra-1.3.8/conduit-extra-1.3.8.tar.gz",
+      "sha256": "491f3e8e9408f5d10ff8d02bf4d0edb11821e2537e7c22edbd6d64bf91388222",
+      "strip_prefix": "conduit-extra-1.3.8",
+      "cabal_revision": 1,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.Conduit.Attoparsec",
+          "Data.Conduit.Binary",
+          "Data.Conduit.ByteString.Builder",
+          "Data.Conduit.Filesystem",
+          "Data.Conduit.Foldl",
+          "Data.Conduit.Lazy",
+          "Data.Conduit.Network",
+          "Data.Conduit.Network.UDP",
+          "Data.Conduit.Network.Unix",
+          "Data.Conduit.Process",
+          "Data.Conduit.Process.Typed",
+          "Data.Conduit.Text",
+          "Data.Conduit.Zlib"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell2010",
+        "generate_paths_module": false,
+        "deps": [
+          "async",
+          "attoparsec",
+          "base",
+          "bytestring",
+          "conduit",
+          "directory",
+          "filepath",
+          "network",
+          "primitive",
+          "process",
+          "resourcet",
+          "stm",
+          "streaming-commons",
+          "text",
+          "transformers",
+          "typed-process",
+          "unliftio-core"
+        ],
+        "select": {
+          "linux_arm64": {},
+          "linux_x86_64": {
+            "cpp_options": [
+              "-DALLOW_UNALIGNED_ACCESS"
+            ]
+          },
+          "macos_arm64": {},
+          "macos_x86_64": {
+            "cpp_options": [
+              "-DALLOW_UNALIGNED_ACCESS"
+            ]
+          }
+        }
+      }
+    },
+    "data-default": {
+      "version": "0.8.0.2",
+      "url": "https://hackage.haskell.org/package/data-default-0.8.0.2/data-default-0.8.0.2.tar.gz",
+      "sha256": "fa7d5de70ccef7381a7f17cd64948de1c24b620de13e1cd55c36c26949870799",
+      "strip_prefix": "data-default-0.8.0.2",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.Default",
+          "Data.Default.Internal"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell98",
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "containers"
+        ]
+      }
+    },
+    "directory-ospath-streaming": {
+      "version": "0.2.2",
+      "url": "https://hackage.haskell.org/package/directory-ospath-streaming-0.2.2/directory-ospath-streaming-0.2.2.tar.gz",
+      "sha256": "1ade8fbee13db15e8d22a1ecdca54794617cabc69911b51d46a65e12f4554ef7",
+      "strip_prefix": "directory-ospath-streaming-0.2.2",
+      "cabal_revision": 1,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "System.Directory.OsPath.Streaming",
+          "System.Directory.OsPath.Streaming.Internal",
+          "System.Directory.OsPath.Streaming.Internal.Raw",
+          "System.Directory.OsPath.Types"
+        ],
+        "other_modules": [
+          "System.Directory.OsPath.Contents",
+          "System.Directory.OsPath.FileType",
+          "System.Directory.OsPath.Utils"
+        ],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "generate_paths_module": false,
+        "deps": [
+          "atomic-counter",
+          "base",
+          "deepseq",
+          "filepath",
+          "os-string",
+          "unix"
+        ]
+      }
+    },
+    "file-embed": {
+      "version": "0.0.16.0",
+      "url": "https://hackage.haskell.org/package/file-embed-0.0.16.0/file-embed-0.0.16.0.tar.gz",
+      "sha256": "5f18672eff936355557cdd163905451205d7ee22742edac313dd27cf42a3f415",
+      "strip_prefix": "file-embed-0.0.16.0",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.FileEmbed"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell2010",
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "bytestring",
+          "directory",
+          "filepath",
+          "template-haskell"
+        ]
+      }
+    },
+    "file-io": {
+      "version": "0.1.6",
+      "url": "https://hackage.haskell.org/package/file-io-0.1.6/file-io-0.1.6.tar.gz",
+      "sha256": "0ae9986dc1df9a87d17a16c6c0afb2bfc72dcd2a2ec7a40faf1257bf1fa4d710",
+      "strip_prefix": "file-io-0.1.6",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "System.File.OsPath",
+          "System.File.OsPath.Internal",
+          "System.File.PlatformPath",
+          "System.File.PlatformPath.Internal"
+        ],
+        "other_modules": [
+          "System.File.Platform"
+        ],
+        "hs_source_dirs": [
+          ".",
+          "posix"
+        ],
+        "default_language": "Haskell2010",
+        "cpp_options": [
+          "-DLONG_PATHS"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "bytestring",
+          "deepseq",
+          "filepath",
+          "os-string",
+          "unix"
+        ]
+      }
+    },
+    "hashable": {
+      "version": "1.5.1.0",
+      "url": "https://hackage.haskell.org/package/hashable-1.5.1.0/hashable-1.5.1.0.tar.gz",
+      "sha256": "ed0b7c10ce92c9ffe45420dadc38c6d39db486ff3633ff13567cc9f75f79b112",
+      "strip_prefix": "hashable-1.5.1.0",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.Hashable",
+          "Data.Hashable.Generic",
+          "Data.Hashable.Lifted"
+        ],
+        "other_modules": [
+          "Data.Hashable.Class",
+          "Data.Hashable.FFI",
+          "Data.Hashable.Generic.Instances",
+          "Data.Hashable.Imports",
+          "Data.Hashable.LowLevel",
+          "Data.Hashable.Mix",
+          "Data.Hashable.XXH3"
+        ],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "include_dirs": [
+          "include",
+          "xxHash-0.8.3"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "bytestring",
+          "containers",
+          "deepseq",
+          "filepath",
+          "os-string",
+          "text"
+        ]
+      }
+    },
+    "haskell-lexer": {
+      "version": "1.2.1",
+      "url": "https://hackage.haskell.org/package/haskell-lexer-1.2.1/haskell-lexer-1.2.1.tar.gz",
+      "sha256": "9d76e1528106b1b32e6e465264e39381ca4b450b72a4b5331e7e5127640a1a41",
+      "strip_prefix": "haskell-lexer-1.2.1",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Language.Haskell.Lexer"
+        ],
+        "other_modules": [
+          "Language.Haskell.Lexer.Layout",
+          "Language.Haskell.Lexer.Lex",
+          "Language.Haskell.Lexer.Position",
+          "Language.Haskell.Lexer.Tokens",
+          "Language.Haskell.Lexer.Utils"
+        ],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell2010",
+        "generate_paths_module": false,
+        "deps": [
+          "base"
+        ]
+      }
+    },
+    "integer-logarithms": {
+      "version": "1.0.5",
+      "url": "https://hackage.haskell.org/package/integer-logarithms-1.0.5/integer-logarithms-1.0.5.tar.gz",
+      "sha256": "66dff6f1f778fe1ec689139fe125cd4e6a95643734c651c891eafa2c50669459",
+      "strip_prefix": "integer-logarithms-1.0.5",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "GHC.Integer.Logarithms.Compat",
+          "Math.NumberTheory.Logarithms",
+          "Math.NumberTheory.Powers.Integer",
+          "Math.NumberTheory.Powers.Natural"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "ghc_opts": [
+          "-O2"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "array",
+          "base"
+        ]
+      }
+    },
+    "libyaml": {
+      "version": "0.1.4",
+      "url": "https://hackage.haskell.org/package/libyaml-0.1.4/libyaml-0.1.4.tar.gz",
+      "sha256": "d6297ec9b1ebb4e4b580a4357d840d08a6f53e13a10c0c53ee74b973bba6fa13",
+      "strip_prefix": "libyaml-0.1.4",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Text.Libyaml"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "c_sources": [
+          "c/helper.c"
+        ],
+        "include_dirs": [
+          "include"
+        ],
+        "generate_paths_module": true,
+        "deps": [
+          "base",
+          "bytestring",
+          "conduit",
+          "libyaml-clib",
+          "resourcet"
+        ]
+      }
+    },
+    "libyaml-clib": {
+      "version": "0.2.5",
+      "url": "https://hackage.haskell.org/package/libyaml-clib-0.2.5/libyaml-clib-0.2.5.tar.gz",
+      "sha256": "04526bc54e5fcf471c2bd22854e6b519e162a6e3d654e866cd8862103c725149",
+      "strip_prefix": "libyaml-clib-0.2.5",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell2010",
+        "c_sources": [
+          "cbits/writer.c",
+          "cbits/dumper.c",
+          "cbits/loader.c",
+          "cbits/api.c",
+          "cbits/scanner.c",
+          "cbits/emitter.c",
+          "cbits/parser.c",
+          "cbits/reader.c"
+        ],
+        "include_dirs": [
+          "cbits"
+        ],
+        "install_includes": [
+          "yaml.h",
+          "yaml_private.h"
+        ],
+        "generate_paths_module": false,
+        "deps": []
+      }
+    },
+    "mono-traversable": {
+      "version": "1.0.21.0",
+      "url": "https://hackage.haskell.org/package/mono-traversable-1.0.21.0/mono-traversable-1.0.21.0.tar.gz",
+      "sha256": "4dd93ea334c0169500402f07aa39c98dbb7bffe55dc63fdf228da2cc22c7c5cd",
+      "strip_prefix": "mono-traversable-1.0.21.0",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.Containers",
+          "Data.MonoTraversable",
+          "Data.MonoTraversable.Unprefixed",
+          "Data.NonNull",
+          "Data.Sequences"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "generate_paths_module": true,
+        "deps": [
+          "base",
+          "bytestring",
+          "containers",
+          "hashable",
+          "split",
+          "text",
+          "transformers",
+          "unordered-containers",
+          "vector",
+          "vector-algorithms"
+        ]
+      }
+    },
+    "network": {
+      "version": "3.2.14.0",
+      "url": "https://hackage.haskell.org/package/network-3.2.14.0/network-3.2.14.0.tar.gz",
+      "sha256": "cc061f13f3d76f9c227d3ff96a2d3fb70a380d43e1aca6dcc13a91450159675c",
+      "strip_prefix": "network-3.2.14.0",
+      "cabal_revision": 0,
+      "build_type": "Configure",
+      "configure_script": "configure",
+      "configure_srcs": [
+        "config.guess",
+        "config.sub",
+        "configure",
+        "configure.ac",
+        "include/HsNet.h",
+        "include/HsNetDef.h",
+        "include/HsNetworkConfig.h.in",
+        "include/afunix_compat.h",
+        "include/alignment.h",
+        "include/win32defs.h",
+        "install-sh"
+      ],
+      "configure_outputs": [
+        "include/HsNetworkConfig.h"
+      ],
+      "library": {
+        "exposed_modules": [
+          "Network.Socket",
+          "Network.Socket.Address",
+          "Network.Socket.ByteString",
+          "Network.Socket.ByteString.Lazy",
+          "Network.Socket.Internal"
+        ],
+        "other_modules": [
+          "Network.Socket.Buffer",
+          "Network.Socket.ByteString.IO",
+          "Network.Socket.ByteString.Internal",
+          "Network.Socket.ByteString.Lazy.Posix",
+          "Network.Socket.Cbits",
+          "Network.Socket.Fcntl",
+          "Network.Socket.Flag",
+          "Network.Socket.Handle",
+          "Network.Socket.If",
+          "Network.Socket.Imports",
+          "Network.Socket.Info",
+          "Network.Socket.Name",
+          "Network.Socket.Options",
+          "Network.Socket.Posix.Cmsg",
+          "Network.Socket.Posix.CmsgHdr",
+          "Network.Socket.Posix.HostName",
+          "Network.Socket.Posix.IOVec",
+          "Network.Socket.Posix.MsgHdr",
+          "Network.Socket.ReadShow",
+          "Network.Socket.STM",
+          "Network.Socket.Shutdown",
+          "Network.Socket.SockAddr",
+          "Network.Socket.Syscall",
+          "Network.Socket.Types",
+          "Network.Socket.Unix",
+          "Network.Socket.Wait"
+        ],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell2010",
+        "default_extensions": [
+          "Strict",
+          "StrictData"
+        ],
+        "c_sources": [
+          "cbits/HsNet.c",
+          "cbits/cmsg.c"
+        ],
+        "include_dirs": [
+          "include"
+        ],
+        "install_includes": [
+          "HsNet.h",
+          "HsNetDef.h",
+          "HsNetworkConfig.h",
+          "alignment.h",
+          "win32defs.h"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "bytestring",
+          "deepseq",
+          "directory",
+          "stm"
+        ]
+      }
+    },
+    "old-locale": {
+      "version": "1.0.0.7",
+      "url": "https://hackage.haskell.org/package/old-locale-1.0.0.7/old-locale-1.0.0.7.tar.gz",
+      "sha256": "dbaf8bf6b888fb98845705079296a23c3f40ee2f449df7312f7f7f1de18d7b50",
+      "strip_prefix": "old-locale-1.0.0.7",
+      "cabal_revision": 2,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "System.Locale"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell98",
+        "generate_paths_module": false,
+        "deps": [
+          "base"
+        ]
+      }
+    },
+    "old-time": {
+      "version": "1.1.1.0",
+      "url": "https://hackage.haskell.org/package/old-time-1.1.1.0/old-time-1.1.1.0.tar.gz",
+      "sha256": "2c440d3bc2680defcb379a4b5e6469c5dff1d3400374aac60523cef78c3d96ab",
+      "strip_prefix": "old-time-1.1.1.0",
+      "cabal_revision": 0,
+      "build_type": "Configure",
+      "configure_script": "configure",
+      "configure_srcs": [
+        "aclocal.m4",
+        "config.guess",
+        "config.sub",
+        "configure",
+        "configure.ac",
+        "include/HsTime.h",
+        "include/HsTimeConfig.h.in",
+        "install-sh",
+        "old-time.buildinfo"
+      ],
+      "configure_outputs": [
+        "include/HsTimeConfig.h"
+      ],
+      "library": {
+        "exposed_modules": [
+          "System.Time"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell2010",
+        "c_sources": [
+          "cbits/timeUtils.c"
+        ],
+        "include_dirs": [
+          "include"
+        ],
+        "install_includes": [
+          "HsTime.h",
+          "HsTimeConfig.h"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "old-locale"
+        ]
+      }
+    },
+    "optparse-applicative": {
+      "version": "0.18.1.0",
+      "url": "https://hackage.haskell.org/package/optparse-applicative-0.18.1.0/optparse-applicative-0.18.1.0.tar.gz",
+      "sha256": "63811ab4fd26e829b8868364325a88be3acc79819f5bb5005b2dd3b961ecc491",
+      "strip_prefix": "optparse-applicative-0.18.1.0",
+      "cabal_revision": 1,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Options.Applicative",
+          "Options.Applicative.Arrows",
+          "Options.Applicative.BashCompletion",
+          "Options.Applicative.Builder",
+          "Options.Applicative.Builder.Completer",
+          "Options.Applicative.Builder.Internal",
+          "Options.Applicative.Common",
+          "Options.Applicative.Extra",
+          "Options.Applicative.Help",
+          "Options.Applicative.Help.Chunk",
+          "Options.Applicative.Help.Core",
+          "Options.Applicative.Help.Levenshtein",
+          "Options.Applicative.Help.Pretty",
+          "Options.Applicative.Help.Types",
+          "Options.Applicative.Internal",
+          "Options.Applicative.NonEmpty",
+          "Options.Applicative.Types"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell98",
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "prettyprinter",
+          "prettyprinter-ansi-terminal",
+          "process",
+          "text",
+          "transformers",
+          "transformers-compat"
+        ]
+      }
+    },
+    "pretty-show": {
+      "version": "1.10",
+      "url": "https://hackage.haskell.org/package/pretty-show-1.10/pretty-show-1.10.tar.gz",
+      "sha256": "307f9086e0b063d439dc4f513e36a145e8a57f23de448aefae2a6c00f6da6fd2",
+      "strip_prefix": "pretty-show-1.10",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Text.Show.Pretty"
+        ],
+        "other_modules": [
+          "Text.Show.Html",
+          "Text.Show.Parser",
+          "Text.Show.PrettyVal",
+          "Text.Show.Value"
+        ],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell98",
+        "ghc_opts": [
+          "-O2"
+        ],
+        "generate_paths_module": true,
+        "deps": [
+          "array",
+          "base",
+          "filepath",
+          "ghc-prim",
+          "haskell-lexer",
+          "pretty",
+          "text"
+        ]
+      }
+    },
+    "prettyprinter": {
+      "version": "1.7.2",
+      "url": "https://hackage.haskell.org/package/prettyprinter-1.7.2/prettyprinter-1.7.2.tar.gz",
+      "sha256": "f04eb6fd865512ad8672da1e8bfcea1c384509fc2f662c41b7ac39d7898706ee",
+      "strip_prefix": "prettyprinter-1.7.2",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.Text.Prettyprint.Doc",
+          "Data.Text.Prettyprint.Doc.Internal",
+          "Data.Text.Prettyprint.Doc.Internal.Debug",
+          "Data.Text.Prettyprint.Doc.Internal.Type",
+          "Data.Text.Prettyprint.Doc.Render.String",
+          "Data.Text.Prettyprint.Doc.Render.Text",
+          "Data.Text.Prettyprint.Doc.Render.Tutorials.StackMachineTutorial",
+          "Data.Text.Prettyprint.Doc.Render.Tutorials.TreeRenderingTutorial",
+          "Data.Text.Prettyprint.Doc.Render.Util.Panic",
+          "Data.Text.Prettyprint.Doc.Render.Util.SimpleDocTree",
+          "Data.Text.Prettyprint.Doc.Render.Util.StackMachine",
+          "Data.Text.Prettyprint.Doc.Symbols.Ascii",
+          "Data.Text.Prettyprint.Doc.Symbols.Unicode",
+          "Data.Text.Prettyprint.Doc.Util",
+          "Prettyprinter",
+          "Prettyprinter.Internal",
+          "Prettyprinter.Internal.Debug",
+          "Prettyprinter.Internal.Type",
+          "Prettyprinter.Render.String",
+          "Prettyprinter.Render.Text",
+          "Prettyprinter.Render.Tutorials.StackMachineTutorial",
+          "Prettyprinter.Render.Tutorials.TreeRenderingTutorial",
+          "Prettyprinter.Render.Util.Panic",
+          "Prettyprinter.Render.Util.SimpleDocTree",
+          "Prettyprinter.Render.Util.StackMachine",
+          "Prettyprinter.Symbols.Ascii",
+          "Prettyprinter.Symbols.Unicode",
+          "Prettyprinter.Util"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "ghc_opts": [
+          "-O2"
+        ],
+        "include_dirs": [
+          "misc"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "text"
+        ]
+      }
+    },
+    "prettyprinter-ansi-terminal": {
+      "version": "1.1.4",
+      "url": "https://hackage.haskell.org/package/prettyprinter-ansi-terminal-1.1.4/prettyprinter-ansi-terminal-1.1.4.tar.gz",
+      "sha256": "912cd340d5c2583111e2eaeb9aa03b87551ca2e3dd78bbfd346756b9f1e6c9fe",
+      "strip_prefix": "prettyprinter-ansi-terminal-1.1.4",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.Text.Prettyprint.Doc.Render.Terminal",
+          "Data.Text.Prettyprint.Doc.Render.Terminal.Internal",
+          "Prettyprinter.Render.Terminal",
+          "Prettyprinter.Render.Terminal.Internal"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "ghc_opts": [
+          "-O2"
+        ],
+        "include_dirs": [
+          "misc"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "ansi-terminal",
+          "base",
+          "prettyprinter",
+          "text"
+        ]
+      }
+    },
+    "primitive": {
+      "version": "0.9.1.0",
+      "url": "https://hackage.haskell.org/package/primitive-0.9.1.0/primitive-0.9.1.0.tar.gz",
+      "sha256": "44b4de41813c7bc5db8a57f87c3612a069b65086946268ba165097252ebd3d76",
+      "strip_prefix": "primitive-0.9.1.0",
+      "cabal_revision": 1,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Control.Monad.Primitive",
+          "Data.Primitive",
+          "Data.Primitive.Array",
+          "Data.Primitive.ByteArray",
+          "Data.Primitive.MVar",
+          "Data.Primitive.MachDeps",
+          "Data.Primitive.MutVar",
+          "Data.Primitive.PrimArray",
+          "Data.Primitive.PrimVar",
+          "Data.Primitive.Ptr",
+          "Data.Primitive.SmallArray",
+          "Data.Primitive.Types"
+        ],
+        "other_modules": [
+          "Data.Primitive.Internal.Operations",
+          "Data.Primitive.Internal.Read"
+        ],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell2010",
+        "default_extensions": [
+          "TypeOperators"
+        ],
+        "ghc_opts": [
+          "-O2"
+        ],
+        "c_sources": [
+          "cbits/primitive-memops.c"
+        ],
+        "include_dirs": [
+          "cbits"
+        ],
+        "install_includes": [
+          "primitive-memops.h"
+        ],
+        "cpp_options": [
+          "-DHAVE_KEEPALIVE"
+        ],
+        "cc_options": [
+          "-ftree-vectorize"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "deepseq",
+          "template-haskell",
+          "transformers"
+        ],
+        "select": {
+          "linux_arm64": {},
+          "linux_x86_64": {
+            "cc_options": [
+              "-msse2"
+            ]
+          },
+          "macos_arm64": {},
+          "macos_x86_64": {
+            "cc_options": [
+              "-msse2"
+            ]
+          }
+        }
+      }
+    },
+    "random": {
+      "version": "1.2.1.3",
+      "url": "https://hackage.haskell.org/package/random-1.2.1.3/random-1.2.1.3.tar.gz",
+      "sha256": "e9c81926a7d1e40328f645f73592b31efc9c631589669a7f130687b9cc3051dc",
+      "strip_prefix": "random-1.2.1.3",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "System.Random",
+          "System.Random.Internal",
+          "System.Random.Stateful"
+        ],
+        "other_modules": [
+          "System.Random.GFinite"
+        ],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "bytestring",
+          "deepseq",
+          "mtl",
+          "splitmix"
+        ]
+      }
+    },
+    "resourcet": {
+      "version": "1.3.0",
+      "url": "https://hackage.haskell.org/package/resourcet-1.3.0/resourcet-1.3.0.tar.gz",
+      "sha256": "ec601785ee42a201f32adb205b8685c983f18757b1bd33d2e806d571e0f9996b",
+      "strip_prefix": "resourcet-1.3.0",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Control.Monad.Trans.Resource",
+          "Control.Monad.Trans.Resource.Internal",
+          "Data.Acquire",
+          "Data.Acquire.Internal",
+          "UnliftIO.Resource"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell2010",
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "containers",
+          "exceptions",
+          "mtl",
+          "primitive",
+          "transformers",
+          "unliftio-core"
+        ]
+      }
+    },
+    "scientific": {
+      "version": "0.3.10.0",
+      "url": "https://hackage.haskell.org/package/scientific-0.3.10.0/scientific-0.3.10.0.tar.gz",
+      "sha256": "1d096837ba690ca3712f243472bc9fbb17574f8f29f4caf391a83739401c9016",
+      "strip_prefix": "scientific-0.3.10.0",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.ByteString.Builder.Scientific",
+          "Data.Scientific",
+          "Data.Text.Lazy.Builder.Scientific"
+        ],
+        "other_modules": [
+          "GHC.Integer.Compat",
+          "Utils"
+        ],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "binary",
+          "bytestring",
+          "containers",
+          "deepseq",
+          "hashable",
+          "integer-logarithms",
+          "primitive",
+          "template-haskell",
+          "text"
+        ]
+      }
+    },
+    "split": {
+      "version": "0.2.5.1",
+      "url": "https://hackage.haskell.org/package/split-0.2.5.1/split-0.2.5.1.tar.gz",
+      "sha256": "18adb60f7f12d08601c382d47c2bacbbd4de4b9233f09683889d15b64b6420d6",
+      "strip_prefix": "split-0.2.5.1",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.List.Split",
+          "Data.List.Split.Internals"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "generate_paths_module": false,
+        "deps": [
+          "base"
+        ]
+      }
+    },
+    "splitmix": {
+      "version": "0.1.3.2",
+      "url": "https://hackage.haskell.org/package/splitmix-0.1.3.2/splitmix-0.1.3.2.tar.gz",
+      "sha256": "a61d4e8b30f5a16526d7d31171b674ae7924d2207f378060d13363bd8794de8c",
+      "strip_prefix": "splitmix-0.1.3.2",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "System.Random.SplitMix",
+          "System.Random.SplitMix32"
+        ],
+        "other_modules": [
+          "System.Random.SplitMix.Init"
+        ],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "cpp_options": [
+          "-DSPLITMIX_INIT_C=1"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "deepseq"
+        ],
+        "select": {
+          "linux_arm64": {
+            "c_sources": [
+              "cbits-unix/init.c"
+            ]
+          },
+          "linux_x86_64": {
+            "c_sources": [
+              "cbits-unix/init.c"
+            ]
+          },
+          "macos_arm64": {
+            "c_sources": [
+              "cbits-apple/init.c"
+            ]
+          },
+          "macos_x86_64": {
+            "c_sources": [
+              "cbits-apple/init.c"
+            ]
+          }
+        }
+      }
+    },
+    "streaming-commons": {
+      "version": "0.2.3.1",
+      "url": "https://hackage.haskell.org/package/streaming-commons-0.2.3.1/streaming-commons-0.2.3.1.tar.gz",
+      "sha256": "33d16c0c6080795800d9f0e490203ea3e50bd5034e5d077a0ddc04d33ea4dc6e",
+      "strip_prefix": "streaming-commons-0.2.3.1",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.Streaming.ByteString.Builder",
+          "Data.Streaming.ByteString.Builder.Buffer",
+          "Data.Streaming.FileRead",
+          "Data.Streaming.Filesystem",
+          "Data.Streaming.Network",
+          "Data.Streaming.Network.Internal",
+          "Data.Streaming.Process",
+          "Data.Streaming.Process.Internal",
+          "Data.Streaming.Text",
+          "Data.Streaming.Zlib",
+          "Data.Streaming.Zlib.Lowlevel"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell2010",
+        "c_sources": [
+          "cbits/zlib-helper.c",
+          "cbits/text-helper.c"
+        ],
+        "include_dirs": [
+          "include"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "array",
+          "async",
+          "base",
+          "bytestring",
+          "directory",
+          "network",
+          "process",
+          "random",
+          "stm",
+          "text",
+          "transformers",
+          "unix",
+          "zlib"
+        ]
+      }
+    },
+    "tagged": {
+      "version": "0.8.9",
+      "url": "https://hackage.haskell.org/package/tagged-0.8.9/tagged-0.8.9.tar.gz",
+      "sha256": "6daad88ebb414ba6a556d2898d2cbe7650e4276010e3a6eed939daf54b956784",
+      "strip_prefix": "tagged-0.8.9",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.Proxy.TH",
+          "Data.Tagged"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell98",
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "deepseq",
+          "template-haskell",
+          "transformers"
+        ]
+      }
+    },
+    "tar": {
+      "version": "0.6.4.0",
+      "url": "https://hackage.haskell.org/package/tar-0.6.4.0/tar-0.6.4.0.tar.gz",
+      "sha256": "7949a50004a80993000512079bc03ebcad4872414fc181f45b3883d743c0f3aa",
+      "strip_prefix": "tar-0.6.4.0",
+      "cabal_revision": 4,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [],
+        "other_modules": [],
+        "reexported_modules": [
+          "Codec.Archive.Tar",
+          "Codec.Archive.Tar.Check",
+          "Codec.Archive.Tar.Entry",
+          "Codec.Archive.Tar.Index"
+        ],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell2010",
+        "generate_paths_module": false,
+        "deps": [],
+        "sublib_deps": [
+          "tar-internal"
+        ]
+      },
+      "sublibraries": {
+        "tar-internal": {
+          "exposed_modules": [
+            "Codec.Archive.Tar",
+            "Codec.Archive.Tar.Check",
+            "Codec.Archive.Tar.Check.Internal",
+            "Codec.Archive.Tar.Entry",
+            "Codec.Archive.Tar.Index",
+            "Codec.Archive.Tar.Index.IntTrie",
+            "Codec.Archive.Tar.Index.Internal",
+            "Codec.Archive.Tar.Index.StringTable",
+            "Codec.Archive.Tar.Index.Utils",
+            "Codec.Archive.Tar.LongNames",
+            "Codec.Archive.Tar.Pack",
+            "Codec.Archive.Tar.PackAscii",
+            "Codec.Archive.Tar.Read",
+            "Codec.Archive.Tar.Types",
+            "Codec.Archive.Tar.Unpack",
+            "Codec.Archive.Tar.Write"
+          ],
+          "other_modules": [],
+          "hs_source_dirs": [
+            "."
+          ],
+          "default_language": "Haskell2010",
+          "generate_paths_module": false,
+          "deps": [
+            "array",
+            "base",
+            "bytestring",
+            "containers",
+            "deepseq",
+            "directory",
+            "directory-ospath-streaming",
+            "file-io",
+            "filepath",
+            "os-string",
+            "time",
+            "transformers"
+          ]
+        }
+      }
+    },
+    "tasty": {
+      "version": "1.5.5",
+      "url": "https://hackage.haskell.org/package/tasty-1.5.5/tasty-1.5.5.tar.gz",
+      "sha256": "5fc49a9b762691afa187c4df0df10dc95af1af712f455d20039bc63afdf34722",
+      "strip_prefix": "tasty-1.5.5",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Test.Tasty",
+          "Test.Tasty.Ingredients",
+          "Test.Tasty.Ingredients.Basic",
+          "Test.Tasty.Ingredients.ConsoleReporter",
+          "Test.Tasty.Options",
+          "Test.Tasty.Patterns.Eval",
+          "Test.Tasty.Patterns.Parser",
+          "Test.Tasty.Patterns.Printer",
+          "Test.Tasty.Patterns.Types",
+          "Test.Tasty.Providers",
+          "Test.Tasty.Providers.ConsoleFormat",
+          "Test.Tasty.Runners"
+        ],
+        "other_modules": [
+          "Control.Concurrent.Async",
+          "Test.Tasty.CmdLine",
+          "Test.Tasty.Core",
+          "Test.Tasty.Ingredients.IncludingOptions",
+          "Test.Tasty.Ingredients.ListTests",
+          "Test.Tasty.Options.Core",
+          "Test.Tasty.Options.Env",
+          "Test.Tasty.Parallel",
+          "Test.Tasty.Patterns",
+          "Test.Tasty.Patterns.Expr",
+          "Test.Tasty.Run",
+          "Test.Tasty.Runners.Reducers",
+          "Test.Tasty.Runners.Utils"
+        ],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell2010",
+        "default_extensions": [
+          "CPP",
+          "ScopedTypeVariables"
+        ],
+        "cpp_options": [
+          "-DUSE_WCWIDTH"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "ansi-terminal",
+          "base",
+          "containers",
+          "optparse-applicative",
+          "stm",
+          "tagged",
+          "terminal-size",
+          "transformers",
+          "unix"
+        ]
+      }
+    },
+    "terminal-size": {
+      "version": "0.3.4",
+      "url": "https://hackage.haskell.org/package/terminal-size-0.3.4/terminal-size-0.3.4.tar.gz",
+      "sha256": "b0f070d6926cdaacf3a412c5518e5c23afca1e0ed00808a5328c96e468b67f49",
+      "strip_prefix": "terminal-size-0.3.4",
+      "cabal_revision": 1,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "System.Console.Terminal.Size"
+        ],
+        "other_modules": [
+          "System.Console.Terminal.Common",
+          "System.Console.Terminal.Posix"
+        ],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "generate_paths_module": false,
+        "deps": [
+          "base"
+        ]
+      }
+    },
+    "transformers-compat": {
+      "version": "0.7.2",
+      "url": "https://hackage.haskell.org/package/transformers-compat-0.7.2/transformers-compat-0.7.2.tar.gz",
+      "sha256": "b62c7304c9f3cbc9463d0739aa85cb9489f217ea092b9d625d417514fbcc9d6a",
+      "strip_prefix": "transformers-compat-0.7.2",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Control.Monad.Trans.Instances",
+          "Data.Functor.Classes.Generic",
+          "Data.Functor.Classes.Generic.Internal"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "src",
+          "generics"
+        ],
+        "default_language": "Haskell2010",
+        "cpp_options": [
+          "-DMTL"
+        ],
+        "generate_paths_module": true,
+        "deps": [
+          "base",
+          "ghc-prim",
+          "transformers"
+        ]
+      }
+    },
+    "typed-process": {
+      "version": "0.2.13.0",
+      "url": "https://hackage.haskell.org/package/typed-process-0.2.13.0/typed-process-0.2.13.0.tar.gz",
+      "sha256": "9400966013b541df2e54ac8d57c3a670fc28bde2be87767ce98f13bbe2aa43a0",
+      "strip_prefix": "typed-process-0.2.13.0",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "System.Process.Typed",
+          "System.Process.Typed.Internal"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "generate_paths_module": true,
+        "deps": [
+          "async",
+          "base",
+          "bytestring",
+          "process",
+          "stm",
+          "text",
+          "transformers",
+          "unliftio-core"
+        ]
+      }
+    },
+    "unix-time": {
+      "version": "0.4.17",
+      "url": "https://hackage.haskell.org/package/unix-time-0.4.17/unix-time-0.4.17.tar.gz",
+      "sha256": "f63a05be5dcc5ac8f72c26c9fef8dcc993638ca9b545b9bd69b8a3924c201f8c",
+      "strip_prefix": "unix-time-0.4.17",
+      "cabal_revision": 0,
+      "build_type": "Configure",
+      "configure_script": "configure",
+      "configure_srcs": [
+        "cbits/config.h.in",
+        "cbits/conv.c",
+        "cbits/win_patch.h",
+        "configure",
+        "configure.ac"
+      ],
+      "configure_outputs": [
+        "cbits/config.h"
+      ],
+      "library": {
+        "exposed_modules": [
+          "Data.UnixTime"
+        ],
+        "other_modules": [
+          "Data.UnixTime.Conv",
+          "Data.UnixTime.Diff",
+          "Data.UnixTime.Sys",
+          "Data.UnixTime.Types"
+        ],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell2010",
+        "c_sources": [
+          "cbits/conv.c"
+        ],
+        "include_dirs": [
+          "cbits"
+        ],
+        "cc_options": [
+          "-fPIC"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "binary",
+          "bytestring",
+          "old-time"
+        ]
+      }
+    },
+    "unliftio-core": {
+      "version": "0.2.1.0",
+      "url": "https://hackage.haskell.org/package/unliftio-core-0.2.1.0/unliftio-core-0.2.1.0.tar.gz",
+      "sha256": "99384cba8d56d9d61b85e38a313a93ebcdb78be6566367f0930ef580597fe3e3",
+      "strip_prefix": "unliftio-core-0.2.1.0",
+      "cabal_revision": 4,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Control.Monad.IO.Unlift"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "generate_paths_module": true,
+        "deps": [
+          "base",
+          "transformers"
+        ]
+      }
+    },
+    "unordered-containers": {
+      "version": "0.2.20.1",
+      "url": "https://hackage.haskell.org/package/unordered-containers-0.2.20.1/unordered-containers-0.2.20.1.tar.gz",
+      "sha256": "708a60513d6da61e09b60b9a486106af703a889b5b43472a27c3b60bf35246ab",
+      "strip_prefix": "unordered-containers-0.2.20.1",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.HashMap.Internal",
+          "Data.HashMap.Internal.Array",
+          "Data.HashMap.Internal.Debug",
+          "Data.HashMap.Internal.List",
+          "Data.HashMap.Internal.Strict",
+          "Data.HashMap.Lazy",
+          "Data.HashMap.Strict",
+          "Data.HashSet",
+          "Data.HashSet.Internal"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell2010",
+        "ghc_opts": [
+          "-O2"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "deepseq",
+          "hashable",
+          "template-haskell"
+        ]
+      }
+    },
+    "vector": {
+      "version": "0.13.2.0",
+      "url": "https://hackage.haskell.org/package/vector-0.13.2.0/vector-0.13.2.0.tar.gz",
+      "sha256": "28f203c786cbf8ac6dc3fea3378ec36f34173d505fb4a1dd60fc8418ad91c423",
+      "strip_prefix": "vector-0.13.2.0",
+      "cabal_revision": 5,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.Vector",
+          "Data.Vector.Fusion.Bundle",
+          "Data.Vector.Fusion.Bundle.Monadic",
+          "Data.Vector.Fusion.Bundle.Size",
+          "Data.Vector.Fusion.Stream.Monadic",
+          "Data.Vector.Fusion.Util",
+          "Data.Vector.Generic",
+          "Data.Vector.Generic.Base",
+          "Data.Vector.Generic.Mutable",
+          "Data.Vector.Generic.Mutable.Base",
+          "Data.Vector.Generic.New",
+          "Data.Vector.Internal.Check",
+          "Data.Vector.Mutable",
+          "Data.Vector.Primitive",
+          "Data.Vector.Primitive.Mutable",
+          "Data.Vector.Storable",
+          "Data.Vector.Storable.Internal",
+          "Data.Vector.Storable.Mutable",
+          "Data.Vector.Strict",
+          "Data.Vector.Strict.Mutable",
+          "Data.Vector.Unboxed",
+          "Data.Vector.Unboxed.Base",
+          "Data.Vector.Unboxed.Mutable"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "ghc_opts": [
+          "-O2"
+        ],
+        "include_dirs": [
+          "include",
+          "internal"
+        ],
+        "install_includes": [
+          "vector.h"
+        ],
+        "cpp_options": [
+          "-DVECTOR_BOUNDS_CHECKS"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "deepseq",
+          "primitive",
+          "vector-stream"
+        ]
+      },
+      "sublibraries": {
+        "benchmarks-O2": {
+          "exposed_modules": [
+            "Bench.Vector.Algo.AwShCC",
+            "Bench.Vector.Algo.FindIndexR",
+            "Bench.Vector.Algo.HybCC",
+            "Bench.Vector.Algo.Leaffix",
+            "Bench.Vector.Algo.ListRank",
+            "Bench.Vector.Algo.MutableSet",
+            "Bench.Vector.Algo.NextPermutation",
+            "Bench.Vector.Algo.Quickhull",
+            "Bench.Vector.Algo.Rootfix",
+            "Bench.Vector.Algo.Spectral",
+            "Bench.Vector.Algo.Tridiag",
+            "Bench.Vector.Tasty",
+            "Bench.Vector.TestData.Graph",
+            "Bench.Vector.TestData.ParenTree"
+          ],
+          "other_modules": [],
+          "hs_source_dirs": [
+            "benchlib"
+          ],
+          "default_language": "Haskell2010",
+          "ghc_opts": [
+            "-O2"
+          ],
+          "generate_paths_module": false,
+          "deps": [
+            "base",
+            "random",
+            "tasty"
+          ],
+          "sublib_deps": [
+            "vector"
+          ]
+        }
+      }
+    },
+    "vector-algorithms": {
+      "version": "0.9.1.0",
+      "url": "https://hackage.haskell.org/package/vector-algorithms-0.9.1.0/vector-algorithms-0.9.1.0.tar.gz",
+      "sha256": "d2b674676802670d8a682b357da6b6b5741b4a33b191f0ffe5f2b2bc40558eb2",
+      "strip_prefix": "vector-algorithms-0.9.1.0",
+      "cabal_revision": 1,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.Vector.Algorithms",
+          "Data.Vector.Algorithms.AmericanFlag",
+          "Data.Vector.Algorithms.Heap",
+          "Data.Vector.Algorithms.Insertion",
+          "Data.Vector.Algorithms.Intro",
+          "Data.Vector.Algorithms.Merge",
+          "Data.Vector.Algorithms.Optimal",
+          "Data.Vector.Algorithms.Radix",
+          "Data.Vector.Algorithms.Search",
+          "Data.Vector.Algorithms.Tim"
+        ],
+        "other_modules": [
+          "Data.Vector.Algorithms.Common"
+        ],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "ghc_opts": [
+          "-funbox-strict-fields"
+        ],
+        "include_dirs": [
+          "include"
+        ],
+        "install_includes": [
+          "vector.h"
+        ],
+        "cpp_options": [
+          "-DVECTOR_BOUNDS_CHECKS"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "bitvec",
+          "bytestring",
+          "primitive",
+          "vector"
+        ]
+      }
+    },
+    "vector-stream": {
+      "version": "0.1.0.1",
+      "url": "https://hackage.haskell.org/package/vector-stream-0.1.0.1/vector-stream-0.1.0.1.tar.gz",
+      "sha256": "d0f507334bdea5431a2f07f525a97f29e76522c32210f5de6d5a2b4f1d42bf7c",
+      "strip_prefix": "vector-stream-0.1.0.1",
+      "cabal_revision": 4,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.Stream.Monadic"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "ghc-prim"
+        ]
+      }
+    },
+    "xml-conduit": {
+      "version": "1.10.1.0",
+      "url": "https://hackage.haskell.org/package/xml-conduit-1.10.1.0/xml-conduit-1.10.1.0.tar.gz",
+      "sha256": "118ada3837b80c6327b11449bdab50d620043731be2b2494eadcd8e854bff83f",
+      "strip_prefix": "xml-conduit-1.10.1.0",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Text.XML",
+          "Text.XML.Cursor",
+          "Text.XML.Cursor.Generic",
+          "Text.XML.Stream.Parse",
+          "Text.XML.Stream.Render",
+          "Text.XML.Stream.Render.Internal",
+          "Text.XML.Unresolved"
+        ],
+        "other_modules": [
+          "Text.XML.Stream.Token"
+        ],
+        "hs_source_dirs": [
+          "src"
+        ],
+        "default_language": "Haskell2010",
+        "generate_paths_module": false,
+        "deps": [
+          "attoparsec",
+          "base",
+          "blaze-html",
+          "blaze-markup",
+          "bytestring",
+          "conduit",
+          "conduit-extra",
+          "containers",
+          "data-default",
+          "deepseq",
+          "resourcet",
+          "text",
+          "transformers",
+          "xml-types"
+        ]
+      }
+    },
+    "xml-types": {
+      "version": "0.3.8",
+      "url": "https://hackage.haskell.org/package/xml-types-0.3.8/xml-types-0.3.8.tar.gz",
+      "sha256": "dad5e4ce602b7d1f4be37c0cfd99a261a4573746bfd80d917dc955b72da84c80",
+      "strip_prefix": "xml-types-0.3.8",
+      "cabal_revision": 0,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Data.XML.Types"
+        ],
+        "other_modules": [],
+        "hs_source_dirs": [
+          "lib"
+        ],
+        "default_language": "Haskell2010",
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "deepseq",
+          "text"
+        ]
+      }
+    },
+    "zlib": {
+      "version": "0.7.1.1",
+      "url": "https://hackage.haskell.org/package/zlib-0.7.1.1/zlib-0.7.1.1.tar.gz",
+      "sha256": "bf95ab01ed924be800addea195fba5ca97ec69f378368f6ff466bdc29666c1c1",
+      "strip_prefix": "zlib-0.7.1.1",
+      "cabal_revision": 1,
+      "build_type": "Simple",
+      "library": {
+        "exposed_modules": [
+          "Codec.Compression.GZip",
+          "Codec.Compression.Zlib",
+          "Codec.Compression.Zlib.Internal",
+          "Codec.Compression.Zlib.Raw"
+        ],
+        "other_modules": [
+          "Codec.Compression.Zlib.ByteStringCompat",
+          "Codec.Compression.Zlib.Stream"
+        ],
+        "hs_source_dirs": [
+          "."
+        ],
+        "default_language": "Haskell2010",
+        "c_sources": [
+          "cbits-extra/hs-zlib.c"
+        ],
+        "include_dirs": [
+          "cbits-extra"
+        ],
+        "cpp_options": [
+          "-DNON_BLOCKING_FFI"
+        ],
+        "extra_libraries": [
+          "z"
+        ],
+        "generate_paths_module": false,
+        "deps": [
+          "base",
+          "bytestring"
+        ]
+      }
+    }
+  }
+}

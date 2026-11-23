@@ -20,6 +20,10 @@ load(
     "write_paths_module",
 )
 
+def resolve_override_labels(raw_labels):
+    """Converts canonical label strings (e.g. '@@zlib+//:zlib') from hackage.override into Labels."""
+    return [Label(s) for s in raw_labels]
+
 def _cabal_unit_id(package_name, component_name, version):
     if component_name:
         return "{}-{}-{}".format(package_name, version, component_name)
@@ -44,6 +48,7 @@ def _hs_cabal_library_impl(ctx):
     has_haskell = bool(
         ctx.files.srcs or
         ctx.files.hsc_srcs or
+        any([f.path.endswith(".cmm") for f in ctx.files.c_sources]) or
         ctx.attr.generate_paths_module or
         ctx.attr.reexported_modules or
         ctx.attr.exposed_modules or
@@ -226,6 +231,7 @@ def _hs_cabal_library_impl(ctx):
         unit_id = unit_id,
         hs_srcs = ctx.files.srcs,
         generated_hs_srcs = generated_hs,
+        cmm_srcs = [f for f in ctx.files.c_sources if f.path.endswith(".cmm")],
         hs_source_dirs = ctx.attr.hs_source_dirs or ["."],
         extra_import_dirs = extra_import_dirs,
         exposed_modules = ctx.attr.exposed_modules,
@@ -291,7 +297,7 @@ hs_cabal_library = rule(
             default = [],
         ),
         "c_sources": attr.label_list(
-            allow_files = [".c", ".cc", ".cpp", ".S", ".s"],
+            allow_files = [".c", ".cc", ".cpp", ".S", ".s", ".cmm"],
             default = [],
         ),
         "hdrs": attr.label_list(

@@ -108,6 +108,17 @@ def _ghc_bindist_repo_impl(repository_ctx):
         stripPrefix = repository_ctx.attr.strip_prefix,
     )
 
+    # GHC 9.12+ Hadrian bindists append an ABI hash suffix to arch_libdir
+    # (e.g. x86_64-linux-ghc-9.12.4-38d1). Auto-detect the exact directory name.
+    if not repository_ctx.path("lib/" + arch_libdir).exists:
+        candidates = sorted([
+            entry.basename
+            for entry in repository_ctx.path("lib").readdir()
+            if entry.basename.startswith(arch_libdir + "-")
+        ])
+        if candidates:
+            arch_libdir = candidates[0]
+
     # 1. Sanitize lib/settings so GHC can never invoke host /usr/bin/* or -fuse-ld=gold.
     settings_path = repository_ctx.path("lib/settings")
     if settings_path.exists:

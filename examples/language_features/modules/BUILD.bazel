@@ -1,0 +1,46 @@
+load("@rules_hs//hs:defs.bzl", "hs_library", "hs_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+hs_library(
+    name = "configured_lib",
+    srcs = [
+        "Configured.hs",
+        "Configured/Internal.hs",
+    ],
+    cpp_options = ["-DFEATURE_BONUS=10"],
+    default_extensions = [
+        "CPP",
+        "LambdaCase",
+        "OverloadedStrings",
+    ],
+    ghc_opts = [
+        "-Wall",
+        "-Werror",
+        "-O2",
+    ],
+    hidden_modules = ["Configured.Internal"],
+    deps = [
+        "@hs_boot//:base",
+        "@hs_boot//:text",
+    ],
+)
+
+hs_test(
+    name = "modules_test",
+    size = "small",
+    srcs = ["ModulesTest.hs"],
+    ghc_opts = ["-Wall"],
+    deps = [
+        ":configured_lib",
+        "@hs_boot//:base",
+        "@hs_boot//:text",
+    ],
+)
+
+sh_test(
+    name = "hidden_check_test",
+    size = "small",
+    srcs = ["hidden_check.sh"],
+    args = ["$(rootpaths :configured_lib)"],
+    data = [":configured_lib"],
+)

@@ -1,0 +1,58 @@
+module(
+    name = "llvm_toolchain_example",
+    version = "0.1.0",
+    bazel_compatibility = [">=9.0.0"],
+)
+
+bazel_dep(name = "rules_hs", version = "0.1.0")
+local_path_override(
+    module_name = "rules_hs",
+    path = "../..",
+)
+
+bazel_dep(name = "toolchains_llvm", version = "1.13.0")
+bazel_dep(name = "rules_shell", version = "0.6.1", dev_dependency = True)
+
+sysroot = use_repo_rule("@toolchains_llvm//toolchain:sysroot.bzl", "sysroot")
+
+sysroot(
+    name = "debian_bullseye_amd64_sysroot",
+    sha256 = "f851add76bdae472fb6c94b4f920bc4a132d85ac607951391297f636af7e934e",
+    urls = ["https://commondatastorage.googleapis.com/chrome-linux-sysroot/f851add76bdae472fb6c94b4f920bc4a132d85ac607951391297f636af7e934e"],
+)
+
+sysroot(
+    name = "debian_bullseye_arm64_sysroot",
+    sha256 = "278c36fe3a785d7f89fbe3f46956899a3bd49fe665f68dc667d6f626a951fcd6",
+    urls = ["https://commondatastorage.googleapis.com/chrome-linux-sysroot/278c36fe3a785d7f89fbe3f46956899a3bd49fe665f68dc667d6f626a951fcd6"],
+)
+
+llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm")
+llvm.toolchain(
+    name = "llvm_toolchain",
+    linker = {
+        "linux-x86_64": "mold",
+        "linux-aarch64": "mold",
+    },
+    linker_version = "2.42.1",
+    llvm_version = "22.1.8",
+)
+llvm.sysroot(
+    name = "llvm_toolchain",
+    label = "@debian_bullseye_amd64_sysroot//sysroot",
+    targets = ["linux-x86_64"],
+)
+llvm.sysroot(
+    name = "llvm_toolchain",
+    label = "@debian_bullseye_arm64_sysroot//sysroot",
+    targets = ["linux-aarch64"],
+)
+use_repo(llvm, "llvm_toolchain")
+
+register_toolchains("@llvm_toolchain//:all")
+
+hs = use_extension("@rules_hs//hs:extensions.bzl", "hs")
+hs.toolchain(ghc_version = "9.10.3")
+use_repo(hs, "hs_boot", "hs_toolchains")
+
+register_toolchains("@hs_toolchains//:all")

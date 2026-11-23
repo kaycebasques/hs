@@ -1,0 +1,112 @@
+load("@rules_hs//hs:defs.bzl", "hs_cabal_library", "hs_library", "hs_test")
+load("@rules_hs//hs/private:cabal_codegen.bzl", "hs_alex_gen", "hs_happy_gen")
+
+# 1. C-only Cabal library exporting tiny_clib.h via install_includes.
+hs_cabal_library(
+    name = "tiny_clib",
+    package_name = "tiny-clib",
+    c_sources = ["cbits/tiny_clib.c"],
+    hdrs = ["cbits/tiny_clib.h"],
+    include_dirs = ["cbits"],
+    install_includes = ["tiny_clib.h"],
+    version = "0.1.0",
+)
+
+# 2. build-type = "Configure" + hsc2hs (.hsc) consuming tiny_clib.
+hs_cabal_library(
+    name = "configured_pkg",
+    package_name = "configured-pkg",
+    build_type = "Configure",
+    configure_outputs = ["include/ConfiguredVal.h"],
+    configure_script = "configure",
+    default_language = "Haskell2010",
+    exposed_modules = ["ConfiguredConsts"],
+    hsc_srcs = ["ConfiguredConsts.hsc"],
+    include_dirs = ["include"],
+    version = "0.2.0",
+    deps = [
+        ":tiny_clib",
+        "@hackage//:base",
+    ],
+)
+
+# 3. Sublibrary + Paths_<pkg> + compile-time data-files + reexported-modules.
+hs_cabal_library(
+    name = "vendored_sublib",
+    package_name = "vendored-demo",
+    component_name = "vendored-sub",
+    default_language = "Haskell2010",
+    exposed_modules = ["SubMod"],
+    hs_source_dirs = ["sub"],
+    srcs = ["sub/SubMod.hs"],
+    version = "1.4.0",
+    deps = ["@hackage//:base"],
+)
+
+hs_cabal_library(
+    name = "vendored_demo",
+    package_name = "vendored-demo",
+    data = ["pkg_asset.txt"],
+    default_language = "Haskell2010",
+    exposed_modules = ["VendoredMainLib"],
+    generate_paths_module = True,
+    reexported_modules = ["SubMod as ReexportedSubMod"],
+    srcs = ["VendoredMainLib.hs"],
+    version = "1.4.0",
+    deps = [
+        ":vendored_sublib",
+        "@hackage//:base",
+        "@hackage//:file-embed",
+    ],
+)
+
+# 4. Source-bootstrapped Alex (.x), Happy (.y), and Literate Happy (.ly).
+hs_alex_gen(
+    name = "expr_lexer_hs",
+    src = "ExprLexer.x",
+    alex = "@hackage__bootstrap_alex//:alex",
+    alex_data = ["@hackage__bootstrap_alex//:data_files"],
+    out = "ExprLexer.hs",
+)
+
+hs_happy_gen(
+    name = "expr_parser_hs",
+    src = "ExprParser.y",
+    happy = "@hackage__bootstrap_happy//:happy",
+    happy_data = ["@hackage__bootstrap_happy//:data_files"],
+    out = "ExprParser.hs",
+)
+
+hs_happy_gen(
+    name = "lit_sum_parser_hs",
+    src = "LitSumParser.ly",
+    happy = "@hackage__bootstrap_happy//:happy",
+    happy_data = ["@hackage__bootstrap_happy//:data_files"],
+    out = "LitSumParser.hs",
+)
+
+hs_library(
+    name = "expr_grammar",
+    srcs = [
+        ":expr_lexer_hs",
+        ":expr_parser_hs",
+        ":lit_sum_parser_hs",
+    ],
+    deps = [
+        "@hackage//:array",
+        "@hackage//:base",
+    ],
+)
+
+hs_test(
+    name = "vendored_cabal_test",
+    size = "small",
+    srcs = ["VendoredCabalTest.hs"],
+    ghc_opts = ["-Wall"],
+    deps = [
+        ":configured_pkg",
+        ":expr_grammar",
+        ":vendored_demo",
+        "@hackage//:base",
+    ],
+)

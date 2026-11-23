@@ -1,0 +1,44 @@
+load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_library", "hs_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+hs_library(
+    name = "sys_cc_bridge",
+    srcs = ["src/SysCcBridge.hs"],
+    c_sources = ["cbits/sys_cc.c"],
+    ghc_opts = ["-Wall"],
+    hdrs = ["cbits/sys_cc.h"],
+    hs_source_dirs = ["src"],
+    include_dirs = ["cbits"],
+    deps = ["@hs_boot//:base"],
+)
+
+hs_binary(
+    name = "system_cc_demo",
+    srcs = ["src/Main.hs"],
+    ghc_opts = ["-Wall"],
+    hs_source_dirs = ["src"],
+    deps = [
+        ":sys_cc_bridge",
+        "@hs_boot//:base",
+    ],
+)
+
+hs_test(
+    name = "sys_cc_test",
+    size = "small",
+    srcs = ["test/SysCcTest.hs"],
+    ghc_opts = ["-Wall"],
+    hs_source_dirs = ["test"],
+    deps = [
+        ":sys_cc_bridge",
+        "@hs_boot//:base",
+    ],
+)
+
+sh_test(
+    name = "elf_hermeticity_test",
+    size = "small",
+    srcs = ["test/elf_hermeticity_test.sh"],
+    args = ["$(rootpath :system_cc_demo)"],
+    data = [":system_cc_demo"],
+)

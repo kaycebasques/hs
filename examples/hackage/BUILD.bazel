@@ -1,0 +1,48 @@
+load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+exports_files(["hackage.lock.json"])
+
+hs_binary(
+    name = "hackage_demo",
+    srcs = ["src/Main.hs"],
+    ghc_opts = ["-Wall"],
+    hs_source_dirs = ["src"],
+    deps = [
+        "@hackage//:base",
+        "@hackage//:bytestring",
+        "@hackage//:split",
+        "@hackage//:zlib",
+    ],
+)
+
+hs_test(
+    name = "hackage_test",
+    size = "small",
+    srcs = ["test/HackageTest.hs"],
+    ghc_opts = ["-Wall"],
+    hs_source_dirs = ["test"],
+    deps = [
+        "@hackage//:ansi-terminal",
+        "@hackage//:attoparsec__attoparsec-internal",
+        "@hackage//:base",
+        "@hackage//:bytestring",
+        "@hackage//:conduit",
+        "@hackage//:libyaml",
+        "@hackage//:network",
+        "@hackage//:pretty-show",
+        "@hackage//:split",
+        "@hackage//:tar__tar-internal",
+        "@hackage//:unix-time",
+        "@hackage//:xml-conduit",
+        "@hackage//:zlib",
+    ],
+)
+
+sh_test(
+    name = "elf_hermeticity_test",
+    size = "small",
+    srcs = ["test/elf_hermeticity_test.sh"],
+    args = ["$(rootpath :hackage_demo)"],
+    data = [":hackage_demo"],
+)

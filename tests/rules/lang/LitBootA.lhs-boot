@@ -1,0 +1,9 @@
+Literate .lhs-boot forward declaration for LitBootA.
+
+> module LitBootA (LitEven (..), isLitEven) where
+>
+> newtype LitEven = LitEven Bool
+> instance Eq LitEven
+> instance Show LitEven
+>
+> isLitEven :: Int -> LitEven

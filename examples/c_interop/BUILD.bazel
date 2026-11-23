@@ -1,0 +1,72 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_hs//hs:defs.bzl", "hs_binary", "hs_library", "hs_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+cc_library(
+    name = "checksum_cc",
+    srcs = ["cc/checksum.c"],
+    hdrs = ["cc/checksum.h"],
+    includes = ["cc"],
+)
+
+hs_library(
+    name = "native_interop",
+    srcs = ["src/NativeInterop.hs"],
+    c_sources = [
+        "cbits/inline_asm.S",
+        "cbits/inline_c.c",
+        "cbits/inline_cxx.cc",
+    ] + select({
+        "@platforms//cpu:arm64": ["cbits/raw_arm64.s"],
+        "//conditions:default": ["cbits/raw_x86_64.s"],
+    }),
+    cc_deps = [
+        ":checksum_cc",
+        "@zlib//:zlib",
+    ],
+    cc_options = [
+        "-std=c++17",
+        "-DINLINE_FACTOR=4",
+        "-DASM_BIAS=12",
+    ],
+    ghc_opts = ["-Wall"],
+    hdrs = ["cbits/inline_c.h"],
+    hs_source_dirs = ["src"],
+    include_dirs = ["cbits"],
+    deps = [
+        "@hs_boot//:base",
+        "@hs_boot//:bytestring",
+    ],
+)
+
+hs_binary(
+    name = "c_interop_demo",
+    srcs = ["src/Main.hs"],
+    ghc_opts = ["-Wall"],
+    hs_source_dirs = ["src"],
+    deps = [
+        ":native_interop",
+        "@hs_boot//:base",
+    ],
+)
+
+hs_test(
+    name = "c_interop_test",
+    size = "small",
+    srcs = ["test/CInteropTest.hs"],
+    ghc_opts = ["-Wall"],
+    hs_source_dirs = ["test"],
+    deps = [
+        ":native_interop",
+        "@hs_boot//:base",
+        "@hs_boot//:bytestring",
+    ],
+)
+
+sh_test(
+    name = "elf_hermeticity_test",
+    size = "small",
+    srcs = ["test/elf_hermeticity_test.sh"],
+    args = ["$(rootpath :c_interop_demo)"],
+    data = [":c_interop_demo"],
+)

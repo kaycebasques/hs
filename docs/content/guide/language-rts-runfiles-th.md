@@ -127,24 +127,28 @@ Modules inside `:math_lib` (such as `Math.Core`) can `import Math.Internal`, whi
 Haskell compilers typecheck modules in dependency order, so two `.hs` files normally cannot import each other in a loop (`BootA` imports `BootB` and `BootB` imports `BootA`). When two modules genuinely need to reference each other's types or functions, GHC breaks the cycle with a **`.hs-boot` forward-declaration file** (similar in spirit to a `.h` forward declaration in C):
 
 ```haskell
--- BootA.hs-boot (declares only the type/function signatures BootB needs first)
-module BootA (NodeA (..)) where
-import {-# SOURCE #-} BootB (NodeB)
-data NodeA = NodeA Int (Maybe NodeB)
+-- BootA.hs-boot (declares only the abstract type/function signatures BootB needs first)
+module BootA (NodeA, sumNodeA) where
+data NodeA
+sumNodeA :: NodeA -> Int
 ```
 
 ```haskell
 -- BootB.hs (imports the lightweight BootA.hs-boot interface via {-# SOURCE #-})
-module BootB (NodeB (..)) where
-import {-# SOURCE #-} BootA (NodeA)
-data NodeB = NodeB String NodeA
+module BootB (NodeB (..), sumNodeB) where
+import {-# SOURCE #-} BootA (NodeA, sumNodeA)
+data NodeB = NodeB Int NodeA
+sumNodeB :: NodeB -> Int
+sumNodeB (NodeB x a) = x + sumNodeA a
 ```
 
 ```haskell
--- BootA.hs (full implementation, Checked by GHC against BootA.hs-boot)
-module BootA (NodeA (..)) where
-import BootB (NodeB)
+-- BootA.hs (full implementation, checked by GHC against BootA.hs-boot)
+module BootA (NodeA (..), sumNodeA) where
+import BootB (NodeB, sumNodeB)
 data NodeA = NodeA Int (Maybe NodeB)
+sumNodeA :: NodeA -> Int
+sumNodeA (NodeA x mb) = x + maybe 0 sumNodeB mb
 ```
 
 Because [`hs_library`](../reference/rules.md#hs_library) compiles all modules of a library together via `ghc --make -c`, include the `.hs-boot` (or `.lhs-boot`) file alongside the `.hs` files in `srcs` (from `tests/basic/BUILD.bazel`):

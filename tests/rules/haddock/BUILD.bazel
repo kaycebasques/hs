@@ -5,6 +5,7 @@ hs_library(
     name = "core_lib",
     srcs = [
         "HaddockCore.hs",
+        "HaddockLiterate.lhs",
         "HaddockSecret.hs",
     ],
     cpp_options = ["-DHADDOCK_CPP_OFFSET=42"],
@@ -31,6 +32,7 @@ hs_library(
 
 hs_haddock(
     name = "core_haddock",
+    hoogle = True,
     prologue = "prologue.txt",
     title = "Core Haddock Suite",
     deps = [":core_lib"],

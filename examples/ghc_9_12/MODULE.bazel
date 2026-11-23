@@ -1,0 +1,30 @@
+module(
+    name = "ghc_9_12_example",
+    version = "0.1.0",
+    bazel_compatibility = [">=9.0.0"],
+)
+
+bazel_dep(name = "rules_hs", version = "0.1.0")
+local_path_override(
+    module_name = "rules_hs",
+    path = "../..",
+)
+
+bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0")
+bazel_dep(name = "rules_shell", version = "0.6.1", dev_dependency = True)
+
+cc_toolchains = use_extension("@hermetic_cc_toolchain//toolchain:ext.bzl", "toolchains")
+use_repo(cc_toolchains, "zig_sdk")
+
+register_toolchains(
+    "@zig_sdk//toolchain:linux_amd64_gnu.2.32",
+    "@zig_sdk//toolchain:linux_arm64_gnu.2.32",
+    "@zig_sdk//toolchain/...",
+    "@zig_sdk//libc_aware/toolchain/...",
+)
+
+hs = use_extension("@rules_hs//hs:extensions.bzl", "hs")
+hs.toolchain(ghc_version = "9.12.4")
+use_repo(hs, "hs_boot", "hs_toolchains")
+
+register_toolchains("@hs_toolchains//:all")

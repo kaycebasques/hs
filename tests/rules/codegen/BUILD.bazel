@@ -1,0 +1,88 @@
+load("//hs:defs.bzl", "hs_cabal_library", "hs_library", "hs_test")
+load("//hs/private:cabal_codegen.bzl", "hs_alex_gen", "hs_happy_gen")
+
+hs_alex_gen(
+    name = "calc_lexer_hs",
+    src = "CalcLexer.x",
+    alex = "@hackage__bootstrap_alex//:alex",
+    alex_data = ["@hackage__bootstrap_alex//:data_files"],
+    out = "CalcLexer.hs",
+)
+
+hs_happy_gen(
+    name = "calc_parser_hs",
+    src = "CalcParser.y",
+    happy = "@hackage__bootstrap_happy//:happy",
+    happy_data = ["@hackage__bootstrap_happy//:data_files"],
+    out = "CalcParser.hs",
+)
+
+hs_happy_gen(
+    name = "lit_calc_parser_hs",
+    src = "LitCalcParser.ly",
+    happy = "@hackage__bootstrap_happy//:happy",
+    happy_data = ["@hackage__bootstrap_happy//:data_files"],
+    out = "LitCalcParser.hs",
+)
+
+hs_library(
+    name = "calc_grammar_lib",
+    srcs = [
+        ":calc_lexer_hs",
+        ":calc_parser_hs",
+        ":lit_calc_parser_hs",
+    ],
+    deps = [
+        "@hs_boot//:array",
+        "@hs_boot//:base",
+    ],
+)
+
+hs_cabal_library(
+    name = "demo_data_sublib",
+    package_name = "demo-data-pkg",
+    srcs = ["sub/SubHelper.hs"],
+    component_name = "demo-sub",
+    default_language = "Haskell2010",
+    exposed_modules = ["SubHelper"],
+    hs_source_dirs = ["sub"],
+    version = "0.3.1",
+    deps = ["@hs_boot//:base"],
+)
+
+hs_cabal_library(
+    name = "demo_data_pkg",
+    package_name = "demo-data-pkg",
+    srcs = ["DataPkg.hs"],
+    data = ["pkg_data.txt"],
+    default_language = "Haskell2010",
+    exposed_modules = ["DataPkg"],
+    generate_paths_module = True,
+    reexported_modules = ["SubHelper as DemoReexportedSub"],
+    version = "0.3.1",
+    deps = [
+        ":demo_data_sublib",
+        "@hackage//:file-embed",
+        "@hs_boot//:base",
+    ],
+)
+
+hs_test(
+    name = "codegen_test",
+    size = "small",
+    srcs = ["CodegenTest.hs"],
+    deps = [
+        ":calc_grammar_lib",
+        ":demo_data_pkg",
+        "@hackage//:ansi-terminal",
+        "@hackage//:attoparsec__attoparsec-internal",
+        "@hackage//:base",
+        "@hackage//:bytestring",
+        "@hackage//:conduit",
+        "@hackage//:haskell-lexer",
+        "@hackage//:libyaml",
+        "@hackage//:pretty-show",
+        "@hackage//:unix-time",
+        "@hackage//:xml-conduit",
+    ],
+)

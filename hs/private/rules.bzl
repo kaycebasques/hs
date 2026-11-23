@@ -133,6 +133,7 @@ def _hs_library_impl(ctx):
         unit_id = unit_id,
         hs_srcs = ctx.files.srcs,
         generated_hs_srcs = [],
+        cmm_srcs = [f for f in ctx.files.c_sources if f.path.endswith(".cmm")],
         hs_source_dirs = ctx.attr.hs_source_dirs,
         extra_import_dirs = [],
         exposed_modules = [],
@@ -201,7 +202,7 @@ hs_library = rule(
             default = [],
         ),
         "c_sources": attr.label_list(
-            allow_files = [".c", ".cc", ".cpp", ".S", ".s"],
+            allow_files = [".c", ".cc", ".cpp", ".S", ".s", ".cmm"],
             default = [],
         ),
         "hdrs": attr.label_list(
@@ -336,10 +337,18 @@ def _hs_executable_impl(ctx):
     ghc_args.add("-o", out_exe.path)
     for f in compile_src_files:
         ghc_args.add(f.path)
+    cmm_src_files = [f for f in ctx.files.c_sources if f.path.endswith(".cmm")]
+    for f in cmm_src_files:
+        ghc_args.add(f.path)
 
-    extra_in = list(ctx.files.srcs) + list(ctx.files.hdrs) + list(cc_archives) + list(ctx.files.data)
+    extra_in = list(ctx.files.srcs) + list(cmm_src_files) + list(ctx.files.hdrs) + list(cc_archives) + list(ctx.files.data)
     if hs_tc.gmp_static_lib:
         extra_in.append(hs_tc.gmp_static_lib)
+
+    pkg_root = resolve_package_dir(ctx, ".")
+    exe_env = dict(ghc_base_env(cc_tools))
+    if ctx.files.data and pkg_root != ".":
+        exe_env["RULES_HS_PKG_ROOT"] = pkg_root
 
     ctx.actions.run_shell(
         mnemonic = "HsLinkExecutable",
@@ -356,18 +365,44 @@ def _hs_executable_impl(ctx):
         ),
         tools = [hs_tc.ghc, hs_tc.cc_wrapper],
         outputs = [out_exe],
-        env = ghc_base_env(cc_tools),
+        env = exe_env,
         command = """\
 set -euo pipefail
 unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY
 GHC="$1"
 shift
+EXECROOT="$(pwd)"
+case "${RULES_HS_REAL_CC:-}" in
+    ""|/*) ;;
+    *) export RULES_HS_REAL_CC="$EXECROOT/$RULES_HS_REAL_CC" ;;
+esac
+case "$GHC" in
+    /*) GHC_ABS="$GHC" ;;
+    *) GHC_ABS="$EXECROOT/$GHC" ;;
+esac
 WORK_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/hs_bin.XXXXXX")"
 trap 'rm -rf "$WORK_ROOT"' EXIT
 WORKDIR="$WORK_ROOT/objs"
 export TMPDIR="$WORK_ROOT/tmp"
 mkdir -p "$WORKDIR" "$TMPDIR"
-"$GHC" -outputdir "$WORKDIR" "$@"
+GHC_CWD="$EXECROOT"
+if [ -n "${RULES_HS_PKG_ROOT:-}" ] && [ -d "$EXECROOT/$RULES_HS_PKG_ROOT" ]; then
+    GHC_CWD="$WORK_ROOT/pkg_cwd"
+    mkdir -p "$GHC_CWD"
+    for top in "$EXECROOT"/*; do
+        [ -e "$top" ] || [ -L "$top" ] || continue
+        ln -s "$top" "$GHC_CWD/$(basename "$top")"
+    done
+    for item in "$EXECROOT/$RULES_HS_PKG_ROOT"/* "$EXECROOT/$RULES_HS_PKG_ROOT"/.*; do
+        [ -e "$item" ] || [ -L "$item" ] || continue
+        iname="$(basename "$item")"
+        [ "$iname" = "." ] || [ "$iname" = ".." ] && continue
+        if [ "$iname" != "bazel-out" ] && [ "$iname" != "external" ]; then
+            ln -snf "$item" "$GHC_CWD/$iname"
+        fi
+    done
+fi
+(cd "$GHC_CWD" && "$GHC_ABS" -outputdir "$WORKDIR" "$@")
 """,
         arguments = [hs_tc.ghc.path, ghc_args],
     )
@@ -399,7 +434,7 @@ _EXECUTABLE_ATTRS = {
         default = [],
     ),
     "c_sources": attr.label_list(
-        allow_files = [".c", ".cc", ".cpp", ".S", ".s"],
+        allow_files = [".c", ".cc", ".cpp", ".S", ".s", ".cmm"],
         default = [],
     ),
     "hdrs": attr.label_list(

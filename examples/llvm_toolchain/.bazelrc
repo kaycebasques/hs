@@ -1,0 +1,7 @@
+common --enable_platform_specific_config
+common --enable_runfiles
+common --incompatible_strict_action_env
+common --test_output=errors
+common --lockfile_mode=off
+
+try-import %workspace%/.bazelrc.user

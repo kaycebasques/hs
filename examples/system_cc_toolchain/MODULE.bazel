@@ -1,0 +1,21 @@
+module(
+    name = "system_cc_toolchain_example",
+    version = "0.1.0",
+    bazel_compatibility = [">=9.0.0"],
+)
+
+bazel_dep(name = "rules_hs", version = "0.1.0")
+local_path_override(
+    module_name = "rules_hs",
+    path = "../..",
+)
+
+bazel_dep(name = "rules_shell", version = "0.6.1", dev_dependency = True)
+
+# No hermetic_cc_toolchain or toolchains_llvm: rules_cc auto-detects the host
+# GCC or Clang C/C++ toolchain while rules_hs still provisions GHC and static GMP.
+hs = use_extension("@rules_hs//hs:extensions.bzl", "hs")
+hs.toolchain(ghc_version = "9.10.3")
+use_repo(hs, "hs_boot", "hs_toolchains")
+
+register_toolchains("@hs_toolchains//:all")

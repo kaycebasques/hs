@@ -1,0 +1,26 @@
+load("@rules_hs//hs:defs.bzl", "hs_test")
+
+hs_test(
+    name = "single_threaded_test",
+    size = "small",
+    srcs = ["SingleThreadedTest.hs"],
+    ghc_opts = ["-Wall"],
+    threaded = False,
+    deps = ["@hs_boot//:base"],
+)
+
+hs_test(
+    name = "multicore_threaded_test",
+    size = "small",
+    srcs = ["MulticoreThreadedTest.hs"],
+    ghc_opts = [
+        "-Wall",
+        "-rtsopts",
+        "-with-rtsopts=-N2",
+    ],
+    threaded = True,
+    deps = [
+        "@hs_boot//:base",
+        "@hs_boot//:stm",
+    ],
+)

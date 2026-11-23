@@ -1,0 +1,1 @@
+vendored-cabal-data-ok
