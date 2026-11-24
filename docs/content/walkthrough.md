@@ -2,11 +2,17 @@
 title: "From bazelisk build :hello to a hermetic Haskell binary"
 ---
 
-This walkthrough traces every step that happens after you type `bazelisk build :hello` in a minimal `rules_haskell` workspace, down to the individual compiler flags, environment variables, and Linux binary headers. It's written for new maintainers of `rules_haskell` and assumes no prior experience with [Haskell](https://www.haskell.org/), its compiler ([GHC](https://www.haskell.org/ghc/)), or [Bazel](https://bazel.build/). If you're looking for the documentation home page or generated API docs instead, see the [documentation index](index.md) or the [Haddock API reference](haddock/lock/index.html).
+This walkthrough traces every step that happens after you type `bazelisk build :hello` in a minimal `rules_haskell` project, down to the individual compiler flags, environment variables, and Linux binary headers. It's written for new maintainers of `rules_haskell` and assumes no prior experience with [Haskell](https://www.haskell.org/), its compiler ([GHC](https://www.haskell.org/ghc/)), or [Bazel](https://bazel.build/). If you're looking for the documentation home page or generated API docs instead, see the [documentation index](index.md) or the [Haddock API reference](haddock/lock/index.html).
+
+## Motivation
 
 A build is [hermetic](https://bazel.build/basics/hermeticity) when every compiler binary, C header, library, and helper tool comes from pinned, cryptographically verified inputs rather than whatever packages happen to be installed in `/usr/bin` or `/usr/lib` on your machine. Hermeticity is what lets the exact same command succeed identically on a developer laptop, a minimal Linux container with zero compilers installed, or a [Remote Build Execution (RBE)](https://bazel.build/remote/rbe) worker.
 
-Instead of front-loading a glossary, this guide introduces every Bazel, Haskell, C-toolchain, and Linux linking concept at the exact moment the build hits it—alongside the concrete engineering work `rules_haskell` does to seal every host-dependency leak along the way:
+With Haskell, achieving hermeticity takes deliberate engineering. Historically, installing an official GHC binary distribution (*bindist*) meant running `./configure && make install` when fetching the compiler. That shell script probes whatever `make`, `perl`, `/bin/sh`, `gcc`, `libgmp-dev`, and `libtinfo-dev` happen to be installed on your host—failing immediately in minimal containers and baking host-specific paths into GHC's configuration files. Beyond installation, GHC also shells out to external C compilers, assemblers, archivers, and linkers at build time, and dynamically links its own compiler binary against host C libraries like `libgmp` and `libtinfo`.
+
+<!-- Maintainer note: Instead of front-loading a glossary, keep introducing every Bazel, Haskell, C-toolchain, and Linux linking concept at the exact moment the build hits it, alongside the concrete work rules_haskell does to seal each host-dependency leak. Show each project file's source code only when the workflow first reads it. -->
+
+Here is the end-to-end flow you'll trace in this guide:
 
 ```mermaid
 flowchart TD
@@ -20,14 +26,41 @@ flowchart TD
     S8 --> S9["9. Audit and run: verifies base-glibc DT_NEEDED, <= 2.32 symbols, and env -i execution"]
 ```
 
+## Setup
+
+To follow along on an `x86_64` Linux machine (or inside a clean container such as `debian:bookworm-slim` or `rockylinux:9` with no `ghc`, `cabal`, `gcc`, `clang`, `libgmp-dev`, or `libtinfo-dev` installed):
+
+1. Install [Bazelisk](https://bazel.build/install/bazelisk) if you don't already have `bazelisk` on your `PATH`.
+2. Clone `rules_haskell` and move into the standalone quickstart example:
+
+```bash
+git clone https://github.com/kaycebasques/rules_haskell.git
+cd rules_haskell/examples/quickstart
+```
+
+3. Build the `:hello` executable:
+
+```bash
+bazelisk build :hello
+```
+
+> **Tip:** If you want to watch Bazel pick its C and Haskell toolchains live as you follow Step 4, pass [`--toolchain_resolution_debug`](https://bazel.build/reference/command-line-reference#param-toolchain-resolution-debug) when building:
+>
+> ```bash
+> bazelisk build :hello \
+>   --toolchain_resolution_debug='(@rules_haskell//haskell:toolchain_type|@bazel_tools//tools/cpp:toolchain_type)'
+> ```
+
+> **Working-directory assumption:** Every command and relative file path in the rest of this walkthrough assumes **`examples/quickstart/` is your current working directory**. After your first build, Bazel creates convenience symlinks right inside `examples/quickstart/` (`bazel-quickstart/`, `bazel-out/`, and `bazel-bin/`), so you can inspect fetched external repositories under `bazel-quickstart/external/` (or via `$(bazelisk info output_base)/external/`) and read `rules_haskell`'s own implementation files two directories up at `../../haskell/`.
+
 ## The minimal project
 
-To keep every flag, file path, and output grounded in verified code, this walkthrough uses the standalone workspace at `examples/quickstart/`. It builds a two-module "Hello, world!" application (`:hello`) that depends on a local library (`:greet`), which is small enough to read in two minutes while still exercising every layer of `rules_haskell`—boot libraries, strict dependency visibility, library archiving, dynamic shared libraries for compile-time macros, and static executable linking.
+To keep every flag, file path, and output grounded in verified code, this walkthrough uses the standalone project in `examples/quickstart/`. It builds a two-module "Hello, world!" application (`:hello`) that depends on a local library (`:greet`)—small enough to read quickly while still exercising boot libraries, strict dependency visibility, library archiving, dynamic shared libraries for compile-time macros, and static executable linking.
 
-Here are the six files in `examples/quickstart/` that participate in `bazelisk build :hello` (the directory also contains tests under `test/`, which Bazel ignores until you run tests):
+Six files in `examples/quickstart/` participate in `bazelisk build :hello` (the directory also contains tests under `test/`, which Bazel ignores until you run tests). You'll see the full contents of each file at the exact moment Bazelisk or Bazel reads it:
 
 ```text
-examples/quickstart/
+.
 ├── .bazelversion       # Pins the exact Bazel release (9.3.3)
 ├── .bazelrc            # Default build flags and sandbox settings
 ├── MODULE.bazel        # External modules and toolchain registrations
@@ -37,15 +70,49 @@ examples/quickstart/
     └── Main.hs         # Entry point reading CLI args and printing the greeting
 ```
 
-Before tracing the build, read each file briefly so you recognize every line when [Bazelisk](https://bazel.build/install/bazelisk) and Bazel encounter it.
+Everything below happens in exact chronological order from the moment you run `bazelisk build :hello` inside `examples/quickstart/`.
 
-**`examples/quickstart/.bazelversion`** pins the Bazel binary version:
+## Step 1: Bazelisk pins and launches the exact Bazel binary
 
-```text
-9.3.3
-```
+Before Bazel itself even runs, Bazelisk acts as a version-pinning launcher—the Bazel equivalent of `rustup`, `nvm`, or `pyenv`. Developers and CI runners install Bazelisk once (often symlinked as `bazel` on `$PATH`), and Bazelisk guarantees everyone executes the exact same Bazel release.
 
-**`examples/quickstart/`[`.bazelrc`](https://bazel.build/run/bazelrc)** configures Bazel's default flags for this workspace:
+On `bazelisk build :hello`, Bazelisk performs five steps:
+
+1. **Resolves the target version:** Bazelisk checks the `USE_BAZEL_VERSION` environment variable (and any optional `.bazeliskrc` file) first. Because neither is set here, Bazelisk walks upward from the current working directory until it finds `.bazelversion`:
+
+   ```text
+   9.3.3
+   ```
+
+   Bazelisk reads `9.3.3` as the required Bazel version.
+2. **Maps host OS and CPU to a release artifact:** Inspecting the host OS (`linux`) and architecture (`x86_64` vs. `arm64`), Bazelisk computes the filename `bazel-9.3.3-linux-x86_64` and its download URL on Bazel's official release mirrors.
+3. **Checks its local cache:** Bazelisk looks inside its cache directory (`~/.cache/bazelisk/` on Linux, overridable via `BAZELISK_HOME`).
+4. **Downloads on a cache miss:** On a cold machine, Bazelisk downloads the ~50 MB self-contained Bazel binary once and marks it executable. That single binary bundles Bazel's C++ client, an embedded minimal OpenJDK, Bazel's Java server JARs, and its `linux-sandbox` helper—so the host machine doesn't need Java installed either. (You can pin the Bazel binary's digest via `BAZELISK_VERIFY_SHA256`, and CI pins Bazelisk's own SHA-256 in `../../.github/workflows/ci.yml`.)
+5. **Replaces itself with `exec`:** Bazelisk calls `exec` on the cached `bazel-9.3.3` binary, forwarding the exact arguments `build :hello`.
+
+> **Hermeticity check:** Build-system drift breaks builds just as fast as compiler drift. Bazel 9 dropped the legacy [`WORKSPACE`](https://bazel.build/external/overview#workspace-system) dependency file in favor of modern module files, and `rules_haskell` enforces `bazel_compatibility = [">=9.0.0"]`. Pinning `9.3.3` in `.bazelversion` locks the build engine itself before a single line of build configuration is parsed.
+
+## Step 2: Bazel client startup, `.bazelrc`, and the background server
+
+Unlike `make` or `cargo`, the `bazel-9.3.3` executable isn't a one-shot compiler runner. Bazel splits into a thin C++ **client** and a long-lived Java **server** daemon so it can keep its incremental dependency graph—called [Skyframe](https://bazel.build/reference/skyframe)—warm in RAM between builds.
+
+### Locating the root module directory, install base, and output base
+
+When the Bazel client starts, it establishes three directories (described in Bazel's [output directory layout](https://bazel.build/remote/output-directories)):
+
+1. **Main repository root (workspace directory):** Bazel walks upward from the current directory looking for [`MODULE.bazel`](https://bazel.build/external/module). It finds `MODULE.bazel` right here in `examples/quickstart/`, making this directory the root of the main repository. (Bazel 9 deprecated and removed the legacy `WORKSPACE` *file* in favor of `MODULE.bazel`, though Bazel's CLI and docs still refer to the root module directory as the *workspace* directory—for example, in `bazelisk info workspace` and the `%workspace%` placeholder in `.bazelrc`.)
+2. **Install base (`~/.cache/bazel/_bazel_<user>/install/<hash>/`):** On first run for a given Bazel version, the client unpacks its embedded OpenJDK, server JARs, and sandboxing binaries (`linux-sandbox` and `process-wrapper`) into the install base.
+3. **Output base (`~/.cache/bazel/_bazel_<user>/<32-char-md5>/`):** Bazel computes the MD5 hash of the main repository root's absolute path to isolate each checkout's state into four subdirectories (run `bazelisk info output_base` to print this exact path):
+   - `external/` — downloaded and generated external repositories (GHC, Zig, GMP, `rules_haskell`).
+   - `execroot/_main/` — the execution root (`execroot`) where build outputs land under `bazel-out/`.
+   - `sandbox/` — temporary per-action directories created while compilers run.
+   - `server/` — the server JVM's PID, lockfile, and local gRPC Unix socket.
+
+On a first run, the client starts the server JVM from the install base. On later runs, it connects to the running server over the Unix socket in milliseconds.
+
+### Parsing `.bazelrc` and sealing the action environment
+
+Before sending `build :hello` to the server, Bazel merges system, user, and repository [`.bazelrc`](https://bazel.build/run/bazelrc) files, plus the optional `try-import %workspace%/.bazelrc.user` for machine-local tweaks you don't commit to Git. Here is the full `.bazelrc` in `examples/quickstart/`:
 
 ```ini
 common --enable_platform_specific_config
@@ -61,7 +128,34 @@ build:linux --sandbox_add_mount_pair=/tmp
 try-import %workspace%/.bazelrc.user
 ```
 
-**`examples/quickstart/`[`MODULE.bazel`](https://bazel.build/external/module)** declares external dependencies and registers hermetic C and Haskell toolchains:
+In `.bazelrc`, `common` lines apply to every Bazel command, `build` lines apply to `build`, `test`, and `run`, and `build:linux` activates on Linux. Each flag serves a specific role:
+
+- **[`common --enable_platform_specific_config`](https://bazel.build/reference/command-line-reference#param-no-enable-platform-specific-config):** Automatically enables `:linux`, `:macos`, or `:windows` config sections matching the host OS. This activates the Linux-only `build:linux` lines below without requiring manual `--config=linux`.
+- **[`common --enable_runfiles`](https://bazel.build/reference/command-line-reference#param-no-enable-runfiles):** Materializes `<binary>.runfiles/` symlink trees for runtime [runfiles](https://bazel.build/extending/rules#runfiles) (`data` files) on executables and tests. As a side effect, it also causes Bazel to export `RUNFILES_*` environment variables when invoking build tools—a leak `rules_haskell` explicitly clears in every action and in `ghc_cc_wrapper` (see Step 7).
+- **[`common --incompatible_strict_action_env`](https://bazel.build/reference/command-line-reference#param-no-incompatible-strict-action-env):** Strips your interactive shell environment (`$PATH`, `$HOME`, `$LD_LIBRARY_PATH`, `$TERM`, `$LANG`) from build actions, giving them only a fixed minimal `PATH=/bin:/usr/bin:/usr/local/bin`. This stops ambient tools in `~/.ghcup/bin`, `~/.cabal/bin`, or Homebrew from sneaking into builds and keeps cache keys identical across machines.
+- **[`common --test_output=errors`](https://bazel.build/reference/command-line-reference#param-test-output):** Prints stdout and stderr of failing tests directly to your terminal (applies to [`bazel test`](https://bazel.build/docs/user-manual#running-tests), not [`bazel build`](https://bazel.build/run/build)).
+- **[`common --lockfile_mode=off`](https://bazel.build/reference/command-line-reference#param-lockfile-mode):** Prevents local builds from auto-writing a [`MODULE.bazel.lock`](https://bazel.build/external/lockfile) file in the example directory. It works alongside `rules_haskell`'s reproducible extensions so lockfiles stay noise-free.
+- **[`build:linux --repo_env=HERMETIC_CC_TOOLCHAIN_CACHE_PREFIX=/tmp/zig-cc-cache`](https://bazel.build/reference/command-line-reference#param-repo-env) and [`--sandbox_add_mount_pair=/tmp`](https://bazel.build/reference/command-line-reference#param-sandbox-add-mount-pair):** Shares `/tmp/zig-cc-cache` across Linux [sandboxes](https://bazel.build/docs/sandboxing). `zig cc` compiles its bundled `glibc` startup stubs lazily on first use; sharing `/tmp` avoids recompiling those stubs on every single C action while still blocking host `/usr/include` and `/usr/bin` compilers.
+
+> **Important:** Stripping your shell environment with `--incompatible_strict_action_env` creates a classic Haskell gotcha. Without `$LANG` or `$LC_ALL`, Linux defaults to the 7-bit ASCII `C`/`POSIX` locale. GHC's Haskell I/O runtime obeys the process locale when decoding `.hs` source files and crashes with `invalid byte sequence` if any file contains UTF-8 characters (such as em dashes or accented names in comments). Every `rules_haskell` build action explicitly sets `LANG=C.UTF-8` and `LC_ALL=C.UTF-8` so UTF-8 decoding works consistently under strict environments.
+
+### Expanding `:hello` and entering Bazel's three phases
+
+In Bazel, any directory containing a [`BUILD.bazel`](https://bazel.build/concepts/build-files) file is a **package**, and every addressable file or build rule has a unique [Bazel label](https://bazel.build/concepts/labels) written `@<repo>//<package>:<target>`. Because you ran `bazelisk build :hello` from the main repository root, Bazel expands `:hello` to `//:hello` (the main repository, root package `""`, target `hello`).
+
+The Bazel server now executes its three-phase [evaluation model](https://bazel.build/extending/concepts#evaluation-model):
+
+1. **Phase 1 — loading:** Reads `MODULE.bazel`, resolves external modules, evaluates [module extensions](https://bazel.build/external/extension), lazily fetches only the external repositories needed, and parses `BUILD.bazel`.
+2. **Phase 2 — analysis:** Matches host and target platforms to registered toolchains and runs [Starlark](https://bazel.build/rules/language) rule functions purely in RAM—with zero disk writes, zero network calls, and zero compiler invocations—to plan an immutable directed acyclic graph (DAG) of build commands (**[actions](https://bazel.build/extending/rules#actions)**) and virtual output files.
+3. **Phase 3 — execution:** Walks that action graph backward from `bazel-bin/hello`, checks content hashes against caches, and executes each uncached command inside an isolated sandbox.
+
+## Step 3: Phase 1 (loading) — Bzlmod resolution and `MODULE.bazel`
+
+Modern Bazel manages external dependencies with [Bzlmod](https://bazel.build/external/overview), configured by `MODULE.bazel`—Bazel's counterpart to Go's `go.mod` or Rust's `Cargo.toml`. Modules published to the [Bazel Central Registry (BCR)](https://bazel.build/external/registry#bazel-central-registry) live as static metadata trees (`modules/<name>/<version>/MODULE.bazel` and `source.json` holding archive URLs and integrity hashes), so every downloaded module is hash-verified before extraction.
+
+### Resolving `bazel_dep()` with minimal version selection
+
+Bazel reads `MODULE.bazel` top to bottom:
 
 ```starlark
 module(
@@ -96,7 +190,99 @@ use_repo(hs, "hs_boot", "hs_toolchains")
 register_toolchains("@hs_toolchains//:all")
 ```
 
-**`examples/quickstart/`[`BUILD.bazel`](https://bazel.build/concepts/build-files)** (trimmed to the targets reachable from `:hello`; the full file also defines `:greet_test` and `:elf_hermeticity_test`):
+From the top half of `MODULE.bazel`, Bazel resolves the module dependency graph:
+
+1. [`module()`](https://bazel.build/rules/lib/globals/module#module) names the root module `quickstart_example@0.1.0` and enforces `bazel_compatibility = [">=9.0.0"]`.
+2. [`bazel_dep()`](https://bazel.build/rules/lib/globals/module#bazel_dep) declares dependencies on `rules_haskell@0.1.0`, `hermetic_cc_toolchain@4.3.0`, and `rules_shell@0.6.1`. Because [`local_path_override()`](https://bazel.build/rules/lib/globals/module#local_path_override) points `rules_haskell` to `../..`, Bazel reads `../../MODULE.bazel` directly from disk instead of fetching it from BCR.
+3. Bazel walks transitive `bazel_dep()` declarations and resolves version conflicts using [minimal version selection (MVS)](https://bazel.build/external/module#version-selection)—the same deterministic algorithm Go modules use. If two modules ask for different versions of `rules_cc`, Bazel selects the highest requested version without running a SAT solver. (You can inspect the full resolved graph anytime with [`bazel mod graph`](https://bazel.build/external/mod-command).)
+
+### How `dev_dependency = True` keeps consumer builds slim
+
+When Bazel reads `../../MODULE.bazel` (`rules_haskell`) as a **non-root** dependency of `quickstart_example`, it automatically prunes every `bazel_dep`, `use_extension`, and `register_toolchains` call marked `dev_dependency = True`:
+
+- **Kept for consumers (4 minimal modules):** `platforms@1.1.0`, `bazel_skylib@1.9.2`, `rules_cc@0.2.28`, and **`gmp@6.3.0.bcr.5`** (you'll see why a C arbitrary-precision math library is mandatory in Step 6).
+- **Dropped automatically:** `rules_haskell`'s own test and documentation dependencies—including `rules_shell`, `zlib`, `hermetic_cc_toolchain` (the consumer chooses its own C toolchain!), and the 182-package Hackage lockfile that builds this documentation site.
+
+### Why a Haskell build registers a hermetic C/C++ toolchain (`@zig_sdk`)
+
+Next in `MODULE.bazel`, [`use_extension()`](https://bazel.build/rules/lib/globals/module#use_extension) and [`use_repo()`](https://bazel.build/rules/lib/globals/module#use_repo) load `@hermetic_cc_toolchain//toolchain:ext.bzl` ([`hermetic_cc_toolchain`](https://github.com/uber/hermetic_cc_toolchain)) and expose `@zig_sdk`.
+
+If you're coming from Go—which embeds its own assembler and linker in one binary—seeing a C/C++ compiler inside a pure Haskell "Hello, world!" build can look surprising. GHC needs a complete C toolchain for three reasons:
+
+1. **External assembler, archiver, and linker:** GHC compiles Haskell into `.s` assembly files, then shells out to an external C compiler driver to assemble `.s` into `.o` object files, `ar` to pack `.o` files into `.a` static archives, and a linker to produce executables and shared libraries.
+2. **Generated C `main()` entry point:** Every Haskell executable compiles a small generated C `main()` wrapper that boots GHC's ~70,000-line C runtime system (`libHSrts`—garbage collector, lightweight green-thread scheduler, and `epoll` I/O manager).
+3. **Compiling our hermetic support libraries:** `rules_haskell` compiles `gmp`, our C11 `libtinfo` reader, and `ghc_cc_wrapper` using Bazel's active C toolchain.
+
+Without a hermetic C toolchain, `rules_cc` probes `/usr/bin/gcc` and `/usr/include` on the host—breaking hermeticity and failing outright in minimal containers with no compiler installed.
+
+**Why choose `@zig_sdk` (`hermetic_cc_toolchain`) over other Bazel C toolchains?** Even though [Zig](https://ziglang.org/) is its own programming language, the Zig release archive ships a complete, drop-in C/C++ compiler (`zig cc` / `zig c++`, powered by Clang), [LLVM `lld`](https://lld.llvm.org/), `llvm-ar`, and—most importantly—the C headers and ABI stub tables for dozens of historical Linux [`glibc`](https://www.gnu.org/software/libc/) versions (`2.17` through `2.39`) all inside a single ~50 MB download. That solves three headaches that otherwise complicate hermetic Linux C toolchains (such as `toolchains_llvm`):
+
+- **Zero separate sysroot tarball:** You don't have to source, host, or SHA-256-pin a separate Debian sysroot image to get hermetic C headers and `libc` stubs.
+- **Runs in bare containers with zero host C++ runtime:** The `zig` compiler binary itself is statically linked, so it never fails on older host `libstdc++.so.6` versions or missing `libatomic.so.1` / `libxml2.so.2` libraries across Debian, Ubuntu, and Rocky Linux.
+- **Built-in `glibc` version targeting:** You can target an older `glibc` ABI (`gnu.2.32`) from any newer Linux host simply by registering one toolchain label.
+
+(`rules_haskell` isn't locked to Zig—it queries Bazel's standard C toolchain API, so you can swap in `toolchains_llvm` or a custom sysroot toolchain whenever you prefer; see `../llvm_toolchain/`.)
+
+Under the hood, `hermetic_cc_toolchain` generates two repositories:
+
+- **`@zig_sdk`** — declares the registerable `toolchain()` targets (`linux_amd64_gnu.2.32`, `linux_arm64_gnu.2.32`, and so on).
+- **`@zig_config`** — holds the unpacked Zig compiler, LLVM `lld`, `llvm-ar`, versioned `glibc` headers and ABI stub tables, and a statically linked `zig-wrapper` binary symlinked at `tools/x86_64-linux-gnu.2.32/c++`. Because `zig-wrapper` inspects its own `argv[0]` path, invoking `tools/x86_64-linux-gnu.2.32/c++` automatically targets `x86_64-linux-gnu.2.32` without needing an explicit `-target` flag on every command line.
+
+### Why `MODULE.bazel` pins `gnu.2.32` ahead of the wildcard
+
+Look closely at the [`register_toolchains()`](https://bazel.build/rules/lib/globals/module#register_toolchains) order in `MODULE.bazel`:
+
+```starlark
+register_toolchains(
+    "@zig_sdk//toolchain:linux_amd64_gnu.2.32",
+    "@zig_sdk//toolchain:linux_arm64_gnu.2.32",
+    "@zig_sdk//toolchain/...",
+    "@zig_sdk//libc_aware/toolchain/...",
+)
+```
+
+On Linux, dynamically linked programs rely on the host's GNU C Library (`libc.so.6`, called `glibc`). `glibc` is **forward-compatible**—a binary linked against `glibc 2.32` runs unmodified on newer systems shipping `glibc 2.34` through `2.39`—but **not backward-compatible**. If you linked on Ubuntu 24.04 (`glibc 2.39`) against host libraries, the linker would stamp `@GLIBC_2.38` symbol requirements into the executable, crashing with `version 'GLIBC_2.38' not found` on Debian 12 (`glibc 2.36`) or Rocky Linux 9 (`glibc 2.34`).
+
+`zig cc` solves that by shipping versioned `glibc` stubs so you choose the exact baseline ABI regardless of your build machine's OS. Three constraints pin `gnu.2.32` as the exact sweet spot:
+
+1. **The wildcard default (`gnu.2.17`) is too old:** Bazel picks the first matching registered toolchain. Registering `@zig_sdk//toolchain/...` alone expands alphabetically and selects `linux_amd64_gnu.2.17` first. GHC's precompiled Debian 10 (`deb10`) boot libraries (`libCffi.a`, `libHSunix.a`) reference `memfd_create@GLIBC_2.27` and `statx` / `fcntl64@GLIBC_2.28`, which fail to link against `glibc 2.17`.
+2. **BCR `gmp` requires `glibc >= 2.32`:** GHC `deb10` itself only needs `glibc 2.28`, but building BCR `gmp@6.3.0.bcr.5` from source compiles GNU `m4` as a build tool. Under Zig's bundled headers, `m4` includes `<sys/single_threaded.h>`, a header introduced in **`glibc 2.32`**.
+3. **Broad runtime portability:** Placing `linux_amd64_gnu.2.32` and `linux_arm64_gnu.2.32` *before* `@zig_sdk//toolchain/...` satisfies both GHC `deb10` and `gmp`/`m4`, while capping every `@GLIBC_*` requirement at `2.32` so the resulting binary runs cleanly on Debian 12 (`2.36`), Ubuntu 22.04 (`2.35`), Ubuntu 24.04 (`2.39`), Rocky/RHEL 9 (`2.34`), and `gcr.io/distroless/cc-debian12`.
+
+### Evaluating the `hs` module extension (zero downloads yet)
+
+Next, Bazel encounters the `hs` extension at the bottom of `MODULE.bazel`:
+
+```starlark
+hs = use_extension("@rules_haskell//haskell:extensions.bzl", "hs")
+hs.toolchain(ghc_version = "9.10.3")
+use_repo(hs, "hs_boot", "hs_toolchains")
+
+register_toolchains("@hs_toolchains//:all")
+```
+
+Starlark is Bazel's deterministic, Python-like extension language—it has no arbitrary filesystem access, network sockets, or mutable global state after loading. Because upstream GHC tarballs on `downloads.haskell.org` are plain `.tar.xz` archives without Bazel `BUILD.bazel` files, `bazel_dep()` can't consume them directly. Instead, module extensions wrap external archives into Bazel repositories.
+
+Bazel evaluates `_hs_extension_impl(module_ctx)` in `../../haskell/extensions.bzl` once across the entire dependency graph:
+
+1. **Root-module precedence (`mod.is_root`):** Notice that *both* `../../MODULE.bazel` (`rules_haskell`) and `./MODULE.bazel` (`quickstart_example`) call `hs.toolchain(...)` (defined via [`tag_class`](https://bazel.build/rules/lib/builtins/tag_class)). Iterating over [`module_ctx`](https://bazel.build/rules/lib/builtins/module_ctx)`.modules`, `_hs_extension_impl` puts tags where `mod.is_root == True` ahead of non-root tags. That's how a consumer project calling `hs.toolchain(ghc_version = "9.12.4")` cleanly overrides `rules_haskell`'s `9.10.3` default across the whole build.
+2. **Static bindist catalog lookup:** `_hs_extension_impl` looks up `"9.10.3"` in the static `GHC_BINDISTS` table (`../../haskell/private/ghc_versions.bzl`), which records pinned official URLs, SHA-256 checksums, strip prefixes, architecture library folder names (`x86_64-linux-ghc-9.10.3`), and flags (`bignum = "gmp"`, `dynamic_ghc = True`, `needs_tinfo_stub = True`) for `SUPPORTED_PLATFORMS = ["linux_x86_64", "linux_arm64"]`.
+3. **Declaring lazy repository recipes:** `_hs_extension_impl` declares six repositories without downloading a single byte yet:
+   - `ghc_9_10_3_linux_x86_64` and `ghc_9_10_3_linux_arm64` (GHC binary archives)
+   - `hs_toolchains` (platform-matching toolchain wrappers)
+   - `hs_boot` (GHC's bundled standard libraries)
+   - `hs_alex` and `hs_happy` (lazy lexer/parser bootstraps, completely unused unless a target builds `.x` or `.y` grammars)
+4. **Reproducible extension metadata:** Because `_hs_extension_impl` reads only Git-tracked Starlark files—touching neither the network nor host environment variables—it returns [`module_ctx.extension_metadata(reproducible = True)`](https://bazel.build/external/extension#specify-reproducibility-and-use-facts). Bazel can re-evaluate it in memory in milliseconds without bloating downstream `MODULE.bazel.lock` files.
+
+Under Bzlmod, Bazel assigns every generated repository a unique canonical directory name under `<output_base>/external/` (symlinked inside `examples/quickstart/` at `bazel-quickstart/external/`)—for example, `rules_haskell++hs+hs_toolchains`, `rules_haskell++hs+hs_boot`, `rules_haskell++hs+ghc_9_10_3_linux_x86_64`, and `hermetic_cc_toolchain++toolchains+zig_sdk`. Seeing those `++` names in build logs simply means `<module>++<extension>+<repo>`.
+
+## Step 4: Phase 1 (loading) — Reading `BUILD.bazel`, toolchain resolution, and fetching GHC
+
+With `MODULE.bazel` resolved, Bazel reads `BUILD.bazel` in `examples/quickstart/` to discover what `//:hello` is.
+
+### Evaluating `BUILD.bazel` without compiling anything
+
+Here are the targets in `BUILD.bazel` reachable from `:hello` (the full file also defines `:greet_test` and `:elf_hermeticity_test`):
 
 ```starlark
 load("@rules_haskell//haskell:defs.bzl", "hs_binary", "hs_library", "hs_test", "hs_toolchain_library")
@@ -138,214 +324,7 @@ hs_binary(
 )
 ```
 
-**`examples/quickstart/src/Greet.hs`** is a 16-line Haskell library module:
-
-```haskell
-{-# LANGUAGE OverloadedStrings #-}
-
-module Greet
-  ( greetingFor
-  , uniqueSortedTags
-  ) where
-
-import Data.Set qualified as Set
-import Data.Text (Text)
-import Data.Text qualified as T
-
-greetingFor :: Text -> Text
-greetingFor who = "Hello, " <> T.strip who <> ", from rules_haskell."
-
-uniqueSortedTags :: [Text] -> [Text]
-uniqueSortedTags = Set.toAscList . Set.fromList . map T.strip
-```
-
-If you haven't read Haskell before, five pieces of syntax explain the whole file:
-
-- **`{-# LANGUAGE OverloadedStrings #-}`:** Enables a compiler language extension so double-quoted string literals like `"Hello, "` construct packed UTF-8 `Text` values directly instead of Haskell's default linked list of characters (`String`).
-- **`module Greet (greetingFor, uniqueSortedTags) where`:** Declares the module name (matching `src/Greet.hs`) and its public export list. Anything omitted from that list stays private to the file.
-- **`import Data.Set qualified as Set`:** Imports a module under a namespace prefix (`Set.fromList`), similar to Python's `import ... as ...`.
-- **`greetingFor :: Text -> Text`:** A static type signature saying `greetingFor` takes a `Text` argument and returns a `Text` result.
-- **`<>` and `.`:** `<>` concatenates strings, and `.` composes functions right to left (`map T.strip`, then `Set.fromList`, then `Set.toAscList`).
-
-**`examples/quickstart/src/Main.hs`** is the executable entry point:
-
-```haskell
-{-# LANGUAGE OverloadedStrings #-}
-
-module Main (main) where
-
-import Data.Text qualified as T
-import Data.Text.IO qualified as TIO
-import Greet (greetingFor)
-import System.Environment (getArgs)
-
-main :: IO ()
-main = do
-  args <- getArgs
-  let target = case args of
-        (name : _) -> T.pack name
-        [] -> "Bazel 9"
-  TIO.putStrLn (greetingFor target)
-```
-
-Every Haskell executable starts in a function named `main` of type `IO ()` (an I/O action returning the empty unit value `()`). Inside the `do` block, `getArgs` reads command-line arguments, pattern matching (`case args of`) picks the first argument or falls back to `"Bazel 9"`, and `TIO.putStrLn` prints the formatted greeting to standard output.
-
-Now assume you're sitting inside `examples/quickstart/` on a clean `x86_64` Linux machine—such as a bare `debian:bookworm-slim` or `rockylinux:9` container with no `ghc`, `cabal`, `gcc`, `clang`, `libgmp-dev`, or `libtinfo-dev` installed—and you run:
-
-```bash
-bazelisk build :hello
-```
-
-Everything that follows happens in exact chronological order from the moment you press Enter.
-
-## Step 1: Bazelisk pins and launches the exact Bazel binary
-
-Before Bazel itself even runs, Bazelisk acts as a version-pinning launcher—the Bazel equivalent of `rustup`, `nvm`, or `pyenv`. Developers and CI runners install Bazelisk once (often symlinked as `bazel` on `$PATH`), and Bazelisk guarantees everyone executes the exact same Bazel release.
-
-On `bazelisk build :hello`, Bazelisk performs five steps:
-
-1. **Resolves the target version:** Bazelisk checks the `USE_BAZEL_VERSION` environment variable (and any optional `.bazeliskrc` file) first. Because neither is set here, Bazelisk walks upward from the current working directory until it finds `examples/quickstart/.bazelversion` and reads `9.3.3`.
-2. **Maps host OS and CPU to a release artifact:** Inspecting the host OS (`linux`) and architecture (`x86_64` vs. `arm64`), Bazelisk computes the filename `bazel-9.3.3-linux-x86_64` and its download URL on Bazel's official release mirrors.
-3. **Checks its local cache:** Bazelisk looks inside its cache directory (`~/.cache/bazelisk/` on Linux, overridable via `BAZELISK_HOME`).
-4. **Downloads on a cache miss:** On a cold machine, Bazelisk downloads the ~50 MB self-contained Bazel binary once and marks it executable. That single binary bundles Bazel's C++ client, an embedded minimal OpenJDK, Bazel's Java server JARs, and its `linux-sandbox` helper—so the host machine doesn't need Java installed either. (You can pin the Bazel binary's digest via `BAZELISK_VERIFY_SHA256`, and CI pins Bazelisk's own SHA-256 in `.github/workflows/ci.yml`.)
-5. **Replaces itself with `exec`:** Bazelisk calls `exec` on the cached `bazel-9.3.3` binary, forwarding the exact arguments `build :hello`.
-
-> **Hermeticity check:** Build-system drift breaks builds just as fast as compiler drift. Bazel 9 dropped the legacy [`WORKSPACE`](https://bazel.build/external/overview#workspace-system) dependency system in favor of modern module files, and `rules_haskell` enforces `bazel_compatibility = [">=9.0.0"]`. Pinning `9.3.3` in `.bazelversion` locks the build engine itself before a single line of build configuration is parsed.
-
-## Step 2: Bazel client startup, `.bazelrc`, and the background server
-
-Unlike `make` or `cargo`, the `bazel-9.3.3` executable isn't a one-shot compiler runner. Bazel splits into a thin C++ **client** and a long-lived Java **server** daemon so it can keep its incremental dependency graph—called [Skyframe](https://bazel.build/reference/skyframe)—warm in RAM between builds.
-
-### Locating the workspace root, install base, and output base
-
-When the Bazel client starts, it establishes three directories (described in Bazel's [output directory layout](https://bazel.build/remote/output-directories)):
-
-1. **Workspace root:** Bazel walks upward from the current directory looking for `MODULE.bazel`. It finds `examples/quickstart/MODULE.bazel`, making `examples/quickstart/` the workspace root.
-2. **Install base (`~/.cache/bazel/_bazel_<user>/install/<hash>/`):** On first run for a given Bazel version, the client unpacks its embedded OpenJDK, server JARs, and sandboxing binaries (`linux-sandbox` and `process-wrapper`) into the install base.
-3. **Output base (`~/.cache/bazel/_bazel_<user>/<32-char-md5>/`):** Bazel computes the MD5 hash of the workspace root's absolute path to isolate each checkout's state into four subdirectories:
-   - `external/` — downloaded and generated external repositories (GHC, Zig, GMP, `rules_haskell`).
-   - `execroot/_main/` — the execution root (`execroot`) where build outputs land under `bazel-out/`.
-   - `sandbox/` — temporary per-action directories created while compilers run.
-   - `server/` — the server JVM's PID, lockfile, and local gRPC Unix socket.
-
-On a first run, the client starts the server JVM from the install base. On later runs, it connects to the running server over the Unix socket in milliseconds.
-
-### Parsing `.bazelrc` and sealing the action environment
-
-Before sending `build :hello` to the server, Bazel merges system, user, and workspace `.bazelrc` files, plus the optional `try-import %workspace%/.bazelrc.user` for machine-local tweaks you don't commit to Git. In `.bazelrc`, `common` lines apply to every Bazel command, `build` lines apply to `build`, `test`, and `run`, and `build:linux` activates on Linux. Every line in `examples/quickstart/.bazelrc` serves a specific purpose:
-
-| Flag in `.bazelrc` | What it does | Why it matters for hermeticity |
-|---|---|---|
-| [`common --enable_platform_specific_config`](https://bazel.build/reference/command-line-reference#param-no-enable-platform-specific-config) | Automatically enables `:linux`, `:macos`, or `:windows` config sections matching the host OS. | Activates the Linux-only `build:linux` lines automatically without manual `--config=linux`. |
-| [`common --enable_runfiles`](https://bazel.build/reference/command-line-reference#param-no-enable-runfiles) | Materializes `<binary>.runfiles/` symlink trees for runtime [runfiles](https://bazel.build/extending/rules#runfiles) (`data` files) on executables and tests. | Also causes Bazel to export `RUNFILES_*` env vars when invoking build tools—a leak `rules_haskell` explicitly clears in every action and in `ghc_cc_wrapper` (see Step 7). |
-| [`common --incompatible_strict_action_env`](https://bazel.build/reference/command-line-reference#param-no-incompatible-strict-action-env) | Strips your interactive shell environment (`$PATH`, `$HOME`, `$LD_LIBRARY_PATH`, `$TERM`, `$LANG`) from build actions, giving them only a fixed minimal `PATH=/bin:/usr/bin:/usr/local/bin`. | Stops ambient tools in `~/.ghcup/bin`, `~/.cabal/bin`, or Homebrew from sneaking into builds, and keeps cache keys identical across machines. |
-| [`common --test_output=errors`](https://bazel.build/reference/command-line-reference#param-test-output) | Prints stdout/stderr of failing tests directly to your terminal. | Applies to [`bazel test`](https://bazel.build/docs/user-manual#running-tests), not [`bazel build`](https://bazel.build/run/build). |
-| [`common --lockfile_mode=off`](https://bazel.build/reference/command-line-reference#param-lockfile-mode) | Prevents local builds from auto-writing a [`MODULE.bazel.lock`](https://bazel.build/external/lockfile) file in the example directory. | Works alongside `rules_haskell`'s reproducible extensions so lockfiles stay noise-free. |
-| [`build:linux --repo_env=HERMETIC_CC_TOOLCHAIN_CACHE_PREFIX=/tmp/zig-cc-cache`](https://bazel.build/reference/command-line-reference#param-repo-env) and [`--sandbox_add_mount_pair=/tmp`](https://bazel.build/reference/command-line-reference#param-sandbox-add-mount-pair) | Shares `/tmp/zig-cc-cache` across Linux [sandboxes](https://bazel.build/docs/sandboxing). | `zig cc` compiles its bundled `glibc` startup stubs lazily on first use; sharing `/tmp` avoids recompiling those stubs on every single C action while still blocking host `/usr/include` and `/usr/bin` compilers. |
-
-> **Important:** Stripping your shell environment with `--incompatible_strict_action_env` creates a classic Haskell gotcha. Without `$LANG` or `$LC_ALL`, Linux defaults to the 7-bit ASCII `C`/`POSIX` locale. GHC's Haskell I/O runtime obeys the process locale when decoding `.hs` source files and crashes with `invalid byte sequence` if any file contains UTF-8 characters (such as em dashes or accented names in comments). Every `rules_haskell` build action explicitly sets `LANG=C.UTF-8` and `LC_ALL=C.UTF-8` so UTF-8 decoding works consistently under strict environments.
-
-### Expanding `:hello` and entering Bazel's three phases
-
-In Bazel, any directory containing a `BUILD.bazel` file is a **package**, and every addressable file or build rule has a unique [Bazel label](https://bazel.build/concepts/labels) written `@<repo>//<package>:<target>`. Because you ran `bazel build` with `:hello` from the workspace root directory, Bazel expands `:hello` to `//:hello` (the main repository, root package `""`, target `hello`).
-
-The Bazel server now executes its three-phase [evaluation model](https://bazel.build/extending/concepts#evaluation-model):
-
-1. **Phase 1 — loading:** Reads `MODULE.bazel`, resolves external modules, evaluates [module extensions](https://bazel.build/external/extension), lazily fetches only the external repositories needed, and parses `BUILD.bazel`.
-2. **Phase 2 — analysis:** Matches host and target platforms to registered toolchains and runs [Starlark](https://bazel.build/rules/language) rule functions purely in RAM—with zero disk writes, zero network calls, and zero compiler invocations—to plan an immutable directed acyclic graph (DAG) of build commands (**[actions](https://bazel.build/extending/rules#actions)**) and virtual output files.
-3. **Phase 3 — execution:** Walks that action graph backward from `bazel-bin/hello`, checks content hashes against caches, and executes each uncached command inside an isolated sandbox.
-
-## Step 3: Phase 1 (loading) — Bzlmod resolution and `MODULE.bazel`
-
-Modern Bazel manages external dependencies with [Bzlmod](https://bazel.build/external/overview), configured by `MODULE.bazel`—Bazel's counterpart to Go's `go.mod` or Rust's `Cargo.toml`. Modules published to the [Bazel Central Registry (BCR)](https://bazel.build/external/registry#bazel-central-registry) live as static metadata trees (`modules/<name>/<version>/MODULE.bazel` and `source.json` holding archive URLs and integrity hashes), so every downloaded module is hash-verified before extraction.
-
-### Resolving `bazel_dep()` with minimal version selection
-
-Bazel reads `examples/quickstart/MODULE.bazel` top to bottom:
-
-1. [`module()`](https://bazel.build/rules/lib/globals/module#module) names the root module `quickstart_example@0.1.0` and enforces `bazel_compatibility = [">=9.0.0"]`.
-2. [`bazel_dep()`](https://bazel.build/rules/lib/globals/module#bazel_dep) declares dependencies on `rules_haskell@0.1.0`, `hermetic_cc_toolchain@4.3.0`, and `rules_shell@0.6.1`. Because [`local_path_override()`](https://bazel.build/rules/lib/globals/module#local_path_override) points `rules_haskell` to `../..`, Bazel reads the repository's own `MODULE.bazel` directly from disk instead of fetching it from BCR.
-3. Bazel walks transitive `bazel_dep()` declarations and resolves version conflicts using [minimal version selection (MVS)](https://bazel.build/external/module#version-selection)—the same deterministic algorithm Go modules use. If two modules ask for different versions of `rules_cc`, Bazel selects the highest requested version without running a SAT solver. (You can inspect the full resolved graph anytime with [`bazel mod graph`](https://bazel.build/external/mod-command).)
-
-### How `dev_dependency = True` keeps consumer builds slim
-
-When Bazel reads `rules_haskell/MODULE.bazel` as a **non-root** dependency of `quickstart_example`, it automatically prunes every `bazel_dep`, `use_extension`, and `register_toolchains` call marked `dev_dependency = True`:
-
-- **Kept for consumers (4 minimal modules):** `platforms@1.1.0`, `bazel_skylib@1.9.2`, `rules_cc@0.2.28`, and **`gmp@6.3.0.bcr.5`** (you'll see why a C arbitrary-precision math library is mandatory in Step 6).
-- **Dropped automatically:** `rules_haskell`'s own test and documentation dependencies—including `rules_shell`, `zlib`, `hermetic_cc_toolchain` (the consumer chooses its own C toolchain!), and the 182-package Hackage lockfile that builds this documentation site.
-
-`//tests/rules:bzlmod_hygiene_test` parses `rules_haskell/MODULE.bazel` on every CI run to guarantee no dev dependency or legacy ruleset (`rules_python`, `rules_java`, `rules_nodejs`, `rules_nixpkgs`) ever leaks into downstream consumers.
-
-### Why a Haskell build registers a hermetic C/C++ toolchain
-
-Next in `examples/quickstart/MODULE.bazel`, [`use_extension()`](https://bazel.build/rules/lib/globals/module#use_extension) and [`use_repo()`](https://bazel.build/rules/lib/globals/module#use_repo) load `@hermetic_cc_toolchain//toolchain:ext.bzl` ([`hermetic_cc_toolchain`](https://github.com/uber/hermetic_cc_toolchain)) and expose `@zig_sdk`.
-
-If you're coming from Go—which embeds its own assembler and linker in one binary—seeing a C/C++ compiler inside a pure Haskell "Hello, world!" build can look surprising. GHC needs a complete C toolchain for three reasons:
-
-1. **External assembler, archiver, and linker:** GHC compiles Haskell into `.s` assembly files, then shells out to an external C compiler driver to assemble `.s` into `.o` object files, `ar` to pack `.o` files into `.a` static archives, and a linker to produce executables and shared libraries.
-2. **Generated C `main()` entry point:** Every Haskell executable compiles a small generated C `main()` wrapper that boots GHC's ~70,000-line C runtime system (`libHSrts`—garbage collector, lightweight green-thread scheduler, and `epoll` I/O manager).
-3. **Compiling our hermetic support libraries:** `rules_haskell` compiles `gmp`, our C11 `libtinfo` reader, and `ghc_cc_wrapper` using Bazel's active C toolchain.
-
-Without a hermetic C toolchain, `rules_cc` probes `/usr/bin/gcc` and `/usr/include` on the host—breaking hermeticity and failing outright in minimal containers with no compiler installed. `hermetic_cc_toolchain` generates two repositories:
-
-- **`@zig_sdk`** — declares the registerable `toolchain()` targets (`linux_amd64_gnu.2.32`, `linux_arm64_gnu.2.32`, and so on).
-- **`@zig_config`** — holds the unpacked [Zig](https://ziglang.org/) compiler, [LLVM `lld`](https://lld.llvm.org/), `llvm-ar`, versioned [`glibc`](https://www.gnu.org/software/libc/) headers and ABI stub tables, and a statically linked `zig-wrapper` binary symlinked at `tools/x86_64-linux-gnu.2.32/c++`. Because `zig-wrapper` inspects its own `argv[0]` path, invoking `tools/x86_64-linux-gnu.2.32/c++` automatically targets `x86_64-linux-gnu.2.32` without needing an explicit `-target` flag on every command line.
-
-### Why `MODULE.bazel` pins `gnu.2.32` ahead of the wildcard
-
-Look closely at the [`register_toolchains()`](https://bazel.build/rules/lib/globals/module#register_toolchains) order in `examples/quickstart/MODULE.bazel`:
-
-```starlark
-register_toolchains(
-    "@zig_sdk//toolchain:linux_amd64_gnu.2.32",
-    "@zig_sdk//toolchain:linux_arm64_gnu.2.32",
-    "@zig_sdk//toolchain/...",
-    "@zig_sdk//libc_aware/toolchain/...",
-)
-```
-
-On Linux, dynamically linked programs rely on the host's GNU C Library (`libc.so.6`, called `glibc`). `glibc` is **forward-compatible**—a binary linked against `glibc 2.32` runs unmodified on newer systems shipping `glibc 2.34` through `2.39`—but **not backward-compatible**. If you linked on Ubuntu 24.04 (`glibc 2.39`) against host libraries, the linker would stamp `@GLIBC_2.38` symbol requirements into the executable, crashing with `version 'GLIBC_2.38' not found` on Debian 12 (`glibc 2.36`) or Rocky Linux 9 (`glibc 2.34`).
-
-`zig cc` solves that by shipping versioned `glibc` stubs so you choose the exact baseline ABI regardless of your build machine's OS. Three constraints pin `gnu.2.32` as the exact sweet spot:
-
-1. **The wildcard default (`gnu.2.17`) is too old:** Bazel picks the first matching registered toolchain. Registering `@zig_sdk//toolchain/...` alone expands alphabetically and selects `linux_amd64_gnu.2.17` first. GHC's precompiled Debian 10 (`deb10`) boot libraries (`libCffi.a`, `libHSunix.a`) reference `memfd_create@GLIBC_2.27` and `statx` / `fcntl64@GLIBC_2.28`, which fail to link against `glibc 2.17`.
-2. **BCR `gmp` requires `glibc >= 2.32`:** GHC `deb10` itself only needs `glibc 2.28`, but building BCR `gmp@6.3.0.bcr.5` from source compiles GNU `m4` as a build tool. Under Zig's bundled headers, `m4` includes `<sys/single_threaded.h>`, a header introduced in **`glibc 2.32`**.
-3. **Broad runtime portability:** Placing `linux_amd64_gnu.2.32` and `linux_arm64_gnu.2.32` *before* `@zig_sdk//toolchain/...` satisfies both GHC `deb10` and `gmp`/`m4`, while capping every `@GLIBC_*` requirement at `2.32` so the resulting binary runs cleanly on Debian 12 (`2.36`), Ubuntu 22.04 (`2.35`), Ubuntu 24.04 (`2.39`), Rocky/RHEL 9 (`2.34`), and `gcr.io/distroless/cc-debian12`.
-
-### Evaluating the `hs` module extension (zero downloads yet)
-
-Next, Bazel encounters the `hs` extension in `examples/quickstart/MODULE.bazel`:
-
-```starlark
-hs = use_extension("@rules_haskell//haskell:extensions.bzl", "hs")
-hs.toolchain(ghc_version = "9.10.3")
-use_repo(hs, "hs_boot", "hs_toolchains")
-
-register_toolchains("@hs_toolchains//:all")
-```
-
-Starlark is Bazel's deterministic, Python-like extension language—it has no arbitrary filesystem access, network sockets, or mutable global state after loading. Because upstream GHC tarballs on `downloads.haskell.org` are plain `.tar.xz` archives without Bazel `BUILD.bazel` files, `bazel_dep()` can't consume them directly. Instead, module extensions wrap external archives into Bazel repositories.
-
-Bazel evaluates `_hs_extension_impl(module_ctx)` in `haskell/extensions.bzl` once across the entire dependency graph:
-
-1. **Root-module precedence (`mod.is_root`):** Notice that *both* `rules_haskell/MODULE.bazel` and `examples/quickstart/MODULE.bazel` call `hs.toolchain(...)` (defined via [`tag_class`](https://bazel.build/rules/lib/builtins/tag_class)). Iterating over [`module_ctx`](https://bazel.build/rules/lib/builtins/module_ctx)`.modules`, `_hs_extension_impl` puts tags where `mod.is_root == True` ahead of non-root tags. That's how a consumer workspace calling `hs.toolchain(ghc_version = "9.12.4")` cleanly overrides `rules_haskell`'s `9.10.3` default across the whole build.
-2. **Static bindist catalog lookup:** `_hs_extension_impl` looks up `"9.10.3"` in the static `GHC_BINDISTS` table (`haskell/private/ghc_versions.bzl`), which records pinned official URLs, SHA-256 checksums, strip prefixes, architecture library folder names (`x86_64-linux-ghc-9.10.3`), and flags (`bignum = "gmp"`, `dynamic_ghc = True`, `needs_tinfo_stub = True`) for `SUPPORTED_PLATFORMS = ["linux_x86_64", "linux_arm64"]`.
-3. **Declaring lazy repository recipes:** `_hs_extension_impl` declares six repositories without downloading a single byte yet:
-   - `ghc_9_10_3_linux_x86_64` and `ghc_9_10_3_linux_arm64` (GHC binary archives)
-   - `hs_toolchains` (platform-matching toolchain wrappers)
-   - `hs_boot` (GHC's bundled standard libraries)
-   - `hs_alex` and `hs_happy` (lazy lexer/parser bootstraps, completely unused unless a target builds `.x` or `.y` grammars)
-4. **Reproducible extension metadata:** Because `_hs_extension_impl` reads only Git-tracked Starlark files—touching neither the network nor host environment variables—it returns [`module_ctx.extension_metadata(reproducible = True)`](https://bazel.build/external/extension#specify-reproducibility-and-use-facts). Bazel can re-evaluate it in memory in milliseconds without bloating downstream `MODULE.bazel.lock` files.
-
-Under Bzlmod, Bazel assigns every generated repository a unique canonical directory name under `<output_base>/external/`—for example, `rules_haskell++hs+hs_toolchains`, `rules_haskell++hs+hs_boot`, `rules_haskell++hs+ghc_9_10_3_linux_x86_64`, and `hermetic_cc_toolchain++toolchains+zig_sdk`. Seeing those `++` names in build logs simply means `<module>++<extension>+<repo>`.
-
-## Step 4: Phase 1 (loading) — Reading `BUILD.bazel`, toolchain resolution, and fetching GHC
-
-With `MODULE.bazel` resolved, Bazel reads `examples/quickstart/BUILD.bazel` to discover what `//:hello` is.
-
-### Evaluating `BUILD.bazel` without compiling anything
-
-Line 1 runs [`load("@rules_haskell//haskell:defs.bzl", "hs_binary", "hs_library", "hs_test", "hs_toolchain_library")`](https://bazel.build/concepts/build-files#load). Notice how `rules_haskell` splits its public API (`haskell/defs.bzl`, `haskell/extensions.bzl`, `haskell/providers.bzl`, `haskell/toolchain.bzl`) from internal files under `haskell/private/`. `defs.bzl` imports private rule definitions under `_`-prefixed aliases and re-exports only the public names, while [`visibility`](https://bazel.build/concepts/visibility) locks down internal packages so refactoring `haskell/private/` doesn't break downstream `load()` statements.
+Line 1 runs [`load("@rules_haskell//haskell:defs.bzl", "hs_binary", "hs_library", "hs_test", "hs_toolchain_library")`](https://bazel.build/concepts/build-files#load). Notice how `rules_haskell` splits its public API (`../../haskell/defs.bzl`, `extensions.bzl`, `providers.bzl`, `toolchain.bzl`) from internal files under `../../haskell/private/`. `defs.bzl` imports private rule definitions under `_`-prefixed aliases and re-exports only the public names, while [`visibility`](https://bazel.build/concepts/visibility) locks down internal packages so refactoring `../../haskell/private/` doesn't break downstream `load()` statements.
 
 Bazel then evaluates the `hs_toolchain_library`, `hs_library`, `hs_binary`, `hs_test`, and [`sh_test`](https://bazel.build/reference/be/shell#sh_test) calls in `BUILD.bazel`. **Crucially, nothing compiles yet:** evaluating a `BUILD.bazel` file only records target names and raw attribute values in memory. Walking dependencies from `//:hello`:
 
@@ -355,9 +334,9 @@ Bazel then evaluates the `hs_toolchain_library`, `hs_library`, `hs_binary`, `hs_
 
 ### Generating `@hs_boot` and `@hs_toolchains` with zero network I/O
 
-Because `//:hello` references `@hs_boot//:base`, Bazel materializes `@hs_boot` by running its [repository rule](https://bazel.build/external/repo) (`hs_boot_repo` in `haskell/private/ghc_bindist.bzl`).
+Because `//:hello` references `@hs_boot//:base`, Bazel materializes `@hs_boot` by running its [repository rule](https://bazel.build/external/repo) (`hs_boot_repo` in `../../haskell/private/ghc_bindist.bzl`).
 
-What are `@hs_boot//:base`, `@hs_boot//:text`, and `containers`? Unlike `clang` or `gcc`, GHC itself is written in Haskell. Every official GHC distribution therefore ships **42 package registrations** in `9.10.3`—41 precompiled standard ("boot") libraries (`base`, `text`, `containers`, `bytestring`, `ghc-bignum`, `ghc-prim`, `rts`, `terminfo`, `haskeline`, `Cabal-syntax`, and more) plus a metadata-only `system-cxx-std-lib` marker. `hs_boot_repo` makes zero network requests; it writes a plain `@hs_boot/BUILD.bazel` containing 42 platform-independent entries:
+What are `@hs_boot//:base`, `@hs_boot//:text`, and `containers`? Unlike `clang` or `gcc`, GHC itself is written in Haskell. Every official GHC distribution therefore ships **42 package registrations** in `9.10.3`—41 precompiled standard ("boot") libraries (`base`, `text`, `containers`, `bytestring`, `ghc-bignum`, `ghc-prim`, `rts`, `terminfo`, `haskeline`, `Cabal-syntax`, and more) plus a metadata-only `system-cxx-std-lib` marker. `hs_boot_repo` makes zero network requests; it writes a plain `BUILD.bazel` at `bazel-quickstart/external/rules_haskell++hs+hs_boot/BUILD.bazel` containing 42 platform-independent entries:
 
 ```starlark
 load("@rules_haskell//haskell:defs.bzl", "hs_toolchain_library")
@@ -371,7 +350,7 @@ hs_toolchain_library(
 # ... 41 other GHC 9.10.3 boot packages ...
 ```
 
-Similarly, to resolve toolchains, Bazel runs `hs_toolchains_repo` (again, zero network I/O), which writes `@hs_toolchains/BUILD.bazel` with one `toolchain()` wrapper per supported platform:
+Similarly, to resolve toolchains, Bazel runs `hs_toolchains_repo` (again, zero network I/O), which writes `bazel-quickstart/external/rules_haskell++hs+hs_toolchains/BUILD.bazel` with one `toolchain()` wrapper per supported platform:
 
 ```starlark
 toolchain(
@@ -393,14 +372,14 @@ toolchain(
 
 ### Platform-based toolchain resolution
 
-Both `hs_library` and `hs_binary` declare that they require two abstract [toolchains](https://bazel.build/extending/toolchains): `@rules_haskell//haskell:toolchain_type` (a [`toolchain_type`](https://bazel.build/reference/be/platforms-and-toolchains#toolchain_type) in `haskell/BUILD.bazel`) and `@bazel_tools//tools/cpp:toolchain_type` (the [`cc_toolchain`](https://bazel.build/reference/be/c-cpp#cc_toolchain) type). Rules never name a specific OS or CPU repository directly.
+Both `hs_library` and `hs_binary` declare that they require two abstract [toolchains](https://bazel.build/extending/toolchains): `@rules_haskell//haskell:toolchain_type` (a [`toolchain_type`](https://bazel.build/reference/be/platforms-and-toolchains#toolchain_type) in `../../haskell/BUILD.bazel`) and `@bazel_tools//tools/cpp:toolchain_type` (the [`cc_toolchain`](https://bazel.build/reference/be/c-cpp#cc_toolchain) type). Rules never name a specific OS or CPU repository directly.
 
 Instead, Bazel inspects the host [platform](https://bazel.build/concepts/platforms) (`@@platforms//host:host`, which carries `@platforms//os:linux` and `@platforms//cpu:x86_64`) and checks registered toolchains in registration order:
 
 1. **C/C++ toolchain:** Checks `@zig_sdk//toolchain:linux_amd64_gnu.2.32` first. Both `exec_compatible_with` and `target_compatible_with` match `linux` + `x86_64`, so Bazel selects `@@hermetic_cc_toolchain++toolchains+zig_config//:x86_64-linux-gnu.2.32_cc` and stops scanning. On a cold cache, Bazel downloads and verifies the Zig SDK tarball once.
 2. **Haskell toolchain:** Scans `@hs_toolchains//:all`. It skips `ghc_linux_arm64` because `cpu:arm64` doesn't match `cpu:x86_64`—**so `@ghc_9_10_3_linux_arm64` is never downloaded at all!** It then matches `ghc_linux_x86_64` and follows its `toolchain` label to `@ghc_9_10_3_linux_x86_64//:toolchain_impl`.
 
-You can watch Bazel make those exact choices yourself with [`--toolchain_resolution_debug`](https://bazel.build/reference/command-line-reference#param-toolchain-resolution-debug):
+If you passed `--toolchain_resolution_debug` from [Setup](#setup), you'll see Bazel log those exact selections:
 
 ```text
 INFO: ToolchainResolution: Target platform @@platforms//host:host:
@@ -413,13 +392,20 @@ INFO: ToolchainResolution: Target platform @@platforms//host:host:
 
 ### Fetching and sanitizing GHC in pure Starlark (`ghc_bindist_repo`)
 
-Following `@ghc_9_10_3_linux_x86_64//:toolchain_impl` triggers [fetching the repository](https://bazel.build/external/overview#fetch-repository) via `_ghc_bindist_repo_impl(repository_ctx)` in `haskell/private/ghc_bindist.bzl`.
+Following `@ghc_9_10_3_linux_x86_64//:toolchain_impl` triggers [fetching the repository](https://bazel.build/external/overview#fetch-repository) via `_ghc_bindist_repo_impl(repository_ctx)` in `../../haskell/private/ghc_bindist.bzl`.
 
-> **Hermeticity trap — fetch-time `./configure && make install`:** Historically, installing an official GHC binary distribution (*bindist*) meant running `./configure && make install` during repository fetch. That shells out to host `make`, `perl`, `/bin/sh` probes, host `gcc`, and host `libgmp-dev` / `libtinfo-dev`—failing immediately in minimal containers and baking host paths into GHC's configuration files.
+Unlike traditional GHC setups that run `./configure && make install` (described in [Motivation](#motivation)), `rules_haskell` never executes an install script when unpacking GHC. Official Debian 10 (`deb10`) Linux archives already contain precompiled binaries under `bin/` and a relocatable boot package database under `lib/package.conf.d/`.
 
-`rules_haskell` never runs `./configure` or `make install` when unpacking GHC. Official Debian 10 (`deb10`) Linux archives already contain precompiled binaries under `bin/` and a relocatable boot package database under `lib/package.conf.d/`.
+#### Why Debian 10 (`glibc`) instead of static Alpine (`musl`)?
 
-Why use the Debian 10 (`deb10`) `glibc` bindist instead of GHC's static Alpine `musl` bindist? Upstream builds the static `musl` bindist with `GHC Dynamic = NO`, which prevents GHC from dynamically loading compiled libraries during compile-time Template Haskell macros and C-binding evaluation. The `deb10` bindist supports dynamic GHC (`-dynamic-too`) while keeping its own `glibc` requirement at `2.28`, comfortably inside our `gnu.2.32` baseline.
+Haskell.org publishes prebuilt GHC archives—called **binary distributions** (*bindists*)—so you don't have to spend hours compiling the compiler from source. For Linux, two official builds look tempting for hermetic builds:
+
+- **Static Alpine (`musl`):** Every Linux program talks to the operating system through a **C standard library**. Alpine Linux uses a small C library called [`musl`](https://musl.libc.org/), which makes it easy to bundle everything into a single self-contained executable with zero shared-library dependencies. On the surface, a fully static GHC binary sounds ideal for hermeticity.
+- **Debian 10 (`deb10`, `glibc`):** Almost every mainstream Linux distribution (Debian, Ubuntu, Fedora, Rocky/RHEL) uses the GNU C Library (`glibc`) instead of `musl`. The `deb10` bindist was compiled on Debian 10 (released in 2019, shipping `glibc 2.28`), and the `ghc` binary itself dynamically loads shared `.so` libraries at runtime.
+
+So why doesn't `rules_haskell` pick the single-file static Alpine `musl` binary? Because of a core Haskell feature called **Template Haskell**—compile-time code generation similar to macros in Rust or C++. To execute a macro *while compiling your program*, GHC must load already-compiled libraries into its own running memory on the fly (called **dynamic loading**). Upstream builds the static Alpine `musl` version of GHC with dynamic loading turned off (`GHC Dynamic = NO`), which breaks any project that uses Template Haskell macros or interactive code loading.
+
+The Debian 10 (`deb10`) bindist keeps dynamic loading turned on (so GHC can produce both static and loadable dynamic libraries via `-dynamic-too`). At the same time, because Debian 10 is old enough to use `glibc 2.28`, its precompiled compiler and standard libraries only ask for `glibc 2.28` features—which are available on every modern Linux distribution and sit comfortably inside our `gnu.2.32` baseline.
 
 [`repository_ctx`](https://bazel.build/rules/lib/builtins/repository_ctx) is the *only* Starlark context allowed to access the network and inspect extracted directories. `_ghc_bindist_repo_impl` executes four deterministic pure-Starlark steps:
 
@@ -445,7 +431,7 @@ Inside the upstream archive, `lib/settings` records tool paths from the Haskell.
 
 If any Bazel rule ever forgot to override one of those tools on the command line, GHC would silently invoke `/usr/bin/gcc` or `/usr/bin/ld.gold` on a developer laptop—passing locally while failing on clean containers or corrupting remote caches.
 
-`_sanitize_settings` rewrites all 12 external tool commands in `lib/settings` to `/nonexistent/*` and strips `-fuse-ld=gold` (which LLVM `lld` and `zig cc` don't ship):
+`_sanitize_settings` rewrites all 12 external tool commands in `lib/settings` to `/nonexistent/*` and strips `-fuse-ld=gold` (which LLVM `lld` and `zig cc` don't ship). After running `bazelisk build :hello`, you can inspect the exact sanitized file on disk at `bazel-quickstart/external/rules_haskell++hs+ghc_9_10_3_linux_x86_64/lib/settings` (or under `$(bazelisk info output_base)/external/rules_haskell++hs+ghc_9_10_3_linux_x86_64/lib/settings`):
 
 ```text
 -- Sanitized lib/settings written by ghc_bindist_repo (AFTER sanitization)
@@ -472,7 +458,7 @@ This creates a **fail-closed guarantee**: if any rule omits a `-pgm*` override, 
 
 Why not just run `bin/ghc-pkg-9.10.3 dump` right here? **Chicken-and-egg:** on a clean container without host `libgmp10` or `libtinfo6`, `bin/ghc-pkg-9.10.3` can't even start yet because Bazel hasn't compiled and staged its shared libraries.
 
-Instead, `_parse_pkg_conf` reads every `lib/package.conf.d/*.conf` text file directly in Starlark, joins indented continuation lines, and extracts each package's `name`, `version`, `id`, `depends`, and `exposed_modules`.
+Instead, `_parse_pkg_conf` reads every `lib/package.conf.d/*.conf` text file directly in Starlark, joins indented continuation lines, and extracts each package's `name`, `version`, `id`, `depends`, and `exposed_modules`. You can inspect these `.conf` files yourself under `bazel-quickstart/external/rules_haskell++hs+ghc_9_10_3_linux_x86_64/lib/package.conf.d/` (for example, `bazel-quickstart/external/rules_haskell++hs+ghc_9_10_3_linux_x86_64/lib/package.conf.d/base-4.20.2.0-f6da.conf`, or the same relative path under `$(bazelisk info output_base)/external/`).
 
 #### 4. Generating `@ghc_9_10_3_linux_x86_64/BUILD.bazel`
 
@@ -487,7 +473,7 @@ With all required `BUILD.bazel` files loaded and toolchains selected, Bazel ente
 
 ### Anatomy of a Starlark rule and the analysis boundary
 
-In `haskell/private/rules.bzl`, a rule such as `hs_library` is declared with `rule(...)`:
+In `../../haskell/private/rules.bzl`, a rule such as `hs_library` is declared with `rule(...)`:
 
 ```starlark
 hs_library = rule(
@@ -513,7 +499,7 @@ Before `_hs_library_impl(ctx)` runs, Bazel validates typed attribute contracts (
 
 A Bazel [build configuration](https://bazel.build/extending/config) (`cfg`) captures the target OS, CPU, and optimization flags (`fastbuild` vs. `-O2` `opt`) for a target, giving each configuration its own output tree under `bazel-out/`.
 
-In `haskell/toolchain.bzl`, `hs_toolchain` marks both `staged_ghc` and `cc_wrapper` with **`cfg = "exec"`** (the [execution configuration](https://bazel.build/extending/config#exec-configuration)). That tells Bazel to build compiler tools optimized (`-O2 -DNDEBUG`) for the machine *running* the build—writing them to `bazel-out/k8-opt-exec/bin/`—while your Haskell libraries and binaries compile in the target configuration (`k8-fastbuild`, writing to `bazel-out/k8-fastbuild/bin/`). Even when building on Linux `x86_64` for Linux `x86_64`, separating `exec` from `target` ensures tool binaries stay fast and remain cached across debug and release builds.
+In `../../haskell/toolchain.bzl`, `hs_toolchain` marks both `staged_ghc` and `cc_wrapper` with **`cfg = "exec"`** (the [execution configuration](https://bazel.build/extending/config#exec-configuration)). That tells Bazel to build compiler tools optimized (`-O2 -DNDEBUG`) for the machine *running* the build—writing them to `bazel-out/k8-opt-exec/bin/`—while your Haskell libraries and binaries compile in the target configuration (`k8-fastbuild`, writing to `bazel-out/k8-fastbuild/bin/`). Even when building on Linux `x86_64` for Linux `x86_64`, separating `exec` from `target` ensures tool binaries stay fast and remain cached across debug and release builds.
 
 ```mermaid
 flowchart TD
@@ -547,18 +533,18 @@ flowchart TD
 Bazel analyzes the build tools first:
 
 - **`@gmp//:gmp` (BCR `gmp@6.3.0.bcr.5`):** Plans the hermetic source build of GMP using `rules_cc_autoconf` (Bazel-native autoconf header/type probes) and GNU `m4`, returning a `CcInfo` provider pointing to `libgmp.a`.
-- **`@rules_haskell//haskell/private:libtinfo.so.6` and `:tinfo_stub_static`:** A [`cc_binary`](https://bazel.build/reference/be/c-cpp#cc_binary) (`linkshared = True`) and a [`cc_library`](https://bazel.build/reference/be/c-cpp#cc_library) compiling `haskell/private/tinfo_stub.c` (with `-Wl,--version-script=tinfo_stub.lds` on the `.so`).
-- **`@rules_haskell//haskell/private:ghc_cc_wrapper`:** A `cc_binary` compiling `haskell/private/cc_wrapper.c` (`-std=c11 -O2 -Wall -Wextra`).
-- **`@ghc_9_10_3_linux_x86_64//:staged_ghc` (`_staged_ghc_impl` in `haskell/private/staged_ghc.bzl`):**
+- **`@rules_haskell//haskell/private:libtinfo.so.6` and `:tinfo_stub_static`:** A [`cc_binary`](https://bazel.build/reference/be/c-cpp#cc_binary) (`linkshared = True`) and a [`cc_library`](https://bazel.build/reference/be/c-cpp#cc_library) compiling `../../haskell/private/tinfo_stub.c` (with `-Wl,--version-script=tinfo_stub.lds` on the `.so`).
+- **`@rules_haskell//haskell/private:ghc_cc_wrapper`:** A `cc_binary` compiling `../../haskell/private/cc_wrapper.c` (`-std=c11 -O2 -Wall -Wextra`).
+- **`@ghc_9_10_3_linux_x86_64//:staged_ghc` (`_staged_ghc_impl` in `../../haskell/private/staged_ghc.bzl`):**
   1. Queries Bazel's active C toolchain via [`cc_common`](https://bazel.build/rules/lib/toplevel/cc_common) to get the compiler binary (`external/hermetic_cc_toolchain++toolchains+zig_config/tools/x86_64-linux-gnu.2.32/c++`) and any `--sysroot`, `--target`, `-B`, or `-resource-dir` flags—keeping `staged_ghc` agnostic to whether you use Zig, `toolchains_llvm`, or GCC.
   2. Reads `libgmp.a` from `@gmp//:gmp[CcInfo]` and `libtinfo_stub_static.a` from `tinfo_stub_static[CcInfo]`. Declares virtual [`File`](https://bazel.build/rules/lib/builtins/File) outputs with [`ctx.actions.declare_file`](https://bazel.build/rules/lib/builtins/actions#declare_file): symlinks `staged_ghc/gmp_static/libgmp.a` and `staged_ghc/gmp_static/libtinfo.a`, plus an `HsLinkGmpShared` action linking `staged_ghc/_gmp_so/libgmp.so.10`.
   3. Declares sibling outputs under `staged_ghc/`: executable files under `staged_ghc/bin/` and a directory output `staged_ghc/lib` via [`ctx.actions.declare_directory`](https://bazel.build/rules/lib/builtins/actions#declare_directory). Bazel calls a directory output a [`TreeArtifact`](https://bazel.build/reference/glossary#tree-artifact): during analysis it's a single virtual handle, and after execution Bazel hashes every file inside individually.
   4. Registers the `HsStageGhc` shell action and locates `rts_include_dir` by finding `Rts.h` inside `rts_headers`.
-- **`@ghc_9_10_3_linux_x86_64//:toolchain_impl` (`_hs_toolchain_impl` in `haskell/toolchain.bzl`):** Decodes `boot_packages_json`, attaches `ghc_cc_wrapper`, and wraps the 22-field `HsToolchainInfo` (staged binaries, `libdir`, `rts_headers`, `gmp_static_dir`, `boot_packages`, `cc_wrapper`, and platform flags like `is_dynamic_ghc` and `arch_libdir`) inside [`platform_common.ToolchainInfo(hs = toolchain_info)`](https://bazel.build/rules/lib/providers/ToolchainInfo).
+- **`@ghc_9_10_3_linux_x86_64//:toolchain_impl` (`_hs_toolchain_impl` in `../../haskell/toolchain.bzl`):** Decodes `boot_packages_json`, attaches `ghc_cc_wrapper`, and wraps the 22-field `HsToolchainInfo` (staged binaries, `libdir`, `rts_headers`, `gmp_static_dir`, `boot_packages`, `cc_wrapper`, and platform flags like `is_dynamic_ghc` and `arch_libdir`) inside [`platform_common.ToolchainInfo(hs = toolchain_info)`](https://bazel.build/rules/lib/providers/ToolchainInfo).
 
 ### 2. Analyzing boot library targets (`@hs_boot//:base`, `:text`, `:boot_containers`)
 
-`_hs_toolchain_library_impl(ctx)` (`haskell/private/rules.bzl`) looks up each package name in `HsToolchainInfo.boot_packages` (`"base"` -> `base-4.20.2.0-f6da`, `"text"` -> `text-2.1.3-c2f1`, `"containers"` -> `containers-0.7-b71e`). Because boot packages are already compiled inside GHC's `lib/`, it registers **zero build actions** and returns two custom providers defined in `haskell/providers.bzl`:
+`_hs_toolchain_library_impl(ctx)` (`../../haskell/private/rules.bzl`) looks up each package name in `HsToolchainInfo.boot_packages` (`"base"` -> `base-4.20.2.0-f6da`, `"text"` -> `text-2.1.3-c2f1`, `"containers"` -> `containers-0.7-b71e`). Because boot packages are already compiled inside GHC's `lib/`, it registers **zero build actions** and returns two custom providers defined in `../../haskell/providers.bzl`:
 
 - **`HsPackageInfo` (direct package identity):** Describes *only* this target (`name`, `version`, `unit_id`, `is_boot = True`, `pkg_db = None`, `hs_lib = None`). Parent rules read `HsPackageInfo` strictly from immediate `deps` and never propagate it further up.
 - **`HsLinkInfo` (transitive closure):** Carries [`depset`](https://bazel.build/extending/depsets) collections (`pkg_dbs`, `hs_libs`, `include_dirs`, `headers`) plus merged `CcInfo`. (Empty here because boot packages already live in GHC's global package database.)
@@ -567,9 +553,9 @@ Why does `HsLinkInfo` use `depset` instead of ordinary Starlark lists? Standard 
 
 ### 3. Analyzing `//:greet` (`_hs_library_impl`)
 
-Next, Bazel runs `_hs_library_impl(ctx)` (`haskell/private/rules.bzl`) for `//:greet`:
+Next, Bazel runs `_hs_library_impl(ctx)` (`../../haskell/private/rules.bzl`) for `//:greet`:
 
-1. **Resolves C tools agnostically and splits dependencies:** Calls `resolve_cc_tools(ctx)` (`haskell/private/actions.bzl`), extracting `cc = .../x86_64-linux-gnu.2.32/c++`, `ar = .../tools/ar`, `ld = .../tools/ld.lld`, any toolchain `--sysroot`/`--target`/`-B` flags (forwarded to `ghc_cc_wrapper` via `RULES_HASKELL_CC_EXTRA_ARGS` for toolchains like `toolchains_llvm`), and whether the C compiler is GCC (`RULES_HASKELL_CC_IS_GCC`). Calls `collect_deps` to separate direct `HsPackageInfo` entries (`containers`, `base`, `text`) from transitive `HsLinkInfo` depsets.
+1. **Resolves C tools agnostically and splits dependencies:** Calls `resolve_cc_tools(ctx)` (`../../haskell/private/actions.bzl`), extracting `cc = .../x86_64-linux-gnu.2.32/c++`, `ar = .../tools/ar`, `ld = .../tools/ld.lld`, any toolchain `--sysroot`/`--target`/`-B` flags (forwarded to `ghc_cc_wrapper` via `RULES_HASKELL_CC_EXTRA_ARGS` for toolchains like `toolchains_llvm`), and whether the C compiler is GCC (`RULES_HASKELL_CC_IS_GCC`). Calls `collect_deps` to separate direct `HsPackageInfo` entries (`containers`, `base`, `text`) from transitive `HsLinkInfo` depsets.
 2. **Generates a collision-free `unit_id`:** GHC mangles a library's unit ID into every exported linker symbol so two packages with the same module name never collide. `_sanitize_unit_id(ctx.label)` encodes the full Bazel label one-to-one (`_` -> `__`, `/` -> `_S`, `:` -> `_C`, `-` -> `_D`, etc.) with a `u_` prefix and `-0.0.0` suffix: `//:greet` becomes **`u__S_S_Cgreet-0.0.0`**. Doubling `_` before encoding `/` as `_S` guarantees two labels like `//foo_S:bar` and `//foo/:bar` can never collide.
 3. **Declares two sibling outputs in `bazel-out/k8-fastbuild/bin/`:**
    - Regular `File`: `libHSu__S_S_Cgreet-0.0.0.a` (the compiled static archive)
@@ -581,7 +567,7 @@ Next, Bazel runs `_hs_library_impl(ctx)` (`haskell/private/rules.bzl`) for `//:g
 
 ### 4. Analyzing `//:hello` (`_hs_executable_impl`)
 
-Finally, Bazel runs `_hs_executable_impl(ctx)` (`haskell/private/rules.bzl`) for `//:hello`:
+Finally, Bazel runs `_hs_executable_impl(ctx)` (`../../haskell/private/rules.bzl`) for `//:hello`:
 
 1. **Strict direct vs. transitive split:** `collect_deps` populates `direct_pkgs` with *only* `//:hello`'s immediate `deps` (`greet`, `base`, `text`—notice `containers` is **excluded**), while `dep_info.pkg_dbs` and `dep_info.hs_libs` carry `:greet`'s `greet.pkgdb` and `libHSu__S_S_Cgreet-0.0.0.a`.
 2. **Declares the binary and registers `HsLinkExecutable`:** Declares `bazel-out/k8-fastbuild/bin/hello`, registers `HsLinkExecutable` with `-hide-all-packages`, `-threaded` (`hs_binary` enables GHC's multi-core runtime by default), `-main-is Main`, `-package-db bazel-out/k8-fastbuild/bin/greet.pkgdb`, direct `-package-id` flags, `ghc_tool_flags`, `-optl-no-pie`, and `-optl-L.../staged_ghc/gmp_static`.
@@ -624,7 +610,7 @@ Before running any action, Bazel computes a SHA-256 [action cache](https://bazel
 On a cache miss, Bazel launches the action through `linux-sandbox` (from Bazel's install base):
 
 - **Symlink forest:** Builds a temporary directory at `<output_base>/sandbox/linux-sandbox/<N>/execroot/_main/` containing read-only symlinks to *only* the files declared in that action's `inputs` and `tools`.
-- **Kernel namespaces:** Creates fresh Linux mount, PID, UTS, and network namespaces—cutting off ambient network access so no action can silently fetch files from the internet, and hiding undeclared workspace files. (Inside unprivileged CI containers where user namespaces are restricted, CI switches to `processwrapper-sandbox` via [`--spawn_strategy`](https://bazel.build/reference/command-line-reference#param-spawn-strategy), keeping per-action symlink forests and strict environments.)
+- **Kernel namespaces:** Creates fresh Linux mount, PID, UTS, and network namespaces—cutting off ambient network access so no action can silently fetch files from the internet, and hiding undeclared source files. (Inside unprivileged CI containers where user namespaces are restricted, CI switches to `processwrapper-sandbox` via [`--spawn_strategy`](https://bazel.build/reference/command-line-reference#param-spawn-strategy), keeping per-action symlink forests and strict environments.)
 - **Clean teardown:** Copies declared outputs out of the sandbox into `execroot/_main/bazel-out/` and deletes the temporary sandbox directory.
 
 ### 1. Building GMP from source (`@gmp//:gmp`) and linking `libgmp.so.10`
@@ -651,7 +637,7 @@ Notice that GMP crosses **two** boundaries in our build, and `staged_ghc` handle
 
 ### 2. Compiling our self-contained C11 `libtinfo.so.6` and `libtinfo.a`
 
-Next, Bazel compiles `haskell/private/tinfo_stub.c` twice in `k8-opt-exec`: once as a shared library (`libtinfo.so.6`) and once as a static archive (`libtinfo_stub_static.a`, symlinked into `staged_ghc/gmp_static/libtinfo.a`).
+Next, Bazel compiles `../../haskell/private/tinfo_stub.c` twice in `k8-opt-exec`: once as a shared library (`libtinfo.so.6`) and once as a static archive (`libtinfo_stub_static.a`, symlinked into `staged_ghc/gmp_static/libtinfo.a`).
 
 Why does a batch compiler need `libtinfo`—the low-level terminal capability library from [`ncurses`](https://invisible-island.net/ncurses/)? Upstream GHC compiles both the batch compiler (`ghc`) and the interactive REPL (`ghci`) into the *same* binary (`bin/ghc-9.10.3`), linking `libHShaskeline` -> `libHSterminfo` -> **`libtinfo.so.6`**. On Linux, the dynamic linker resolves every required shared library *before `main()` runs*, so running `ghc -c Greet.hs` on a container without `libtinfo6` aborts immediately at launch.
 
@@ -689,15 +675,15 @@ NCURSES6_TINFO_5.0.19991023 {
 };
 ```
 
-Instead of pulling full `ncurses` (with autoconf and `gawk`) into every consumer's `MODULE.bazel`, `haskell/private/tinfo_stub.c` (1,269 lines of zero-dependency C11) implements all 8 functions properly across three modes:
+Instead of pulling full `ncurses` (with autoconf and `gawk`) into every consumer's `MODULE.bazel`, `../../haskell/private/tinfo_stub.c` (1,269 lines of zero-dependency C11) implements all 8 functions properly across three modes:
 
 - **Headless sandbox mode:** When `$TERM` is unset (the default under `--incompatible_strict_action_env`), `setupterm` sets `*errret = -1` and returns `-1`, matching standard `ncurses`.
 - **Real binary [`term(5)`](https://man7.org/linux/man-pages/man5/term.5.html) reader:** When `$TERM` is set, reads both classic 16-bit (`0432`) and extended 32-bit (`01036`) compiled terminfo entries plus extended capabilities from `$TERMINFO`, `$HOME/.terminfo`, `$TERMINFO_DIRS`, and `/usr/share/terminfo`.
 - **Built-in fallback profiles:** On minimal containers without `/usr/share/terminfo`, supplies built-in `dumb`, `vt100`, `xterm`, and `xterm-256color` capability tables plus live `TIOCGWINSZ` window dimensions so interactive `ghci` (`hs_repl`) and TUI binaries still get line editing, arrow-key history, and 256-color output.
 
-### 3. Compiling `ghc_cc_wrapper` (`haskell/private/cc_wrapper.c`)
+### 3. Compiling `ghc_cc_wrapper` (`../../haskell/private/cc_wrapper.c`)
 
-Bazel also compiles `haskell/private/cc_wrapper.c` (560 lines of POSIX C11) into `bazel-out/k8-opt-exec/bin/external/rules_haskell+/haskell/private/ghc_cc_wrapper`.
+Bazel also compiles `../../haskell/private/cc_wrapper.c` (560 lines of POSIX C11) into `bazel-out/k8-opt-exec/bin/external/rules_haskell+/haskell/private/ghc_cc_wrapper`.
 
 Why write this adapter in C11 instead of Python or Bash? `rules_haskell` carries zero Python dependencies, GHC invokes the wrapper multiple times per compile and link step (so sub-millisecond startup matters), and C handles quoted `@response_file` parsing and safe temporary-symlink cleanup cleanly. You'll watch `ghc_cc_wrapper` intercept and translate real GHC flags in Steps 7 and 8.
 
@@ -737,7 +723,7 @@ Compared to alternatives, `$ORIGIN` staging avoids two classic pitfalls:
 
 #### What `HsStageGhc` actually executes
 
-`HsStageGhc` (`haskell/private/staged_ghc.bzl`) runs inside a sandbox with `LANG=C.UTF-8` and `LC_ALL=C.UTF-8`:
+`HsStageGhc` (`../../haskell/private/staged_ghc.bzl`) runs inside a sandbox with `LANG=C.UTF-8` and `LC_ALL=C.UTF-8`:
 
 1. Clears any inherited Bazel runfiles variables (`unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY`).
 2. Copies all GHC executables into `staged_ghc/bin/` with `cp -L` (dereferencing sandbox symlinks). Notice two renames required by GHC's own `lib/settings`:
@@ -809,11 +795,40 @@ RULES_HASKELL_FORCE_PIC=1
 RULES_HASKELL_DYN_LINK_ARGS_FILE=bazel-out/k8-fastbuild/bin/greet.dyn_link.args
 ```
 
-At startup, the `HsCompileLibrary` shell script (`haskell/private/actions.bzl`) unsets `RUNFILES_DIR`, `RUNFILES_MANIFEST_FILE`, and `RUNFILES_MANIFEST_ONLY`, anchors relative `RULES_HASKELL_REAL_CC` and `GHC` paths against `EXECROOT="$(pwd)"`, and creates an isolated temporary `$WORK_ROOT` (`objs/` and `tmp/`) cleaned up on exit via `trap 'rm -rf "$WORK_ROOT"' EXIT`.
+At startup, the `HsCompileLibrary` shell script (`../../haskell/private/actions.bzl`) unsets `RUNFILES_DIR`, `RUNFILES_MANIFEST_FILE`, and `RUNFILES_MANIFEST_ONLY`, anchors relative `RULES_HASKELL_REAL_CC` and `GHC` paths against `EXECROOT="$(pwd)"`, and creates an isolated temporary `$WORK_ROOT` (`objs/` and `tmp/`) cleaned up on exit via `trap 'rm -rf "$WORK_ROOT"' EXIT`.
 
 > **Maintainer note on `pkg_cwd`:** When reading `actions.bzl` or `rules.bzl`, you'll see a conditional `pkg_cwd` symlink block guarded by `HAS_COMPILE_DATA`. That's for external packages whose Template Haskell macros call `$(embedFile "data/table.bin")` expecting package-relative paths; because `//:greet` has no compile-time `data`, `GHC_CWD` stays at `$EXECROOT`.
 
 ### 1. Compiling `src/Greet.hs` with `ghc --make -c`
+
+Here is `src/Greet.hs`, the 16-line Haskell library module that GHC is about to read and compile:
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+
+module Greet
+  ( greetingFor
+  , uniqueSortedTags
+  ) where
+
+import Data.Set qualified as Set
+import Data.Text (Text)
+import Data.Text qualified as T
+
+greetingFor :: Text -> Text
+greetingFor who = "Hello, " <> T.strip who <> ", from rules_haskell."
+
+uniqueSortedTags :: [Text] -> [Text]
+uniqueSortedTags = Set.toAscList . Set.fromList . map T.strip
+```
+
+If you haven't read Haskell before, five pieces of syntax explain the whole file:
+
+- **`{-# LANGUAGE OverloadedStrings #-}`:** Enables a compiler language extension so double-quoted string literals like `"Hello, "` construct packed UTF-8 `Text` values directly instead of Haskell's default linked list of characters (`String`).
+- **`module Greet (greetingFor, uniqueSortedTags) where`:** Declares the module name (matching `src/Greet.hs`) and its public export list. Anything omitted from that list stays private to the file.
+- **`import Data.Set qualified as Set`:** Imports a module under a namespace prefix (`Set.fromList`), similar to Python's `import ... as ...`.
+- **`greetingFor :: Text -> Text`:** A static type signature saying `greetingFor` takes a `Text` argument and returns a `Text` result.
+- **`<>` and `.`:** `<>` concatenates strings, and `.` composes functions right to left (`map T.strip`, then `Set.fromList`, then `Set.toAscList`).
 
 The script invokes `staged_ghc/bin/ghc-9.10.3` with these exact flags:
 
@@ -867,19 +882,17 @@ Unlike C, Go, or Rust—which evaluate expressions immediately—Haskell uses **
      -x assembler -c /tmp/.../ghc_1.s -o .../objs/Greet.o.tmp
    ```
 
-Because `ghc_cc_wrapper` handles every GHC-to-C-toolchain call in the entire build—assembler, C compiler, preprocessor, and linker—here are all nine translations implemented in `haskell/private/cc_wrapper.c`:
+Because `ghc_cc_wrapper` handles every GHC-to-C-toolchain call in the entire build—assembler, C compiler, preprocessor, and linker—here are all nine translations implemented in `../../haskell/private/cc_wrapper.c`:
 
-| Step in `cc_wrapper.c` | What it does | Why it's required for hermetic builds |
-|---|---|---|
-| **1. Clear `RUNFILES_*`** | Calls `unsetenv` on `RUNFILES_DIR`, `RUNFILES_MANIFEST_FILE`, and `RUNFILES_MANIFEST_ONLY`. | Stops Bazel tool-execution runfiles from leaking into `zig-wrapper`, Clang scripts, or `./configure` probes. |
-| **2. Intercept `--print-file-name`** | Searches only explicit `-B` and `-L` dirs via `access(..., F_OK)`; prints match or echoes filename and exits `0`. | Unwrapped GCC/Clang leaks `/usr/lib/x86_64-linux-gnu/libm.a`—a ~100-byte ASCII GNU `ld` script (`GROUP ( libm-2.39.a libmvec.a )`) that crashes GHC's archive loader expecting `!<arch>\n`—while `zig cc` errors on `.2.32` triple suffixes. |
-| **3. Guard version queries** | Detects `--version`, `-dumpversion`, and `-dumpmachine`. | Skips injecting extra compiler or linker flags so version probes stay clean. |
-| **4. Fix C header order (`-nostdinc++`)** | Scans `argv` and `@rsp` files (`detect_cxx_invocation`); adds `-Wno-unused-command-line-argument` and `-nostdinc++` on non-C++, non-GCC calls. | `zig c++` puts `libcxx/include` ahead of freestanding C headers, causing `libcxx/include/stddef.h` to pull in `glibc`'s `<features.h>` *before* C headers can `#define _GNU_SOURCE 1`, hiding structs like `struct ucred` and `struct in6_pktinfo`. Also silences Clang warnings from Zig's implicit `-fno-sanitize=undefined` during `-x assembler` and `-E`. |
-| **5. Forward `RULES_HASKELL_CC_EXTRA_ARGS`** | Splits newline-delimited toolchain flags (`--sysroot`, `--target`, `-B`, `-resource-dir`). | Keeps `ghc_cc_wrapper` compatible with `toolchains_llvm` and custom-sysroot C toolchains. |
-| **6. Rewrite `@response_file` safely** | Parses quoted `@rsp` files recursively and writes modified copies into `$TMPDIR/hs_ccw.XXXXXX/`. | Never mutates GHC's input `@rsp` files in place while still applying every flag and `.dyn_o` rewrite inside long linker lists. |
-| **7. Rewrite `-Wl,-h` sonames** | Rewrites `-Wl,-h,<soname>` and `-Wl,-h` `-Wl,<soname>` -> `-Wl,-soname,<soname>`. | `zig cc` rejects `-h` when linking dynamic `.so` libraries. |
-| **8. Strip `-fuse-ld=gold` and rewrite `-fno-PIC`** | Drops `-fuse-ld=gold`; rewrites `-fno-PIC` -> `-fPIC` when `RULES_HASKELL_FORCE_PIC != "0"`. | `lld` and `zig cc` reject `ld.gold`, and Zig Linux `gnu` targets require PIC. |
-| **9. Alias `.dyn_o` / `.p_o` inputs** | Symlinks `.dyn_o`/`.p_o` inputs (never `-o` outputs) to `$TMPDIR/hs_ccw.XXXXXX/hs_obj_<n>.o`, cleaning up after `fork`/`waitpid`. | `zig cc` classifies inputs by extension and rejects `.dyn_o`/`.p_o`; uses zero-overhead direct `execv` when no temp files are needed. |
+1. **Clear `RUNFILES_*`:** Calls `unsetenv` on `RUNFILES_DIR`, `RUNFILES_MANIFEST_FILE`, and `RUNFILES_MANIFEST_ONLY`. This stops Bazel tool-execution runfiles from leaking into `zig-wrapper`, Clang scripts, or `./configure` probes.
+2. **Intercept `--print-file-name`:** Searches only explicit `-B` and `-L` directories via `access(..., F_OK)`, then prints the match (or echoes the filename) and exits `0`. Unwrapped GCC or Clang leaks `/usr/lib/x86_64-linux-gnu/libm.a`—a ~100-byte ASCII GNU `ld` script (`GROUP ( libm-2.39.a libmvec.a )`) that crashes GHC's archive loader expecting `!<arch>\n`—while `zig cc` errors on `.2.32` triple suffixes.
+3. **Guard version queries:** Detects `--version`, `-dumpversion`, and `-dumpmachine`, skipping extra compiler or linker flags so version probes stay clean.
+4. **Fix C header order (`-nostdinc++`):** Scans `argv` and `@rsp` files (`detect_cxx_invocation`), adding `-Wno-unused-command-line-argument` and `-nostdinc++` on non-C++, non-GCC calls. `zig c++` puts `libcxx/include` ahead of freestanding C headers, causing `libcxx/include/stddef.h` to pull in `glibc`'s `<features.h>` *before* C headers can `#define _GNU_SOURCE 1`, hiding structs like `struct ucred` and `struct in6_pktinfo`. It also silences Clang warnings from Zig's implicit `-fno-sanitize=undefined` during `-x assembler` and `-E`.
+5. **Forward `RULES_HASKELL_CC_EXTRA_ARGS`:** Splits newline-delimited toolchain flags (`--sysroot`, `--target`, `-B`, `-resource-dir`) so `ghc_cc_wrapper` works identically with `toolchains_llvm` and custom-sysroot C toolchains.
+6. **Rewrite `@response_file` safely:** Parses quoted `@rsp` files recursively and writes modified copies into `$TMPDIR/hs_ccw.XXXXXX/`. It never mutates GHC's input `@rsp` files in place while still applying every flag and `.dyn_o` rewrite inside long linker lists.
+7. **Rewrite `-Wl,-h` sonames:** Rewrites `-Wl,-h,<soname>` and `-Wl,-h` `-Wl,<soname>` to `-Wl,-soname,<soname>` because `zig cc` rejects `-h` when linking dynamic `.so` libraries.
+8. **Strip `-fuse-ld=gold` and rewrite `-fno-PIC`:** Drops `-fuse-ld=gold` and rewrites `-fno-PIC` to `-fPIC` when `RULES_HASKELL_FORCE_PIC != "0"`, because `lld` and `zig cc` reject `ld.gold` and Zig Linux `gnu` targets require PIC.
+9. **Alias `.dyn_o` / `.p_o` inputs:** Symlinks `.dyn_o` and `.p_o` inputs (never `-o` outputs) to `$TMPDIR/hs_ccw.XXXXXX/hs_obj_<n>.o`, cleaning up after `fork`/`waitpid`. `zig cc` classifies inputs by extension and rejects `.dyn_o`/`.p_o`; when no temporary files are needed, the wrapper skips `fork` and calls `execv` directly with zero overhead.
 
 On our assembler call above (`-x assembler -c ghc_1.s`), steps 1 and 4 run (`-Wno-unused-command-line-argument` and `-nostdinc++`), zero temp files are needed, and `ghc_cc_wrapper` calls `execv` directly into `zig-wrapper` (`c++`), which assembles `Greet.o` and `Greet.dyn_o`.
 
@@ -916,7 +929,7 @@ Steps 7 and 9 of `ghc_cc_wrapper` fire live right here:
 
 Also notice **`-Wl,-Bsymbolic`** on the resulting `.so` (`FLAGS: SYMBOLIC BIND_NOW` in `readelf -d`): when GHC later `dlopen`s a library `.so` inside the running compiler for Template Haskell, `-Bsymbolic` binds internal calls within that `.so` to its own definitions rather than accidentally resolving against a conflicting symbol already loaded inside `ghc`.
 
-> **Maintainer note on C archives and `rt_shims.c`:** `//:greet` has no C sources, so `cc_archives` is empty. On targets with `c_sources` or `cc_deps`, `HsCompileLibrary` wraps C `.a` archives in `-Wl,--whole-archive ... -Wl,--no-whole-archive` (so C FFI functions aren't dropped before a downstream Template Haskell splice calls them) and appends `//haskell/private:rt_shims` (`haskell/private/rt_shims.c`). `rt_shims.c` provides a tiny `weak` + `hidden` x86_64 `__cpu_model` fallback because `zig cc` omits `cpu_model.c` from `libcompiler_rt.a`, which otherwise leaves `R_X86_64_PC32` relocations unresolved in SIMD C libraries such as [Hackage](https://hackage.haskell.org/)'s `bitvec`.
+> **Maintainer note on C archives and `rt_shims.c`:** `//:greet` has no C sources, so `cc_archives` is empty. On targets with `c_sources` or `cc_deps`, `HsCompileLibrary` wraps C `.a` archives in `-Wl,--whole-archive ... -Wl,--no-whole-archive` (so C FFI functions aren't dropped before a downstream Template Haskell splice calls them) and appends `//haskell/private:rt_shims` (`../../haskell/private/rt_shims.c`). `rt_shims.c` provides a tiny `weak` + `hidden` x86_64 `__cpu_model` fallback because `zig cc` omits `cpu_model.c` from `libcompiler_rt.a`, which otherwise leaves `R_X86_64_PC32` relocations unresolved in SIMD C libraries such as [Hackage](https://hackage.haskell.org/)'s `bitvec`.
 
 ### 5. Writing the relocatable `${pkgroot}` package database (`greet.pkgdb`)
 
@@ -967,6 +980,29 @@ Look at two concrete guarantees you can observe directly in `//:hello`'s sandbox
 2. **`containers` is hidden from `Main.hs` yet available transitively:** `//:greet` depends on `containers-0.7-b71e`, while `//:hello` lists only `:greet`, `@hs_boot//:base`, and `@hs_boot//:text` in `deps`. Because `HsLinkExecutable` passes `-hide-all-packages` and only three `-package-id` flags (`u__S_S_Cgreet-0.0.0`, `base-4.20.2.0-f6da`, `text-2.1.3-c2f1`), adding `import Data.Set` to `Main.hs` without declaring `containers` in `//:hello`'s `deps` fails immediately (`It is a member of the hidden package 'containers-0.7-b71e'`). At the same time, because `greet.pkgdb` and GHC's global package DB are both loaded, GHC still knows `greet` depends on `containers` and automatically links `-lHScontainers-0.7-b71e` into `hello`.
 
 ### 1. Compiling `Main.hs` and GHC's two hidden link-time objects
+
+Here is `src/Main.hs`, the executable entry point that GHC reads next:
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+
+module Main (main) where
+
+import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
+import Greet (greetingFor)
+import System.Environment (getArgs)
+
+main :: IO ()
+main = do
+  args <- getArgs
+  let target = case args of
+        (name : _) -> T.pack name
+        [] -> "Bazel 9"
+  TIO.putStrLn (greetingFor target)
+```
+
+Every Haskell executable starts in a function named `main` of type `IO ()` (an I/O action returning the empty unit value `()`). Inside the `do` block, `getArgs` reads command-line arguments, pattern matching (`case args of`) picks the first argument or falls back to `"Bazel 9"`, and `TIO.putStrLn` prints the formatted greeting to standard output.
 
 `HsLinkExecutable` runs `staged_ghc/bin/ghc-9.10.3 --make -fPIC -hide-all-packages -threaded -main-is Main ... -o bazel-out/k8-fastbuild/bin/hello src/Main.hs` with `-outputdir "$WORKDIR"` (so temporary `Main.o` and `Main.hi` vanish when the action exits).
 
@@ -1052,7 +1088,7 @@ Finally, `zig-wrapper` links `hello` against Zig's bundled `crt1.o` startup code
 
 ### 3. Runfiles manifests and convenience symlinks
 
-Bazel finishes by executing the four tiny runfiles actions (`hello.repo_mapping`, `hello.runfiles_manifest`, `hello.runfiles/MANIFEST`, and `hello.runfiles/`), updates the workspace convenience symlinks (`bazel-bin` -> `<output_base>/execroot/_main/bazel-out/k8-fastbuild/bin`), and prints:
+Bazel finishes by executing the four tiny runfiles actions (`hello.repo_mapping`, `hello.runfiles_manifest`, `hello.runfiles/MANIFEST`, and `hello.runfiles/`), updates the convenience symlinks (`bazel-bin` -> `<output_base>/execroot/_main/bazel-out/k8-fastbuild/bin`), and prints:
 
 ```text
 Target //:hello up-to-date:
@@ -1119,29 +1155,27 @@ Hello, World, from rules_haskell.
 
 Here's what happens at launch: the Linux kernel reads `hello`'s `PT_INTERP` header (`/lib64/ld-linux-x86-64.so.2`), loads the four base `glibc` libraries, verifies `.gnu.version_r` (`<= GLIBC_2.29`), jumps to `_start` in `crt1.o`, calls GHC's generated C `main()`, starts `libHSrts-1.0.2_thr` (garbage collector, green-thread scheduler, and `epoll` I/O manager), runs `Main.main` -> `Greet.greetingFor` (statically linked from `libHSu__S_S_Cgreet-0.0.0.a`), prints the greeting, and exits `0`—with zero `PATH`, zero `LD_LIBRARY_PATH`, and zero host Haskell or GMP packages.
 
-In CI, `examples/quickstart/test/elf_hermeticity_test.sh` (a `sh_test` run via `bazel test`) automates both checks. Even stronger, the `hermetic-containers` matrix in `.github/workflows/ci.yml` runs inside bare `debian:bookworm-slim`, `ubuntu:24.04`, and `rockylinux:9` containers that assert `command -v` finds none of `ghc`, `cabal`, `stack`, `gcc`, `cc`, `clang`, `g++`, `c++`, `ghcup`, or `nix`—and none of `/usr/include/{gmp,zlib,ncurses,curses,openssl/ssl}.h` exist on disk—before running the full test suite.
+In CI, `test/elf_hermeticity_test.sh` (a `sh_test` run via `bazel test`) automates both checks. Even stronger, the `hermetic-containers` matrix in `../../.github/workflows/ci.yml` runs inside bare `debian:bookworm-slim`, `ubuntu:24.04`, and `rockylinux:9` containers that assert `command -v` finds none of `ghc`, `cabal`, `stack`, `gcc`, `cc`, `clang`, `g++`, `c++`, `ghcup`, or `nix`—and none of `/usr/include/{gmp,zlib,ncurses,curses,openssl/ssl}.h` exist on disk—before running the full test suite.
 
 ## Maintainer cheat sheet: every leak and where it's sealed
 
-| Potential host leak | Where `rules_haskell` seals it | Key source file |
-|---|---|---|
-| Bazel version drift | `.bazelversion` read by Bazelisk | `examples/quickstart/.bazelversion` |
-| Shell `$PATH`, `$LD_LIBRARY_PATH`, locale drift | `--incompatible_strict_action_env` + explicit `LANG=C.UTF-8` / `LC_ALL=C.UTF-8` | `.bazelrc`, `haskell/private/actions.bzl` |
-| Host C compiler and newer host `glibc` symbols | `hermetic_cc_toolchain` (`zig cc`) pinned to `linux_*_gnu.2.32` | `MODULE.bazel` |
-| Fetch-time `./configure && make install` | Pure-Starlark extraction and `.conf` parsing (zero install scripts) | `haskell/private/ghc_bindist.bzl` |
-| Hardcoded `/usr/bin/gcc`, `ld.gold`, `-fuse-ld=gold` | `_sanitize_settings` rewrites all 12 tool keys to `/nonexistent/*` | `haskell/private/ghc_bindist.bzl` |
-| GHC compiler runtime `libgmp.so.10` and `libtinfo.so.6` | Built from BCR `@gmp` and C11 `tinfo_stub.c` (`tinfo_stub.lds`), staged in `$ORIGIN/../lib/<arch>` | `haskell/private/staged_ghc.bzl`, `tinfo_stub.c`, `tinfo_stub.lds` |
-| Leaked Bazel `RUNFILES_*` env vars | `unset RUNFILES_DIR ...` in all actions and `unsetenv(...)` in `ghc_cc_wrapper` | `haskell/private/actions.bzl`, `cc_wrapper.c` |
-| GHC vs. Zig/Clang flags (`-Wl,-h`, `.dyn_o`, `-fno-PIC`, `--print-file-name`, `_GNU_SOURCE`) | C11 adapter translates args and `@rsp` files before calling `RULES_HASKELL_REAL_CC` | `haskell/private/cc_wrapper.c` |
-| Absolute sandbox paths in `.pkgdb` | Relocatable `${pkgroot}` `.conf` paths with sibling `.a` and `.pkgdb/` | `haskell/private/actions.bzl` |
-| Undeclared sources and transitive `import` leaks | Bazel sandbox symlink forest + `-hide-all-packages` + direct-only `-package-id` | `haskell/private/rules.bzl`, `actions.bzl` |
-| Dynamic `libgmp.so.10` or `libHS*.so` in user binaries | Static-only `staged_ghc/gmp_static/` (`-optl-L`) + isolated `greet.pkgdb/dyn/` + `-optl-no-pie` | `haskell/private/staged_ghc.bzl`, `rules.bzl` |
+- **Bazel version drift:** Sealed by `.bazelversion`, read by Bazelisk before Bazel launches.
+- **Shell `$PATH`, `$LD_LIBRARY_PATH`, and locale drift:** Sealed by `--incompatible_strict_action_env` in `.bazelrc` plus explicit `LANG=C.UTF-8` and `LC_ALL=C.UTF-8` in `../../haskell/private/actions.bzl`.
+- **Host C compiler and newer host `glibc` symbols:** Sealed by `hermetic_cc_toolchain` (`zig cc`) pinned to `linux_*_gnu.2.32` in `MODULE.bazel`.
+- **Fetch-time `./configure && make install`:** Sealed by pure-Starlark archive extraction and `.conf` parsing (zero install scripts) in `../../haskell/private/ghc_bindist.bzl`.
+- **Hardcoded `/usr/bin/gcc`, `ld.gold`, and `-fuse-ld=gold`:** Sealed by `_sanitize_settings`, which rewrites all 12 tool keys in `lib/settings` to `/nonexistent/*` (`../../haskell/private/ghc_bindist.bzl`).
+- **GHC compiler runtime `libgmp.so.10` and `libtinfo.so.6`:** Sealed by building GMP from BCR `@gmp` and compiling C11 `tinfo_stub.c` (with `tinfo_stub.lds`), then staging both in `$ORIGIN/../lib/<arch>` (`../../haskell/private/staged_ghc.bzl`, `tinfo_stub.c`, `tinfo_stub.lds`).
+- **Leaked Bazel `RUNFILES_*` environment variables:** Sealed by `unset RUNFILES_DIR ...` in all actions and `unsetenv(...)` in `ghc_cc_wrapper` (`../../haskell/private/actions.bzl`, `cc_wrapper.c`).
+- **GHC vs. Zig/Clang flags (`-Wl,-h`, `.dyn_o`, `-fno-PIC`, `--print-file-name`, `_GNU_SOURCE`):** Sealed by the C11 adapter translating arguments and `@rsp` files before calling `RULES_HASKELL_REAL_CC` (`../../haskell/private/cc_wrapper.c`).
+- **Absolute sandbox paths in `.pkgdb`:** Sealed by relocatable `${pkgroot}` `.conf` paths with sibling `.a` and `.pkgdb/` outputs (`../../haskell/private/actions.bzl`).
+- **Undeclared sources and transitive `import` leaks:** Sealed by Bazel's sandbox symlink forest, `-hide-all-packages`, and direct-only `-package-id` flags (`../../haskell/private/rules.bzl`, `actions.bzl`).
+- **Dynamic `libgmp.so.10` or `libHS*.so` in user binaries:** Sealed by the static-only `staged_ghc/gmp_static/` directory (`-optl-L`), isolated `greet.pkgdb/dyn/`, and `-optl-no-pie` (`../../haskell/private/staged_ghc.bzl`, `rules.bzl`).
 
 ## Limitations and sharp edges
 
 Hermeticity always involves deliberate engineering trade-offs. Keep these six boundaries in mind when maintaining or debugging `rules_haskell`:
 
-- **Linux-first platform coverage:** `SUPPORTED_PLATFORMS` defaults to `linux_x86_64` and `linux_arm64`. macOS and Windows bindist entries are structured in `haskell/private/ghc_versions.bzl`, but aren't yet enabled or tested in CI.
+- **Linux-first platform coverage:** `SUPPORTED_PLATFORMS` defaults to `linux_x86_64` and `linux_arm64`. macOS and Windows bindist entries are structured in `../../haskell/private/ghc_versions.bzl`, but aren't yet enabled or tested in CI.
 - **Non-PIE executables (`-optl-no-pie`):** Because upstream GHC `deb10` static boot archives aren't compiled with `-fPIC`, user executables trade away PIE ASLR to link cleanly without recompiling GHC itself from source.
 - **Host base `glibc` at runtime:** Like Go/Rust `gnu` binaries (and unlike fully static `musl` builds), compiled binaries still dynamically load the target machine's `ld-linux` and base `glibc` (`<= 2.32`).
 - **Shared `/tmp/zig-cc-cache` mount and debug paths:** `.bazelrc` mounts `/tmp` into Linux sandboxes so `zig cc` reuses its compiled `glibc 2.32` CRT stubs across actions instead of rebuilding them each time. Unstripped binaries may carry DWARF debug source paths from the sandbox where Zig first compiled those CRT stubs (debug metadata only, never loaded at runtime).
@@ -1150,7 +1184,7 @@ Hermeticity always involves deliberate engineering trade-offs. Keep these six bo
 
 ## Useful commands for debugging builds
 
-When investigating a toolchain, dependency, or linking issue in `examples/quickstart/` (or any consumer workspace), these five commands expose every layer covered in this walkthrough:
+When investigating a toolchain, dependency, or linking issue in `examples/quickstart/` (or any consumer project), these five commands expose every layer covered in this walkthrough:
 
 ```bash
 # 1. Inspect the resolved Bzlmod dependency graph
