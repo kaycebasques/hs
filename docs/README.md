@@ -1,17 +1,19 @@
-# `rules_haskell` Documentation (`//docs`)
+# `rules_haskell` documentation (`//docs`)
 
 [![Pages](https://github.com/kaycebasques/rules_haskell/actions/workflows/pages.yml/badge.svg)](https://github.com/kaycebasques/rules_haskell/actions/workflows/pages.yml)
 [![Documentation](https://img.shields.io/badge/docs-kaycebasques.github.io%2Frules__haskell-blue)](https://kaycebasques.github.io/rules_haskell/)
 
-**Live site**: [https://kaycebasques.github.io/rules_haskell/](https://kaycebasques.github.io/rules_haskell/) · **Mounted Haddock API**: [https://kaycebasques.github.io/rules_haskell/haddock/lock/index.html](https://kaycebasques.github.io/rules_haskell/haddock/lock/index.html)
+This guide shows you how to build, preview, test, and author the `rules_haskell` documentation site locally. If you're looking to read the docs instead, visit the [published documentation site](https://kaycebasques.github.io/rules_haskell/) or the [mounted `//tools/lock` Haddock API docs](https://kaycebasques.github.io/rules_haskell/haddock/lock/index.html); for architectural details on the site pipeline, see [Hakyll and Haddock docs](content/internals/docs-engine.md).
 
-`//docs` builds the `rules_haskell` documentation site on Bazel 9 using `rules_haskell` itself with a minimal, canonical Haskell documentation setup (all docs dependencies in `MODULE.bazel` are `dev_dependency = True`):
+You can build and serve the documentation site on Bazel 9 using `rules_haskell` itself—with no Python or Node.js required. All docs dependencies in [`MODULE.bazel`](https://bazel.build/external/module) are marked [`dev_dependency = True`](https://bazel.build/rules/lib/globals/module#bazel_dep), so downstream consumers don't pull them in:
 
-1. **Minimal Hakyll (`docs/site.hs` → `//docs:docs_gen`)**: standard `hakyll-init`-style static site generator (`pandocCompiler`, `defaultContext`, `templates/default.html`, `css/default.css`, `relativizeUrls`, and relative `.md` → `.html` URL rewriting).
-2. **GHC Haddock (`hs_haddock` → `//tools/lock:lock_haddock`)**: bundled GHC Haddock API docs mounted into `//docs:site` at `/haddock/lock/`.
-3. **Local preview server (`docs/serve.hs` → `//docs:serve`)**: minimal static HTTP server using `wai-app-static` and `warp`.
+1. **Hakyll site generator (`docs/site.hs` → `//docs:docs_gen`):** Renders Markdown pages using `pandocCompiler`, `defaultContext`, `templates/default.html`, `css/default.css`, `relativizeUrls`, and relative `.md` to `.html` URL rewriting.
+2. **GHC Haddock (`hs_haddock` → `//tools/lock:lock_haddock`):** Mounts GHC's bundled Haddock API docs into `//docs:site` at `/haddock/lock/`.
+3. **Local preview server (`docs/serve.hs` → `//docs:serve`):** Serves the built static site over HTTP using `wai-app-static` and `warp`.
 
-## Commands
+## Build, preview, and test
+
+Run these commands from the repository root using [`bazel build`](https://bazel.build/run/build), [`bazel run`](https://bazel.build/docs/user-manual#running-executables), and [`bazel test`](https://bazel.build/docs/user-manual#running-tests):
 
 ```bash
 # Build the static HTML site (with mounted /haddock/lock/ API docs)
@@ -25,19 +27,21 @@ bazel run //docs:serve -- --port 8080 --host 127.0.0.1
 bazel test //docs/...
 ```
 
-## Authoring Pages
+## Author documentation pages
 
-Pages under `docs/content/**/*.md` use standard Markdown with YAML frontmatter containing at least `title:`:
+Author pages under `docs/content/**/*.md` in standard Markdown following [`AGENTS.md`](../AGENTS.md), with YAML frontmatter containing at least `title:`:
 
 ```yaml
 ---
-title: "Page Title"
+title: "Page title"
 ---
 ```
 
-Use ordinary relative `.md` links (`[Quickstart](guide/quickstart.md)`); `docs/site.hs` rewrites them to `.html` so links work both on GitHub and in the built site.
+Use standard relative `.md` links (such as `[Quickstart](guide/quickstart.md)`). At build time, `docs/site.hs` rewrites `.md` links to `.html` so they work both on GitHub and on the published site.
 
-## Regenerating `docs/hackage.lock.json`
+## Regenerate `docs/hackage.lock.json`
+
+Run the lock generator from the repository root to refresh the pinned Hackage dependencies for Hakyll and the preview server:
 
 ```bash
 bazel run //tools/lock:lock -- \

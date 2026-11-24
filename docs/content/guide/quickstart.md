@@ -6,19 +6,19 @@ nav_title: "Quickstart"
 order: 10
 ---
 
-This guide walks through creating a standalone Bazel 9 Haskell project using `rules_haskell` on Linux, without installing a host Haskell compiler or C development packages first.
+In this quickstart, you create a standalone Bazel 9 Haskell workspace with [Bzlmod](https://bazel.build/external/overview) on Linux, without installing a host Haskell compiler or C development packages. By the end, you'll have a library, a command-line executable, and a unit test building and passing inside isolated [sandboxes](https://bazel.build/docs/sandboxing).
 
-> **Tip — New to Haskell or Bazel rulesets?** Each step below explains the Haskell and Bazel files as they appear. For broader background at any point, see [Haskell & GHC Primer](../internals/haskell-and-ghc-primer.md) and [Bazel Ruleset Primer](../internals/bazel-rules-primer.md).
+If you already have a working workspace and want third-party packages, continue to [Hackage and lockfiles](hackage.md). For conceptual background on Haskell or Bazel rulesets at any point, see the [Haskell and GHC primer](../internals/haskell-and-ghc-primer.md) and [Bazel ruleset primer](../internals/bazel-rules-primer.md).
 
 ## Prerequisites
 
-The only host tool you need is **[Bazelisk](https://github.com/bazelbuild/bazelisk)**, a small launcher that downloads and runs the exact Bazel version listed in `.bazelversion` (`>= 9.0.0`).
+The only host tool you need is **[Bazelisk](https://github.com/bazelbuild/bazelisk)**, a small launcher that downloads and runs the exact Bazel version listed in [`.bazelversion`](https://bazel.build/install/bazelisk) (`>= 9.0.0`).
 
-On Linux (`x86_64` and `arm64`, with `glibc >= 2.28`), you do **not** need host `ghc`, `cabal`, `stack`, `nix`, `python3`, `gcc`, `clang`, `libgmp-dev`, `libtinfo-dev`, or `zlib1g-dev`. (macOS and Windows execution are planned; see [What Is Supported, Planned, and Out of Scope](../index.md#project-scope).)
+On Linux (`x86_64` and `arm64`, with `glibc >= 2.28`), you don't need host `ghc`, `cabal`, `stack`, `nix`, `python3`, `gcc`, `clang`, or C development packages (`libgmp-dev`, `libtinfo-dev`, `zlib1g-dev`). Execution on macOS and Windows isn't supported yet; see [What is supported, planned, and out of scope](../index.md#project-scope) for current platform coverage.
 
-## Project Layout
+## Project layout
 
-We will create a small workspace containing a library (`greet`), a command-line executable (`hello`), and a unit test (`greet_test`):
+You'll build a small workspace containing a library (`greet`), a command-line executable (`hello`), and a unit test (`greet_test`). Create a new directory named `my-hs-app/` and run every command in this guide from inside it.
 
 ```text
 my-hs-app/
@@ -33,12 +33,12 @@ my-hs-app/
     └── GreetTest.hs
 ```
 
-- **`.bazelversion`**: Tells Bazelisk which Bazel release to download and run.
-- **`.bazelrc`**: Sets default command-line flags for `bazel build`, `bazel test`, and `bazel run`.
-- **`MODULE.bazel`**: Declares external Bazel module dependencies and toolchains (C/C++ and GHC).
-- **`BUILD.bazel`**: Declares the targets (`hs_library`, `hs_binary`, `hs_test`) inside your repository.
+- **`.bazelversion`:** Tells Bazelisk which Bazel release to download and run.
+- **[`.bazelrc`](https://bazel.build/run/bazelrc):** Sets default command-line flags for [`bazel build`](https://bazel.build/run/build), [`bazel test`](https://bazel.build/docs/user-manual#running-tests), and [`bazel run`](https://bazel.build/docs/user-manual#running-executables).
+- **[`MODULE.bazel`](https://bazel.build/external/module):** Declares external Bazel module dependencies and toolchains (C/C++ and GHC).
+- **[`BUILD.bazel`](https://bazel.build/concepts/build-files):** Declares the build targets (`hs_library`, `hs_binary`, and `hs_test`) inside your repository.
 
-## Step 1: Pin Bazel 9 and Configure `.bazelrc`
+## Step 1: Pin Bazel 9 and configure `.bazelrc`
 
 Create `.bazelversion` to pin Bazel 9:
 
@@ -46,7 +46,7 @@ Create `.bazelversion` to pin Bazel 9:
 9.3.3
 ```
 
-Create `.bazelrc` with environment isolation and runfiles flags:
+Create `.bazelrc` with environment isolation and [runfiles](https://bazel.build/extending/rules#runfiles) flags:
 
 ```ini
 common --enable_platform_specific_config
@@ -59,16 +59,16 @@ build:linux --repo_env=HERMETIC_CC_TOOLCHAIN_CACHE_PREFIX=/tmp/zig-cc-cache
 build:linux --sandbox_add_mount_pair=/tmp
 ```
 
-### Why Each `.bazelrc` Flag Is Here
+### Why each `.bazelrc` flag is here
 
-- **`--enable_platform_specific_config`**: Automatically enables `build:linux` lines when running on Linux.
-- **`--incompatible_strict_action_env`**: Prevents your shell's `PATH`, `LD_LIBRARY_PATH`, or `GHC_PACKAGE_PATH` environment variables from leaking into Bazel build sandboxes, so builds behave identically across developer machines and CI.
-- **`--enable_runfiles`**: Tells Bazel to create the `<binary>.runfiles` directory tree on disk so [`hs_binary`](../reference/rules.md#hs_binary) and [`hs_test`](../reference/rules.md#hs_test) targets can open runtime `data` files via `RUNFILES_DIR` and `TEST_SRCDIR`.
-- **`HERMETIC_CC_TOOLCHAIN_CACHE_PREFIX` and `--sandbox_add_mount_pair=/tmp`**: Only used when pairing `rules_haskell` with `hermetic_cc_toolchain` (`zig cc`). Zig compiles its C startup files on first use and caches them in this directory; mounting `/tmp` lets sandboxed actions share that cache instead of rebuilding C startup objects on every action. See [C FFI & Toolchains](c-interop-and-toolchains.md) if you use `toolchains_llvm` or a system C compiler instead.
+- **[`--enable_platform_specific_config`](https://bazel.build/reference/command-line-reference#param-no-enable-platform-specific-config):** Enables `build:linux` lines automatically when you run on Linux.
+- **[`--incompatible_strict_action_env`](https://bazel.build/reference/command-line-reference#param-no-incompatible-strict-action-env):** Prevents your shell's `PATH`, `LD_LIBRARY_PATH`, or `GHC_PACKAGE_PATH` environment variables from leaking into Bazel build sandboxes, so builds behave identically across developer machines and CI.
+- **[`--enable_runfiles`](https://bazel.build/reference/command-line-reference#param-no-enable-runfiles):** Tells Bazel to create the `<binary>.runfiles` directory tree on disk so [`hs_binary`](../reference/rules.md#hs_binary) and [`hs_test`](../reference/rules.md#hs_test) targets can open runtime `data` files via `RUNFILES_DIR` and [`TEST_SRCDIR`](https://bazel.build/reference/test-encyclopedia#initial-conditions).
+- **`HERMETIC_CC_TOOLCHAIN_CACHE_PREFIX` and [`--sandbox_add_mount_pair=/tmp`](https://bazel.build/reference/command-line-reference#param-sandbox-add-mount-pair):** Only needed when pairing `rules_haskell` with `hermetic_cc_toolchain` (`zig cc`). Zig compiles its C startup files on first use and caches them in this directory; mounting `/tmp` lets sandboxed actions share that cache instead of rebuilding C startup objects on every action. See [C FFI and toolchains](c-interop-and-toolchains.md) if you use `toolchains_llvm` or a system C compiler instead.
 
 ## Step 2: Configure `MODULE.bazel`
 
-Create `MODULE.bazel` to load `rules_haskell`, register a C/C++ toolchain, and download GHC `9.10.3` through the [`hs`](../reference/extensions-and-providers.md#hs) module extension:
+Create `MODULE.bazel` to load `rules_haskell`, register a C/C++ toolchain, and download GHC `9.10.3` through the [`hs`](../reference/extensions-and-providers.md#hs) [module extension](https://bazel.build/external/extension):
 
 ```starlark
 module(
@@ -100,29 +100,31 @@ register_toolchains(
 )
 
 # GHC toolchain + automatic @hs_boot targets for all GHC boot packages.
-hs = use_extension("@rules_haskell//hs:extensions.bzl", "hs")
+hs = use_extension("@rules_haskell//haskell:extensions.bzl", "hs")
 hs.toolchain(ghc_version = "9.10.3")
 use_repo(hs, "hs_boot", "hs_toolchains")
 
 register_toolchains("@hs_toolchains//:all")
 ```
 
-> **Important — Register `gnu.2.32` before the `@zig_sdk` wildcard:** When using `hermetic_cc_toolchain`, list `@zig_sdk//toolchain:linux_amd64_gnu.2.32` and `@zig_sdk//toolchain:linux_arm64_gnu.2.32` **before** `@zig_sdk//toolchain/...`. Without those two lines first, Bazel's wildcard registration picks `gnu.2.17` alphabetically, which lacks `glibc` 2.28 and 2.32 symbols needed by official GHC Linux archives and BCR `gmp`. See [C FFI & Toolchains](c-interop-and-toolchains.md) for details.
+> **Important:** Register `gnu.2.32` before the `@zig_sdk` wildcard. When using `hermetic_cc_toolchain`, list `@zig_sdk//toolchain:linux_amd64_gnu.2.32` and `@zig_sdk//toolchain:linux_arm64_gnu.2.32` before `@zig_sdk//toolchain/...`. Without those two lines first, Bazel's wildcard registration picks `gnu.2.17` alphabetically, which lacks the `glibc` 2.28 and 2.32 symbols required by official GHC Linux archives and [BCR](https://bazel.build/external/registry#bazel-central-registry) `gmp`. See [C FFI and toolchains](c-interop-and-toolchains.md) for details.
 
-### Why `MODULE.bazel` Registers Both a C Toolchain and GHC
+### Why `MODULE.bazel` registers both a C toolchain and GHC
 
-If this is your first Haskell + Bazel workspace, it helps to see why two toolchains appear above:
+If this is your first Haskell and Bazel workspace, here's why two toolchains appear above:
 
-- **Why GHC needs a C/C++ toolchain (`@zig_sdk`)**: Unlike Go or Java, GHC uses a C assembler and system linker to produce native executables, linking your Haskell code against GHC's C Runtime System (`libHSrts.a` — the garbage collector and thread scheduler) and `libgmp.a` (arbitrary-precision integer arithmetic). `hermetic_cc_toolchain` downloads a self-contained `zig cc` C compiler and linker so you do not need `gcc` or `clang` installed on your machine (see [Dependency Decisions](../internals/dependencies.md#module-bazel-anatomy)).
-- **What [`hs.toolchain`](../reference/extensions-and-providers.md#hs-toolchain) creates**: Calling `use_repo(hs, "hs_boot", "hs_toolchains")` exposes two Bazel repositories:
-  1. **`@hs_toolchains`**: Downloads and registers GHC (`9.10.3` by default, or `9.12.4`) for `linux_x86_64` and `linux_arm64`.
-  2. **`@hs_boot`**: Exposes all **41 built-in "boot" libraries** shipped inside GHC itself as Bazel targets, with no lockfile required. In this tutorial we use two of them:
-     - **`@hs_boot//:base`**: Haskell's standard library (`Prelude`, `IO`, command-line `getArgs`, `exitFailure`).
-     - **`@hs_boot//:text`**: Packed UTF-8 text (`Data.Text`, similar to Rust's `String`/`&str` or Go's `string`). In day-to-day Haskell code, `Text` is preferred over `base`'s older `String` type, which is a linked list of characters (`[Char]`).
+- **Why GHC needs a C/C++ toolchain (`@zig_sdk`):** Unlike Go or Java, GHC uses a C assembler and system linker to produce native executables, linking your Haskell code against GHC's C Runtime System (`libHSrts.a`, the garbage collector and thread scheduler) and `libgmp.a` (arbitrary-precision integer arithmetic). Using `hermetic_cc_toolchain` gives you a self-contained `zig cc` C compiler and linker so you don't need `gcc` or `clang` installed on your machine (see [Dependency decisions](../internals/dependencies.md#module-bazel-anatomy)).
+- **What [`hs.toolchain`](../reference/extensions-and-providers.md#hs-toolchain) creates:** Calling [`use_repo(hs, "hs_boot", "hs_toolchains")`](https://bazel.build/rules/lib/globals/module#use_repo) exposes two Bazel repositories:
+  1. **`@hs_toolchains`:** Downloads and registers GHC (`9.10.3` by default, or `9.12.4`) for `linux_x86_64` and `linux_arm64`.
+  2. **`@hs_boot`:** Exposes all 41 built-in "boot" libraries shipped inside GHC itself as Bazel targets, with no lockfile required. In this quickstart, you use two of them:
+     - **`@hs_boot//:base`:** Haskell's standard library (`Prelude`, `IO`, `getArgs`, `exitFailure`).
+     - **`@hs_boot//:text`:** Packed UTF-8 text (`Data.Text`, similar to Rust's `String`/`&str` or Go's `string`). In day-to-day Haskell code, prefer `Text` over `base`'s older `String` type, which is a linked list of characters (`[Char]`).
 
-## Step 3: Write Haskell Sources
+## Step 3: Write Haskell sources
 
-Create `src/Greet.hs` ([`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), and [`hs_test`](../reference/rules.md#hs_test) compile with `default_language = "GHC2021"` by default):
+Create a library module, an executable entry point, and a unit test. By default, [`hs_library`](../reference/rules.md#hs_library), `hs_binary`, and `hs_test` compile with `default_language = "GHC2021"`.
+
+Create `src/Greet.hs`:
 
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
@@ -177,19 +179,19 @@ main = do
     exitFailure
 ```
 
-### Understanding These Three `.hs` Files
+### How these three `.hs` files work
 
-- **`default_language = "GHC2021"`**: `rules_haskell` compiles user targets with GHC's `GHC2021` language edition by default (matching GHC `9.10` and `9.12`'s own default), which enables features such as post-qualified imports (`import Data.Text qualified as T`). You can also set `default_language = "GHC2024"` or `"Haskell2010"` per target; see [Language, RTS, Runfiles & Template Haskell](language-rts-runfiles-th.md).
-- **`{-# LANGUAGE OverloadedStrings #-}`**: A file-level compiler pragma that allows `"..."` string literals to construct UTF-8 `Text` values directly instead of only `[Char]`.
-- **`module Greet (greetingFor) where`**: Names the module `Greet` and exports `greetingFor :: Text -> Text` (`<>` concatenates two `Text` values, and `T.strip` trims leading and trailing whitespace).
-- **`module Main (main) where` and `main :: IO ()`**: Every Haskell executable (`hs_binary` and `hs_test`) starts at `Main.main` of type `IO ()` — an I/O action sequenced step-by-step using `do` notation (`args <- getArgs`). In `GreetTest.hs`, returning normally exits with status `0` (test pass), while `exitFailure` exits with a non-zero status (test failure).
+- **`default_language = "GHC2021"`:** User targets compile with GHC's `GHC2021` language edition by default (matching GHC `9.10` and `9.12`'s own default), which enables features such as post-qualified imports (`import Data.Text qualified as T`). You can also set `default_language = "GHC2024"` or `"Haskell2010"` per target; see [Language, RTS, runfiles, and Template Haskell](language-rts-runfiles-th.md).
+- **`{-# LANGUAGE OverloadedStrings #-}`:** A file-level compiler pragma that lets `"..."` string literals construct UTF-8 `Text` values directly instead of only `[Char]`.
+- **`module Greet (greetingFor) where`:** Names the module `Greet` and exports `greetingFor :: Text -> Text`. Here `<>` concatenates two `Text` values, and `T.strip` trims leading and trailing whitespace.
+- **`module Main (main) where` and `main :: IO ()`:** Every Haskell executable (`hs_binary` and `hs_test`) starts at `Main.main` of type `IO ()`—an I/O action sequenced step by step using `do` notation (`args <- getArgs`). In `GreetTest.hs`, returning normally exits with status `0` (test pass), while `exitFailure` exits with a non-zero status (test failure).
 
-## Step 4: Declare Targets in `BUILD.bazel`
+## Step 4: Declare targets in `BUILD.bazel`
 
-Load [`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), and [`hs_test`](../reference/rules.md#hs_test) from `@rules_haskell//hs:defs.bzl`:
+Create `BUILD.bazel` to declare your library, executable, and test targets using `hs_library`, `hs_binary`, and `hs_test` from `@rules_haskell//haskell:defs.bzl`:
 
 ```starlark
-load("@rules_haskell//hs:defs.bzl", "hs_binary", "hs_library", "hs_test")
+load("@rules_haskell//haskell:defs.bzl", "hs_binary", "hs_library", "hs_test")
 
 hs_library(
     name = "greet",
@@ -236,15 +238,15 @@ hs_test(
 )
 ```
 
-### What Each `BUILD.bazel` Attribute Does
+### What each `BUILD.bazel` attribute does
 
-- **`hs_source_dirs = ["src"]` (or `["test"]`)**: Sets the root folder from which GHC resolves dotted module names — mapping `module Greet` to `src/Greet.hs` (and `module Foo.Bar` to `src/Foo/Bar.hs`).
-- **`ghc_opts = ["-Wall", "-Wcompat"]`**: Enables GHC's standard warning set (`-Wall`) plus forward-compatibility warnings (`-Wcompat`).
-- **`hs_library` vs. `hs_binary` vs. `hs_test`**: [`hs_library`](../reference/rules.md#hs_library) compiles reusable `.a` static archives and `.hi` compiler interface files; [`hs_binary`](../reference/rules.md#hs_binary) compiles `Main.main` and links all transitive Haskell and C archives into a native executable; [`hs_test`](../reference/rules.md#hs_test) builds a test executable that `bazel test` runs inside an isolated sandbox.
+- **`hs_source_dirs = ["src"]` (or `["test"]`):** Sets the root directory from which GHC resolves dotted module names—mapping `module Greet` to `src/Greet.hs` (and `module Foo.Bar` to `src/Foo/Bar.hs`).
+- **`ghc_opts = ["-Wall", "-Wcompat"]`:** Enables GHC's standard warning set (`-Wall`) plus forward-compatibility warnings (`-Wcompat`).
+- **`hs_library`, `hs_binary`, and `hs_test`:** `hs_library` compiles reusable `.a` static archives and `.hi` compiler interface files; `hs_binary` compiles `Main.main` and links all transitive Haskell and C archives into a native executable; `hs_test` builds a test executable that `bazel test` runs inside an isolated sandbox.
 
-> **Tip — Direct-dependency visibility:** `rules_haskell` passes `-hide-all-packages` to GHC and exposes **only** direct `deps` via `-package-id` (using separate direct [`HsPackageInfo`](../reference/extensions-and-providers.md#hspackageinfo) and transitive [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo) providers). Because `:hello` imports `Data.Text` in `src/Main.hs`, it lists `@hs_boot//:text` in its own `deps` even though `:greet` also depends on `@hs_boot//:text`. By contrast, `:greet_test` calls `greetingFor` without importing `Data.Text` directly, so it only needs `:greet` and `@hs_boot//:base`.
+> **Tip:** `rules_haskell` enforces direct-dependency visibility by passing `-hide-all-packages` to GHC and exposing only direct `deps` via `-package-id` (using separate direct [`HsPackageInfo`](../reference/extensions-and-providers.md#hspackageinfo) and transitive [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo) [providers](https://bazel.build/extending/rules#providers)). Because `:hello` imports `Data.Text` in `src/Main.hs`, it lists `@hs_boot//:text` in its own `deps` even though `:greet` also depends on `@hs_boot//:text`. By contrast, `:greet_test` calls `greetingFor` without importing `Data.Text` directly, so it only needs `:greet` and `@hs_boot//:base`.
 
-## Step 5: Build, Test, and Inspect Runtime Dependencies
+## Step 5: Build, test, and inspect runtime dependencies
 
 Run the test suite and execute your binary:
 
@@ -253,15 +255,15 @@ bazel test //...
 bazel run //:hello -- "World"
 ```
 
-Output:
+Expected output from `bazel run`:
 
 ```text
 Hello, World, from rules_haskell.
 ```
 
-> **Tip — Interactive `ghci` REPL:** Add an [`hs_repl`](../reference/rules.md#hs_repl) target (`hs_repl(name = "greet_repl", deps = [":greet"])`) and run `bazel run //:greet_repl` to open an interactive `ghci` session with `Greet` loaded in bytecode (supporting `:reload` on workspace edits, `:type`, and `:break`), or run `bazel run @rules_haskell//tools/ghci` for a standalone prompt. See [Language, RTS, Runfiles & Template Haskell](language-rts-runfiles-th.md#interactive-ghci-repl) for details.
+> **Tip:** To experiment interactively in a `ghci` REPL, add an [`hs_repl`](../reference/rules.md#hs_repl) target (`hs_repl(name = "greet_repl", deps = [":greet"])`) and run `bazel run //:greet_repl`. That opens a `ghci` session with `Greet` loaded in bytecode (supporting `:reload` on workspace edits, `:type`, and `:break`). For a standalone prompt, run `bazel run @rules_haskell//tools/ghci`. See [Language, RTS, runfiles, and Template Haskell](language-rts-runfiles-th.md#interactive-ghci-repl) for details.
 
-On Linux, every ELF executable records the shared `.so` libraries it needs at startup in `NEEDED` metadata entries. You can inspect `bazel-bin/hello` with `readelf -d` and run it with an empty environment (`env -i PATH=/nonexistent`) to confirm it statically links `libgmp.a` and depends only on standard `glibc` libraries:
+On Linux, every ELF executable records the shared `.so` libraries it needs at startup in `NEEDED` metadata entries. Inspect [`bazel-bin/hello`](https://bazel.build/remote/output-directories) with `readelf -d` and run it with an empty environment (`env -i PATH=/nonexistent`) to confirm it statically links `libgmp.a` and depends only on standard `glibc` libraries:
 
 ```bash
 readelf -d bazel-bin/hello | grep NEEDED
@@ -278,21 +280,25 @@ Expected output:
 Hello, Clean Env, from rules_haskell.
 ```
 
-## Switching to GHC 9.12.4
+## Switch to GHC 9.12.4
 
-Changing the GHC version across your workspace is a one-line edit in `MODULE.bazel`:
+To change the GHC version across your workspace, update `ghc_version` in `MODULE.bazel`:
 
 ```starlark
-hs = use_extension("@rules_haskell//hs:extensions.bzl", "hs")
+hs = use_extension("@rules_haskell//haskell:extensions.bzl", "hs")
 hs.toolchain(ghc_version = "9.12.4")
 use_repo(hs, "hs_boot", "hs_toolchains")
 ```
 
-Root module [`hs.toolchain`](../reference/extensions-and-providers.md#hs-toolchain) declarations override `rules_haskell`'s default `9.10.3` toolchain.
+A root module [`hs.toolchain`](../reference/extensions-and-providers.md#hs-toolchain) call overrides the default `9.10.3` toolchain across your workspace.
 
-## Next Steps
+## Summary and next steps
 
-- **Add Hackage dependencies (`aeson`, `http-client`, `xml-conduit`, `zlib`, etc.)**: Continue to [Hackage & Lockfiles](hackage.md).
-- **Call C libraries or configure `toolchains_llvm`**: Read [C FFI & Toolchains](c-interop-and-toolchains.md).
-- **Configure `GHC2021` vs. `GHC2024`, RTS concurrency, runfiles, Template Haskell, and Haddock API docs (`hs_haddock`)**: Read [Language, RTS, Runfiles & Template Haskell](language-rts-runfiles-th.md).
-- **Explore a complete 69-package application**: Walk through [Showcase: `examples/size`](showcase-size.md).
+You now have a standalone Bazel 9 Haskell workspace that compiles a library, links a portable Linux executable with static `libgmp.a`, and runs a sandboxed unit test—without installing host GHC or C development packages. For a complete in-tree version of this workspace (including an ELF dependency test), see `examples/quickstart/`.
+
+From here, pick the next guide based on what your project needs:
+
+- **Add Hackage dependencies (`aeson`, `http-client`, `xml-conduit`, `zlib`):** Continue to [Hackage and lockfiles](hackage.md).
+- **Call C libraries or switch to `toolchains_llvm`:** Read [C FFI and toolchains](c-interop-and-toolchains.md).
+- **Configure `GHC2021` vs. `GHC2024`, RTS concurrency, runfiles, Template Haskell, and Haddock API docs (`hs_haddock`):** Read [Language, RTS, runfiles, and Template Haskell](language-rts-runfiles-th.md).
+- **Explore a complete 69-package application:** Walk through [Showcase: `examples/size`](showcase-size.md).

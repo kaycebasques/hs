@@ -1,32 +1,32 @@
 ---
-title: "C FFI & Toolchains"
+title: "C FFI and toolchains"
 description: "Call C and C++ code from Haskell using ForeignFunctionInterface, CApiFFI, Bazel cc_library targets, inline c_sources, and any Bazel C/C++ toolchain."
 section: guide
-nav_title: "C FFI & Toolchains"
+nav_title: "C FFI and toolchains"
 order: 30
 ---
 
-Every Haskell rule in `rules_haskell` ([`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), [`hs_test`](../reference/rules.md#hs_test), and [`hs_cabal_library`](../reference/rules.md#hs_cabal_library)) resolves Bazel's active `@bazel_tools//tools/cpp:toolchain_type` through `rules_cc` (`cc_common`) and routes GHC's C compiler, assembler, preprocessor, and linker invocations through a small compiled C11 adapter binary (`ghc_cc_wrapper`).
+This guide shows you how to call C and C++ code from Haskell and pair `rules_haskell` with your preferred Linux C/C++ toolchain (`hermetic_cc_toolchain`, `toolchains_llvm`, or a system GCC or Clang toolchain). Every Haskell rule resolves Bazel's active `@bazel_tools//tools/cpp:toolchain_type` through `rules_cc` ([`cc_common`](https://bazel.build/rules/lib/toplevel/cc_common)) and adapts GHC's C compiler, assembler, preprocessor, and linker flags with a compiled C11 helper (`ghc_cc_wrapper`).
 
-## Haskell C FFI Basics (`ccall` vs. `capi`)
+If you need to wire C libraries into third-party Hackage packages, see [Hackage and lockfiles](hackage.md). For the low-level design of `ghc_cc_wrapper` and toolchain isolation, see [Hermeticity and toolchain](../internals/hermeticity.md).
 
-If you are new to calling C from Haskell, GHC provides two language extensions for foreign imports:
+## Haskell C FFI basics: `ccall` vs. `capi`
 
-- **`ForeignFunctionInterface` (`foreign import ccall`)**: Calls an exported C function directly by its compiled linker symbol name (or takes the memory address of a C global variable via `"&name"`). Use `ccall` for ordinary C functions with fixed ABI types.
-- **`CApiFFI` (`foreign import capi`)**: Tells GHC to generate a tiny C wrapper file that `#include`s your `.h` header and compiles it with the C compiler. Because the C compiler sees your header directly, `capi` can bind `#define` preprocessor constants (`value MY_MACRO`), `static inline` C functions, and C functions whose types rely on platform `typedef`s.
+If you're new to calling C from Haskell, GHC provides two language extensions for foreign imports:
 
-## Two Ways to Attach C/C++ Code in Bazel
+- **`ForeignFunctionInterface` (`foreign import ccall`):** Calls an exported C function directly by its compiled linker symbol name, or takes the memory address of a C global variable via `"&name"`. Use `ccall` for ordinary C functions with fixed ABI types.
+- **`CApiFFI` (`foreign import capi`):** Generates a small C wrapper file that `#include`s your `.h` header and compiles it with the C compiler. Because the C compiler sees your header directly, `capi` can bind `#define` preprocessor constants (`value MY_MACRO`), `static inline` C functions, and C functions whose types rely on platform `typedef`s.
+
+## Choose how to attach C and C++ code
 
 You can supply C or C++ code to Haskell rules in two ways, and mix both in the same build graph:
 
-1. **Separate `cc_library` targets (`cc_deps` or `deps`)**: Best when C/C++ code is shared across multiple targets, comes from the Bazel Central Registry (BCR), or has its own C tests.
-2. **Inline `c_sources` + `hdrs` + `include_dirs` + `cc_options`**: Convenient when small C helper files live inside a Haskell package directory (often named `cbits/`).
+1. **Separate [`cc_library`](https://bazel.build/reference/be/c-cpp#cc_library) targets (`cc_deps` or `deps`):** Best when C or C++ code is shared across multiple targets, comes from the [Bazel Central Registry (BCR)](https://bazel.build/external/registry#bazel-central-registry), or has its own C tests.
+2. **Inline `c_sources`, `hdrs`, `include_dirs`, and `cc_options`:** Convenient when small C helper files live inside a Haskell package directory (often named `cbits/`).
 
----
+## Pattern 1: Link Bazel `cc_library` targets via `cc_deps`
 
-## Pattern 1: Linking Bazel `cc_library` Targets via `cc_deps`
-
-Suppose you have a C header `vec.h` and implementation `vec.c` defining a preprocessor macro, a global constant, and struct operations (based on `tests/rules/ffi`):
+This example (adapted from `tests/rules/ffi/`) binds a C header (`vec.h`) and implementation (`vec.c`) defining a preprocessor macro, a global constant, and struct operations:
 
 ```c
 // vec.h
@@ -141,17 +141,17 @@ dotVec2 :: Vec2 -> Vec2 -> IO Int64
 dotVec2 a b = with a $ \pa -> with b $ \pb -> c_vec2Dot pa pb
 ```
 
-### How the Haskell Marshaling Helpers Work
+### How the Haskell marshaling helpers work
 
-- **`Ptr a` and `Storable`**: `Ptr Vec2` is a raw C memory pointer (`Vec2 *`). Implementing `Storable Vec2` teaches Haskell the struct's byte size (`16`), byte alignment (`8`), and how to read (`peek`) or write (`poke`) fields at byte offsets (`0`, `4`, `8`). (For larger C structs where computing byte offsets by hand is tedious, `.hsc` templates via `hsc2hs` fill in those offsets automatically from the C compiler.)
-- **`alloca` and `with`**: `alloca` allocates temporary uninitialized memory for a `Storable` value, passes the `Ptr` to your callback, and frees it automatically when the callback finishes; `with` does the same but writes (`poke`s) an existing Haskell value into the temporary buffer first.
-- **`unsafe` vs. `safe` on `foreign import ccall`**: In GHC, `"unsafe"` does **not** mean memory-unsafe; it means "this C function finishes quickly and will not call back into Haskell or block on I/O," allowing GHC to emit a direct C function call with minimal overhead. Omit `unsafe` (defaulting to `safe`) for C functions that block on network/disk I/O or take a long time, so GHC's `-threaded` runtime can keep running other Haskell green threads concurrently.
+- **`Ptr a` and `Storable`:** `Ptr Vec2` is a raw C memory pointer (`Vec2 *`). Implementing `Storable Vec2` tells Haskell the struct's byte size (`16`), byte alignment (`8`), and how to read (`peek`) or write (`poke`) fields at byte offsets (`0`, `4`, `8`). For larger C structs where computing byte offsets by hand is error-prone, `.hsc` templates via `hsc2hs` compute offsets from the C compiler automatically.
+- **`alloca` and `with`:** `alloca` allocates temporary uninitialized memory for a `Storable` value, passes the `Ptr` to your callback, and frees it when the callback finishes. `with` does the same, except it writes (`poke`s) an existing Haskell value into the buffer first.
+- **`unsafe` vs. `safe` on `foreign import ccall`:** In GHC, `unsafe` doesn't mean memory-unsafe; it means the C function finishes quickly and won't call back into Haskell or block on I/O, allowing GHC to emit a direct C call with minimal overhead. Omit `unsafe` (defaulting to `safe`) for C functions that block on network or disk I/O or run for a long time, so GHC's `-threaded` runtime can keep running other Haskell green threads concurrently.
 
-Connect `:vec_cc` to `cc_deps` in `BUILD.bazel`:
+Connect `:vec_cc` to `cc_deps` in [`BUILD.bazel`](https://bazel.build/concepts/build-files):
 
 ```starlark
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
-load("@rules_haskell//hs:defs.bzl", "hs_library", "hs_test")
+load("@rules_haskell//haskell:defs.bzl", "hs_library", "hs_test")
 
 cc_library(
     name = "vec_cc",
@@ -178,13 +178,11 @@ hs_test(
 )
 ```
 
-> **Note — Automatic transitive C header and archive propagation (`CcInfo`):** In Bazel, C/C++ targets pass header search paths, preprocessor `#define` flags, and compiled `.a` static archives through a standard provider named `CcInfo`. [`hs_library`](../reference/rules.md#hs_library) returns both [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo) and `CcInfo`, so downstream [`hs_library`](../reference/rules.md#hs_library), [`hs_binary`](../reference/rules.md#hs_binary), and [`hs_test`](../reference/rules.md#hs_test) targets inherit `:vec_cc`'s headers and `.a` archive automatically without repeating `cc_deps = [":vec_cc"]`. When linking a final executable, `rules_haskell` wraps all transitive static C archives in `-Wl,--start-group ... -Wl,--end-group` so the linker resolves cross-archive C symbols regardless of ordering.
+> **Note:** You don't need to repeat `cc_deps` on downstream libraries, binaries, or tests. Because [`hs_library`](../reference/rules.md#hs_library) returns both [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo) and Bazel's [`CcInfo`](https://bazel.build/rules/lib/providers/CcInfo) provider, `:vec_cc`'s header search paths, preprocessor `#define` flags, and `.a` archive propagate automatically to downstream `hs_library`, [`hs_binary`](../reference/rules.md#hs_binary), and [`hs_test`](../reference/rules.md#hs_test) targets. When linking a final executable, transitive static C archives are wrapped in `-Wl,--start-group ... -Wl,--end-group` so cross-archive C symbols resolve regardless of link order.
 
----
+## Pattern 2: Compile inline `c_sources` in Haskell targets
 
-## Pattern 2: Inline `c_sources` Inside `hs_library` or `hs_binary`
-
-When C or C++ files live inside a Haskell package rather than in a standalone `cc_library`, pass `c_sources`, `hdrs`, `include_dirs`, and `cc_options` directly on [`hs_library`](../reference/rules.md#hs_library) (or [`hs_binary`](../reference/rules.md#hs_binary) / [`hs_test`](../reference/rules.md#hs_test)):
+When C or C++ helpers live inside a Haskell package rather than in a standalone `cc_library`, pass `c_sources`, `hdrs`, `include_dirs`, and `cc_options` directly on `hs_library`, `hs_binary`, or `hs_test`:
 
 ```starlark
 hs_library(
@@ -198,24 +196,30 @@ hs_library(
 )
 ```
 
-`rules_haskell` compiles `c_sources` via `cc_common.compile` with:
-- Position-independent code (`-fPIC`) enabled so the compiled C objects can be linked both into static `.a` executables and into shared `.so` libraries used when evaluating Template Haskell splices at compile time.
-- GHC's own runtime header directory (`Rts.h`, `HsFFI.h`, `ghcversion.h`) automatically added to `-I`, so your `.c` files can `#include <HsFFI.h>` or `#include <Rts.h>` without extra configuration.
-- All files in `hdrs` and `include_dirs` propagated downstream via `CcInfo` and [`HsLinkInfo`](../reference/extensions-and-providers.md#hslinkinfo).
+Each file in `c_sources` compiles via `cc_common.compile` with:
 
-> **Tip — `cpp_options` vs. `cc_options`:**
-> - Use **`cpp_options`** (for example, `cpp_options = ["-DFEATURE_X=1"]`) for flags passed to the C preprocessor when preprocessing `.hs` files that enable `{-# LANGUAGE CPP #-}` (`-optP`) and `.hsc` files (`hsc2hs`).
-> - Use **`cc_options`** (for example, `cc_options = ["-DINLINE_SCALE=3", "-msse4.2"]`) for flags passed to the C/C++ compiler when compiling `c_sources` via `cc_common.compile`.
+- **Position-independent code (`-fPIC`):** Compiled C objects link into both static `.a` executables and shared `.so` libraries loaded during Template Haskell splice evaluation.
+- **GHC runtime headers on `-I`:** Your `.c` files can `#include <HsFFI.h>`, `#include <Rts.h>`, or `#include <ghcversion.h>` without extra include flags.
+- **Transitive propagation:** Files in `hdrs` and `include_dirs` propagate downstream through `CcInfo` and `HsLinkInfo`.
 
----
+> **Tip:** Choose `cpp_options` or `cc_options` based on which tool needs the flag:
+>
+> - Use **`cpp_options`** (for example, `cpp_options = ["-DFEATURE_X=1"]`) for flags passed to the C preprocessor on `.hs` files with `{-# LANGUAGE CPP #-}` (`-optP`) and `.hsc` files (`hsc2hs`).
+> - Use **`cc_options`** (for example, `cc_options = ["-DINLINE_SCALE=3", "-msse4.2"]`) for flags passed to the C or C++ compiler when compiling `c_sources` via `cc_common.compile`.
 
-## Choosing a C/C++ Toolchain
+## Choose a C/C++ toolchain
 
-`rules_haskell` works with any Linux C/C++ toolchain registered for `@bazel_tools//tools/cpp:toolchain_type`. `hermetic_cc_toolchain` is marked `dev_dependency = True` in `rules_haskell`'s own `MODULE.bazel`, so your workspace chooses whichever C toolchain fits your build environment.
+You can use any Linux C/C++ toolchain registered for `@bazel_tools//tools/cpp:toolchain_type`. Because `hermetic_cc_toolchain` is declared with [`dev_dependency = True`](https://bazel.build/rules/lib/globals/module#bazel_dep) in `rules_haskell`'s own [`MODULE.bazel`](https://bazel.build/external/module), your workspace chooses whichever C toolchain fits your build environment:
 
-### Option A: `hermetic_cc_toolchain` (`zig cc`) — No Host C Packages Required
+| Toolchain option | Host C packages needed? | Extra configuration | Best for |
+|---|---|---|---|
+| `hermetic_cc_toolchain` (`zig cc`) | No | `/tmp` cache mount on Linux | Minimal-setup local and CI builds |
+| `toolchains_llvm` (Clang + `mold` or `lld`) | No (uses Debian `>= 10` sysroot) | None | Workspaces standardized on LLVM and Clang |
+| System or container GCC / Clang | Yes (host or build container) | `-supports_start_end_lib` with GNU `ld.bfd` | Controlled build containers and [remote execution](https://bazel.build/remote/rbe) |
 
-`hermetic_cc_toolchain` downloads a self-contained Zig C/C++ compiler and bundled `glibc` headers and link stubs, requiring no host `gcc`, `clang`, `binutils`, or `libc6-dev`:
+### Option A: Use `hermetic_cc_toolchain` (`zig cc`) with no host C packages
+
+To build without host `gcc`, `clang`, `binutils`, or `libc6-dev`, register `hermetic_cc_toolchain` in `MODULE.bazel`. It downloads a self-contained Zig C/C++ compiler along with bundled `glibc` headers and link stubs:
 
 ```starlark
 bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0")
@@ -231,22 +235,23 @@ register_toolchains(
 )
 ```
 
-Add the Zig cache directory mount to `.bazelrc` so `zig cc` reuses its compiled `libc` startup objects across sandboxed actions:
+Add the Zig cache directory mount to [`.bazelrc`](https://bazel.build/run/bazelrc) so `zig cc` reuses its compiled `libc` startup objects across [sandboxed](https://bazel.build/docs/sandboxing) actions:
 
 ```ini
 build:linux --repo_env=HERMETIC_CC_TOOLCHAIN_CACHE_PREFIX=/tmp/zig-cc-cache
 build:linux --sandbox_add_mount_pair=/tmp
 ```
 
-> **Warning — Why `gnu.2.32` instead of default `gnu.2.17`?** Registering `@zig_sdk//toolchain/...` by itself selects `gnu.2.17` (the first alphabetical match), which fails for two reasons:
+> **Warning:** Don't omit the explicit `gnu.2.32` entries above. Registering `@zig_sdk//toolchain/...` alone selects `gnu.2.17` alphabetically, which fails for two reasons:
+>
 > 1. Official GHC `deb10` binary distributions reference `glibc` `2.27` and `2.28` symbols (`memfd_create`, `statx`, `fcntl64`).
 > 2. BCR `gmp` and `m4` check `<sys/single_threaded.h>` under Zig, which requires `glibc >= 2.32`.
 >
 > Listing `linux_amd64_gnu.2.32` and `linux_arm64_gnu.2.32` first satisfies both requirements while keeping compiled binaries runnable across Debian 12 (`glibc` 2.36), Ubuntu 22.04 (2.35), Ubuntu 24.04 (2.39), and Rocky Linux 9 (2.34).
 
-### Option B: `toolchains_llvm` (Clang + `mold` / `lld` + Sysroot)
+### Option B: Use `toolchains_llvm` (Clang, `mold` or `lld`, and a sysroot)
 
-If your workspace uses `toolchains_llvm` with a Debian `>= 10` (`glibc >= 2.28`) sysroot (a directory tree containing target Linux headers and `libc` libraries), `rules_haskell` builds with Clang without needing `/tmp` sandbox mounts in `.bazelrc`:
+If your workspace uses `toolchains_llvm` with a Debian `>= 10` (`glibc >= 2.28`) sysroot (a directory tree containing target Linux headers and `libc` libraries), you can build with Clang without adding `/tmp` sandbox mounts to `.bazelrc`:
 
 ```starlark
 bazel_dep(name = "toolchains_llvm", version = "1.13.0")
@@ -269,19 +274,26 @@ use_repo(llvm, "llvm_toolchain")
 register_toolchains("@llvm_toolchain//:all")
 ```
 
-`resolve_cc_tools` in `hs/private/actions.bzl` reads `--sysroot`, `--target`, `-B`, `-resource-dir`, `-fuse-ld`, and `--ld-path` flags from `toolchains_llvm`'s `cc_toolchain` configuration and forwards them to `ghc_cc_wrapper` through `RULES_HASKELL_CC_EXTRA_ARGS`.
+Flags configured on `toolchains_llvm`'s [`cc_toolchain`](https://bazel.build/reference/be/c-cpp#cc_toolchain)—including `--sysroot`, `--target`, `-B`, `-resource-dir`, `-fuse-ld`, and `--ld-path`—are forwarded automatically to `ghc_cc_wrapper` through `RULES_HASKELL_CC_EXTRA_ARGS`.
 
-### Option C: System or Remote-Execution GCC / Clang Toolchain
+### Option C: Use a system or remote-execution GCC or Clang toolchain
 
-If you omit `hermetic_cc_toolchain` and `toolchains_llvm`, `rules_cc` detects the host or remote-execution container's GCC or Clang toolchain (see `examples/system_cc_toolchain`). Because `rules_haskell` replaces GHC's hardcoded `lib/settings` paths (`/usr/bin/gcc` -> `/nonexistent/gcc`) and passes every tool path and `-B` search directory explicitly from `@bazel_tools//tools/cpp:toolchain_type`, GHC uses the exact `cc`, `ar`, and `ld` configured by Bazel even under `--incompatible_strict_action_env`. On Linux hosts using GNU `ld.bfd`, add `build:linux --features=-supports_start_end_lib` and `build:linux --host_features=-supports_start_end_lib` to `.bazelrc` so C/C++ dependencies link `.a` archives rather than `--start-lib`/`--end-lib` object lists.
+If you omit both `hermetic_cc_toolchain` and `toolchains_llvm`, `rules_cc` detects the host or remote-execution container's GCC or Clang toolchain (see `examples/system_cc_toolchain`). Because GHC's hardcoded `lib/settings` paths are sanitized (`/usr/bin/gcc` becomes `/nonexistent/gcc`) and Bazel passes every tool path and `-B` search directory explicitly from `@bazel_tools//tools/cpp:toolchain_type`, GHC invokes the exact `cc`, `ar`, and `ld` configured by Bazel even under [`--incompatible_strict_action_env`](https://bazel.build/reference/command-line-reference#param-no-incompatible-strict-action-env).
 
-## What `ghc_cc_wrapper` Translates Between GHC and C Toolchains
+On Linux hosts using GNU `ld.bfd`, disable `supports_start_end_lib` in `.bazelrc` via [`--features`](https://bazel.build/reference/command-line-reference#param-features) and [`--host_features`](https://bazel.build/reference/command-line-reference#param-host-features) so C and C++ dependencies link `.a` archives instead of `--start-lib`/`--end-lib` object lists:
 
-GHC invokes its C compiler and linker using older GCC-style flags that Clang, `lld`, and `zig cc` either reject or interpret differently. Instead of running a Python script on every compile or link action, `rules_haskell` compiles a small C11 program (`hs/private/cc_wrapper.c`, 552 lines) that adjusts arguments before executing the real C compiler:
+```ini
+build:linux --features=-supports_start_end_lib
+build:linux --host_features=-supports_start_end_lib
+```
 
-- Clears Bazel's `RUNFILES_DIR`, `RUNFILES_MANIFEST_FILE`, and `RUNFILES_MANIFEST_ONLY` environment variables from subprocesses so tools do not confuse wrapper runfiles with target inputs.
-- Rewrites Solaris/GCC shared-library name flags (`-Wl,-h,<soname>`) into standard `-Wl,-soname,<soname>` flags, including inside `@args` response files (temporary files GHC uses to pass long command lines).
-- Removes `-fuse-ld=gold` (deprecated/absent on `lld` and `zig cc`), rewrites `-fno-PIC` to `-fPIC`, and creates temporary `.o` symlinks for `.dyn_o` and `.p_o` object files when `zig cc` checks file extensions.
-- Passes `-nostdinc++` on C, assembler, and linker calls so C++ standard library headers (such as `<version>`) do not shadow C headers or disrupt `<features.h>` / `_GNU_SOURCE` include ordering in `hsc2hs` and `CApiFFI`.
+## How `ghc_cc_wrapper` translates GHC flags for C toolchains
 
-For a detailed walkthrough of `ghc_cc_wrapper`, see [Hermeticity & Toolchain](../internals/hermeticity.md).
+GHC invokes its C compiler and linker using older GCC-style flags that Clang, `lld`, and `zig cc` either reject or interpret differently. Instead of running a Python script on every compile or link action, `rules_haskell` compiles a small C11 adapter (`ghc_cc_wrapper`, built from `haskell/private/cc_wrapper.c`) that normalizes arguments before executing the real C compiler:
+
+- **Strips wrapper environment variables:** Clears Bazel's [`RUNFILES_DIR`](https://bazel.build/extending/rules#runfiles), `RUNFILES_MANIFEST_FILE`, and `RUNFILES_MANIFEST_ONLY` from subprocesses so tools don't confuse wrapper runfiles with target inputs.
+- **Normalizes shared-library name flags:** Rewrites Solaris/GCC `-Wl,-h,<soname>` flags into standard `-Wl,-soname,<soname>`, including inside `@args` response files (temporary files GHC uses for long command lines).
+- **Adapts linker and PIC flags for `lld` and `zig cc`:** Removes `-fuse-ld=gold` (deprecated or absent on `lld` and `zig cc`), rewrites `-fno-PIC` to `-fPIC`, and creates temporary `.o` symlinks for `.dyn_o` and `.p_o` object files when `zig cc` checks file extensions.
+- **Prevents C++ header shadowing:** Passes `-nostdinc++` on C, assembler, and linker calls so C++ standard library headers (such as `<version>`) don't shadow C headers or disrupt `<features.h>` and `_GNU_SOURCE` include ordering in `hsc2hs` and `CApiFFI`.
+
+For a detailed walkthrough of `ghc_cc_wrapper`, see [Hermeticity and toolchain](../internals/hermeticity.md).

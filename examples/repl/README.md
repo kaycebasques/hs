@@ -1,12 +1,14 @@
-# `examples/repl` — Interactive `ghci` (`hs_repl`), `runghc`, and C11 `terminfo`
+# `examples/repl`: interactive `ghci` (`hs_repl`), `runghc`, and C11 `terminfo`
 
-Minimal standalone Bazel 9 workspace demonstrating:
+Use this standalone Bazel 9 workspace to launch interactive `ghci` sessions, evaluate one-off expressions, and run standalone Haskell scripts with `runghc`. For configuration guidance and attribute details, read [Language, RTS, runfiles, and Template Haskell](../../docs/content/guide/language-rts-runfiles-th.md) and [`hs_repl` in the Rules reference](../../docs/content/reference/rules.md#hs_repl), or browse the [examples index](../README.md).
 
-- `hs_repl` (`//:calc_repl`) preloading workspace modules into `*Module` bytecode scope (including `hidden_modules` and `compiled_deps`), live `:reload` on workspace edits, `:break`/`:continue` bytecode debugging, C/`CApiFFI` (`HsLinkReplCbits`), cross-library Template Haskell splices, `data` runfiles, `ghci_commands` & `.ghci` scripts, `-e` expression evaluation, and `-fexternal-interpreter` (`ghc-iserv-dyn`).
-- Standalone `@rules_haskell//tools/ghci` and `@rules_haskell//tools/ghci:runghc` targets.
-- Self-contained C11 `libtinfo` (`@hs_boot//:terminfo` `System.Console.Terminfo` with built-in `xterm-256color`, `vt100`, and `dumb` capabilities and static `libtinfo.a` linking in executables).
+- **Workspace REPL (`hs_repl` via `//:calc_repl`):** Preload workspace modules into `*Module` bytecode scope (including `hidden_modules` and `compiled_deps`), run live `:reload` on workspace edits, debug with `:break`/`:continue`, call C/`CApiFFI` code (`HsLinkReplCbits`), run cross-library Template Haskell splices, access `data` [runfiles](https://bazel.build/extending/rules#runfiles), load `ghci_commands` and `.ghci` scripts, evaluate `-e` expressions, and use `-fexternal-interpreter` (`ghc-iserv-dyn`).
+- **Standalone interpreter targets:** Run `@rules_haskell//tools/ghci` for ad-hoc `ghci` sessions and `@rules_haskell//tools/ghci:runghc` to execute standalone Haskell scripts.
+- **Self-contained C11 `libtinfo`:** Use `@hs_boot//:terminfo` (`System.Console.Terminfo`) with built-in `xterm-256color`, `vt100`, and `dumb` capabilities and static `libtinfo.a` linking in executables.
 
-## Run & Test
+## Run and test
+
+From `examples/repl`, run the tests, start an interactive REPL, evaluate expressions, or run a script with [`bazel test`](https://bazel.build/docs/user-manual#running-tests) and [`bazel run`](https://bazel.build/docs/user-manual#running-executables):
 
 ```bash
 bazel test //...

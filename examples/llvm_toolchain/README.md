@@ -1,10 +1,14 @@
-# `examples/llvm_toolchain` — `toolchains_llvm` (Clang + `mold` + Debian Sysroot)
+# `examples/llvm_toolchain`: `toolchains_llvm` (Clang, `mold`, and Debian sysroot)
 
-Minimal standalone Bazel 9 workspace pairing `rules_haskell` with `toolchains_llvm` (`llvm_version = "22.1.8"`, catalogued `mold` `2.42.1` linker) and a SHA-256-pinned Debian 11 (`bullseye`, `glibc 2.31`) sysroot — requiring no `hermetic_cc_toolchain`, no `/tmp` sandbox mount, and no host compilers or `-dev` packages.
+Use this standalone Bazel 9 workspace to pair `rules_haskell` with `toolchains_llvm` (`llvm_version = "22.1.8"` and the catalogued `mold` `2.42.1` linker) and a SHA-256-pinned Debian 11 (`bullseye`, `glibc 2.31`) sysroot. You don't need `hermetic_cc_toolchain`, a `/tmp` [sandbox](https://bazel.build/docs/sandboxing) mount, or host compilers and `-dev` packages.
 
-> **Why `linker = {"linux-x86_64": "mold", ...}`?** Upstream LLVM Linux binary archives dynamically link `ld.lld` against `libxml2.so.2` (absent on bare containers and newer Debian/Ubuntu distros shipping `libxml2.so.16`), whereas `toolchains_llvm`'s catalogued `mold` linker binary depends only on base `glibc`.
+To compare this setup with `hermetic_cc_toolchain` or host compilers, read [C FFI and toolchains](../../docs/content/guide/c-interop-and-toolchains.md) or browse the [examples index](../README.md).
 
-## Run & Test
+> **Note:** Why does this example set `linker = {"linux-x86_64": "mold", ...}`? Upstream LLVM Linux binary archives dynamically link `ld.lld` against `libxml2.so.2`, which isn't present on bare containers or newer Debian and Ubuntu distros shipping `libxml2.so.16`. By contrast, `toolchains_llvm`'s catalogued `mold` binary dynamically depends only on base `glibc`.
+
+## Run and test
+
+From `examples/llvm_toolchain`, run the test suite and demo binary with [`bazel test`](https://bazel.build/docs/user-manual#running-tests) and [`bazel run`](https://bazel.build/docs/user-manual#running-executables):
 
 ```bash
 bazel test //...
