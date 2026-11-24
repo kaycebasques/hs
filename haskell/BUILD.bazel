@@ -8,7 +8,7 @@ toolchain_type(
 
 filegroup(
     name = "all_bzl_srcs",
-    srcs = glob(["*.bzl"]) + ["//hs/private:all_bzl_srcs"],
+    srcs = glob(["*.bzl"]) + ["//haskell/private:all_bzl_srcs"],
 )
 
 bzl_library(
@@ -26,7 +26,7 @@ bzl_library(
     name = "defs",
     srcs = ["defs.bzl"],
     deps = [
-        "//hs/private:rules_bzl",
+        "//haskell/private:rules_bzl",
     ],
 )
 
@@ -34,8 +34,8 @@ bzl_library(
     name = "extensions",
     srcs = ["extensions.bzl"],
     deps = [
-        "//hs/private:ghc_bindist_bzl",
-        "//hs/private:ghc_versions_bzl",
-        "//hs/private:hackage_bzl",
+        "//haskell/private:ghc_bindist_bzl",
+        "//haskell/private:ghc_versions_bzl",
+        "//haskell/private:hackage_bzl",
     ],
 )

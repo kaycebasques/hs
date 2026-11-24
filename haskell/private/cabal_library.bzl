@@ -2,10 +2,10 @@
 
 load("@rules_cc//cc:find_cc_toolchain.bzl", "use_cc_toolchain")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
-load("//hs:providers.bzl", "HsLinkInfo", "HsPackageInfo")
-load("//hs:toolchain.bzl", "TOOLCHAIN_TYPE")
+load("//haskell:providers.bzl", "HsLinkInfo", "HsPackageInfo")
+load("//haskell:toolchain.bzl", "TOOLCHAIN_TYPE")
 load(
-    "//hs/private:actions.bzl",
+    "//haskell/private:actions.bzl",
     "HsDocSourceInfo",
     "collect_deps",
     "compile_c_sources",
@@ -332,7 +332,7 @@ hs_cabal_library = rule(
         ),
         "data": attr.label_list(allow_files = True, default = []),
         "_rt_shims": attr.label(
-            default = Label("//hs/private:rt_shims"),
+            default = Label("//haskell/private:rt_shims"),
             providers = [CcInfo],
         ),
     },

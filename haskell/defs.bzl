@@ -1,10 +1,10 @@
 """Public Haskell rules for rules_haskell."""
 
-load("//hs/private:cabal_library.bzl", _hs_cabal_library = "hs_cabal_library")
-load("//hs/private:haddock.bzl", _hs_haddock = "hs_haddock")
-load("//hs/private:repl.bzl", _hs_repl = "hs_repl")
+load("//haskell/private:cabal_library.bzl", _hs_cabal_library = "hs_cabal_library")
+load("//haskell/private:haddock.bzl", _hs_haddock = "hs_haddock")
+load("//haskell/private:repl.bzl", _hs_repl = "hs_repl")
 load(
-    "//hs/private:rules.bzl",
+    "//haskell/private:rules.bzl",
     _hs_binary = "hs_binary",
     _hs_library = "hs_library",
     _hs_test = "hs_test",

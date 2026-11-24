@@ -1,5 +1,5 @@
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load("//hs:defs.bzl", "hs_library", "hs_repl", "hs_test")
+load("//haskell:defs.bzl", "hs_library", "hs_repl", "hs_test")
 
 package(default_visibility = ["//tests:__subpackages__"])
 

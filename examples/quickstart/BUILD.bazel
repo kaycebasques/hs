@@ -1,4 +1,4 @@
-load("@rules_haskell//hs:defs.bzl", "hs_binary", "hs_library", "hs_test", "hs_toolchain_library")
+load("@rules_haskell//haskell:defs.bzl", "hs_binary", "hs_library", "hs_test", "hs_toolchain_library")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 # Explicit hs_toolchain_library alias alongside automatic @hs_boot targets.

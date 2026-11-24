@@ -1,5 +1,5 @@
-load("//hs:defs.bzl", "hs_repl")
-load("//hs/private:repl.bzl", "hs_runghc")
+load("//haskell:defs.bzl", "hs_repl")
+load("//haskell/private:repl.bzl", "hs_runghc")
 
 package(default_visibility = ["//visibility:public"])
 

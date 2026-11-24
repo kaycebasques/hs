@@ -1,6 +1,6 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load("//hs:defs.bzl", "hs_binary", "hs_cabal_library", "hs_library", "hs_test")
+load("//haskell:defs.bzl", "hs_binary", "hs_cabal_library", "hs_library", "hs_test")
 
 package(default_visibility = ["//tests:__subpackages__"])
 
@@ -186,6 +186,6 @@ sh_test(
     name = "cc_wrapper_test",
     size = "small",
     srcs = ["cc_wrapper_test.sh"],
-    args = ["$(rootpath //hs/private:ghc_cc_wrapper)"],
-    data = ["//hs/private:ghc_cc_wrapper"],
+    args = ["$(rootpath //haskell/private:ghc_cc_wrapper)"],
+    data = ["//haskell/private:ghc_cc_wrapper"],
 )

@@ -54,7 +54,7 @@ jobs:
           path: |
             ~/.cache/bazel-repo
             ~/.cache/bazelisk
-          key: bazel-pages-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'hs/private/ghc_versions.bzl', 'docs/hackage.lock.json') }}
+          key: bazel-pages-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/private/ghc_versions.bzl', 'docs/hackage.lock.json') }}
           restore-keys: |
             bazel-pages-${{ runner.os }}-
             bazel-native-${{ runner.os }}-

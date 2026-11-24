@@ -1,5 +1,5 @@
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load("//hs:defs.bzl", "hs_library", "hs_test")
+load("//haskell:defs.bzl", "hs_library", "hs_test")
 
 hs_library(
     name = "lang_h98_lib",

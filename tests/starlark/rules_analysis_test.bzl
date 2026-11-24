@@ -2,8 +2,8 @@
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
-load("//hs:providers.bzl", "HsHaddockInfo", "HsLinkInfo", "HsPackageInfo", "HsReplInfo", "HsToolchainInfo")
-load("//hs:toolchain.bzl", "TOOLCHAIN_TYPE")
+load("//haskell:providers.bzl", "HsHaddockInfo", "HsLinkInfo", "HsPackageInfo", "HsReplInfo", "HsToolchainInfo")
+load("//haskell:toolchain.bzl", "TOOLCHAIN_TYPE")
 
 # ==============================================================================
 # Helpers

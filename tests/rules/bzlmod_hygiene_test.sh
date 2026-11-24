@@ -17,7 +17,7 @@ fi
 echo "=== 1. Checking for banned WORKSPACE files across repository ==="
 REAL_MODULE="$(readlink -f "$MODULE_FILE")"
 REPO_ROOT="$(dirname "$REAL_MODULE")"
-if [ ! -f "$REPO_ROOT/MODULE.bazel" ] || [ ! -d "$REPO_ROOT/hs" ]; then
+if [ ! -f "$REPO_ROOT/MODULE.bazel" ] || [ ! -d "$REPO_ROOT/haskell" ]; then
     echo "FAIL: resolved REPO_ROOT ($REPO_ROOT) does not look like the repository root" >&2
     exit 1
 fi

@@ -99,7 +99,7 @@ getDataDir = fmap (fromMaybe "data") (lookupEnv "alex_datadir")
     repository_ctx.file(
         "BUILD.bazel",
         """\
-load("@rules_haskell//hs:defs.bzl", "hs_binary")
+load("@rules_haskell//haskell:defs.bzl", "hs_binary")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -172,7 +172,7 @@ getDataDir = fmap (fromMaybe "happy-lib/data") (lookupEnv "happy_datadir")
     repository_ctx.file(
         "BUILD.bazel",
         """\
-load("@rules_haskell//hs:defs.bzl", "hs_binary")
+load("@rules_haskell//haskell:defs.bzl", "hs_binary")
 
 package(default_visibility = ["//visibility:public"])
 

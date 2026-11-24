@@ -1,5 +1,5 @@
-load("@rules_haskell//hs:defs.bzl", "hs_cabal_library", "hs_library", "hs_test")
-load("@rules_haskell//hs/private:cabal_codegen.bzl", "hs_alex_gen", "hs_happy_gen")
+load("@rules_haskell//haskell:defs.bzl", "hs_cabal_library", "hs_library", "hs_test")
+load("@rules_haskell//haskell/private:cabal_codegen.bzl", "hs_alex_gen", "hs_happy_gen")
 
 # 1. C-only Cabal library exporting tiny_clib.h via install_includes.
 hs_cabal_library(

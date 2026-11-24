@@ -1,5 +1,5 @@
-load("//hs:defs.bzl", "hs_cabal_library", "hs_library", "hs_test")
-load("//hs/private:cabal_codegen.bzl", "hs_alex_gen", "hs_happy_gen")
+load("//haskell:defs.bzl", "hs_cabal_library", "hs_library", "hs_test")
+load("//haskell/private:cabal_codegen.bzl", "hs_alex_gen", "hs_happy_gen")
 
 hs_alex_gen(
     name = "calc_lexer_hs",

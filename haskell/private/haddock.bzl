@@ -1,10 +1,10 @@
 """Hermetic GHC Haddock documentation rule (`hs_haddock`)."""
 
 load("@rules_cc//cc:find_cc_toolchain.bzl", "use_cc_toolchain")
-load("//hs:providers.bzl", "HsHaddockInfo", "HsLinkInfo", "HsPackageInfo")
-load("//hs:toolchain.bzl", "TOOLCHAIN_TYPE")
+load("//haskell:providers.bzl", "HsHaddockInfo", "HsLinkInfo", "HsPackageInfo")
+load("//haskell:toolchain.bzl", "TOOLCHAIN_TYPE")
 load(
-    "//hs/private:actions.bzl",
+    "//haskell/private:actions.bzl",
     "HsDocSourceInfo",
     "collect_deps",
     "get_hs_toolchain",

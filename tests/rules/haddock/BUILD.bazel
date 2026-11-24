@@ -1,5 +1,5 @@
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load("//hs:defs.bzl", "hs_haddock", "hs_library")
+load("//haskell:defs.bzl", "hs_haddock", "hs_library")
 
 hs_library(
     name = "core_lib",

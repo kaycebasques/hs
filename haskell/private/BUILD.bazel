@@ -86,7 +86,7 @@ bzl_library(
     name = "staged_ghc_bzl",
     srcs = ["staged_ghc.bzl"],
     deps = [
-        "//hs:providers",
+        "//haskell:providers",
         "@rules_cc//cc:action_names",
         "@rules_cc//cc:find_cc_toolchain",
         "@rules_cc//cc/common:cc_common",
@@ -98,8 +98,8 @@ bzl_library(
     name = "actions_bzl",
     srcs = ["actions.bzl"],
     deps = [
-        "//hs:providers",
-        "//hs:toolchain",
+        "//haskell:providers",
+        "//haskell:toolchain",
         "@rules_cc//cc:action_names",
         "@rules_cc//cc:find_cc_toolchain",
         "@rules_cc//cc/common:cc_common",
@@ -117,8 +117,8 @@ bzl_library(
     ],
     deps = [
         ":actions_bzl",
-        "//hs:providers",
-        "//hs:toolchain",
+        "//haskell:providers",
+        "//haskell:toolchain",
         "@rules_cc//cc:find_cc_toolchain",
         "@rules_cc//cc/common:cc_info",
     ],

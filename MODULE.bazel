@@ -37,7 +37,7 @@ register_toolchains(
 # Default GHC toolchain & boot packages.
 # Non-dev so @rules_haskell//tools/lock can resolve @hs_boot even when invoked by a
 # downstream consumer; a root module's hs.toolchain(...) overrides the version.
-hs = use_extension("//hs:extensions.bzl", "hs")
+hs = use_extension("//haskell:extensions.bzl", "hs")
 hs.toolchain(ghc_version = "9.10.3")
 use_repo(hs, "hs_boot", "hs_toolchains")
 
@@ -48,7 +48,7 @@ register_toolchains(
 
 # Dev-only pinned Hackage dependencies for the documentation site generator (//docs/...).
 hackage = use_extension(
-    "//hs:extensions.bzl",
+    "//haskell:extensions.bzl",
     "hackage",
     dev_dependency = True,
 )

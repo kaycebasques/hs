@@ -1,8 +1,8 @@
 """Bzlmod module extensions for rules_haskell."""
 
-load("//hs/private:ghc_bindist.bzl", "ghc_bindist_repo", "hs_boot_repo", "hs_toolchains_repo")
-load("//hs/private:ghc_versions.bzl", "DEFAULT_GHC_VERSION", "GHC_BINDISTS", "SUPPORTED_PLATFORMS")
-load("//hs/private:hackage.bzl", _hackage = "hackage")
+load("//haskell/private:ghc_bindist.bzl", "ghc_bindist_repo", "hs_boot_repo", "hs_toolchains_repo")
+load("//haskell/private:ghc_versions.bzl", "DEFAULT_GHC_VERSION", "GHC_BINDISTS", "SUPPORTED_PLATFORMS")
+load("//haskell/private:hackage.bzl", _hackage = "hackage")
 
 hackage = _hackage
 

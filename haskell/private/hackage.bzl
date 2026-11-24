@@ -12,7 +12,7 @@ Creates:
     Hackage package, fetched only when referenced in the build graph.
 """
 
-load("//hs/private:cabal_codegen.bzl", "alex_bootstrap_repo", "happy_bootstrap_repo")
+load("//haskell/private:cabal_codegen.bzl", "alex_bootstrap_repo", "happy_bootstrap_repo")
 
 _PLATFORM_CONFIGS = [
     ("linux_x86_64", "_linux_x86_64", ["@platforms//os:linux", "@platforms//cpu:x86_64"]),
@@ -608,16 +608,16 @@ def _hackage_package_repo_impl(repository_ctx):
         used_happy = used_happy or hh
         sections.append(blk)
 
-    loads = ['load("@rules_haskell//hs:defs.bzl", "hs_cabal_library")']
+    loads = ['load("@rules_haskell//haskell:defs.bzl", "hs_cabal_library")']
     if overrides.get("extra_cc_deps", []):
-        loads.append('load("@rules_haskell//hs/private:cabal_library.bzl", "resolve_override_labels")')
+        loads.append('load("@rules_haskell//haskell/private:cabal_library.bzl", "resolve_override_labels")')
     codegen_syms = []
     if used_alex:
         codegen_syms.append('"hs_alex_gen"')
     if used_happy:
         codegen_syms.append('"hs_happy_gen"')
     if codegen_syms:
-        loads.append('load("@rules_haskell//hs/private:cabal_codegen.bzl", {})'.format(", ".join(codegen_syms)))
+        loads.append('load("@rules_haskell//haskell/private:cabal_codegen.bzl", {})'.format(", ".join(codegen_syms)))
 
     repository_ctx.file("BUILD.bazel", "\n".join(loads + [""] + sections) + "\n")
 
@@ -642,7 +642,7 @@ def _hackage_hub_repo_impl(repository_ctx):
     pkg_set = {p: True for p in pkg_names}
 
     sections = [
-        'load("@rules_haskell//hs:defs.bzl", "hs_toolchain_library")',
+        'load("@rules_haskell//haskell:defs.bzl", "hs_toolchain_library")',
         "",
         'package(default_visibility = ["//visibility:public"])',
         "",

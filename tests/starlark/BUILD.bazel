@@ -1,6 +1,6 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load(
-    "//hs:defs.bzl",
+    "//haskell:defs.bzl",
     "hs_binary",
     "hs_cabal_library",
     "hs_haddock",

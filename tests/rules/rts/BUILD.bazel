@@ -1,4 +1,4 @@
-load("//hs:defs.bzl", "hs_test")
+load("//haskell:defs.bzl", "hs_test")
 
 hs_test(
     name = "threaded_rts_test",

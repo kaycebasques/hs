@@ -1,8 +1,8 @@
 """Haskell toolchain type and rule declaration."""
 
-load("//hs:providers.bzl", "HsToolchainInfo")
+load("//haskell:providers.bzl", "HsToolchainInfo")
 
-TOOLCHAIN_TYPE = "@rules_haskell//hs:toolchain_type"
+TOOLCHAIN_TYPE = "@rules_haskell//haskell:toolchain_type"
 
 def _hs_toolchain_impl(ctx):
     staged = ctx.attr.staged_ghc[HsToolchainInfo]
@@ -50,7 +50,7 @@ hs_toolchain = rule(
             cfg = "exec",
         ),
         "cc_wrapper": attr.label(
-            default = Label("//hs/private:ghc_cc_wrapper"),
+            default = Label("//haskell/private:ghc_cc_wrapper"),
             executable = True,
             cfg = "exec",
         ),

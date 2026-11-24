@@ -1,4 +1,4 @@
-load("@rules_haskell//hs:defs.bzl", "hs_library", "hs_test")
+load("@rules_haskell//haskell:defs.bzl", "hs_library", "hs_test")
 
 hs_library(
     name = "ping_pong_lib",

@@ -1,4 +1,4 @@
-load("//hs:defs.bzl", "hs_library")
+load("//haskell:defs.bzl", "hs_library")
 
 package(default_visibility = ["//visibility:public"])
 

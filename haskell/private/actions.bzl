@@ -4,8 +4,8 @@ load("@rules_cc//cc:action_names.bzl", "ACTION_NAMES")
 load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
-load("//hs:providers.bzl", "HsLinkInfo", "HsPackageInfo")
-load("//hs:toolchain.bzl", "TOOLCHAIN_TYPE")
+load("//haskell:providers.bzl", "HsLinkInfo", "HsPackageInfo")
+load("//haskell:toolchain.bzl", "TOOLCHAIN_TYPE")
 
 HsDocSourceInfo = provider(
     doc = "Internal library source and GHC flag metadata consumed by hs_haddock.",
