@@ -66,7 +66,7 @@ done
 hs_docs_site = rule(
     implementation = _hs_docs_site_impl,
     attrs = {
-        "compiler": attr.label(mandatory = True, executable = True, cfg = "exec"),
+        "compiler": attr.label(mandatory = True, executable = True, cfg = "target"),
         "srcs": attr.label_list(allow_files = True, mandatory = True),
         "haddocks": attr.label_keyed_string_dict(allow_files = True, default = {}),
     },

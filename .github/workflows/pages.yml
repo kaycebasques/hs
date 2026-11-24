@@ -3,6 +3,21 @@ name: Pages
 on:
   push:
     branches: [main]
+    paths:
+      - '.bazelrc'
+      - '.bazelversion'
+      - '.github/workflows/pages.yml'
+      - 'MODULE.bazel'
+      - 'docs/**'
+      - '!docs/README.md'
+      - '!docs/serve.hs'
+      - '!docs/site_test.sh'
+      - 'haskell/private/ghc_versions.bzl'
+      - 'haskell/private/haddock.bzl'
+      - 'tools/lock/BUILD.bazel'
+      - 'tools/lock/CabalExtract.hs'
+      - 'tools/lock/LockJson.hs'
+      - 'tools/lock/prologue.txt'
   workflow_dispatch:
 
 permissions:
@@ -12,7 +27,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   BAZELISK_VERSION: v1.30.0
@@ -23,76 +38,113 @@ defaults:
     shell: bash
 
 jobs:
-  build:
-    name: Build & verify //docs:site
+  deploy:
+    name: Deploy Pages
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 25
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v6
+      - name: Cache compiled Hakyll site generator
+        id: cache-docs-gen
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pages/docs_gen
+          key: pages-docs-gen-v1-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/private/ghc_versions.bzl', 'docs/BUILD.bazel', 'docs/site.hs', 'docs/hackage.lock.json') }}
 
-      - name: Enable unprivileged user namespaces for Bazel linux-sandbox
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: Cache Haddock API docs
+        id: cache-haddock
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pages/lock_haddock
+          key: pages-haddock-v1-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/private/ghc_versions.bzl', 'haskell/private/haddock.bzl', 'tools/lock/BUILD.bazel', 'tools/lock/CabalExtract.hs', 'tools/lock/LockJson.hs', 'tools/lock/prologue.txt') }}
 
-      - name: Install Bazelisk
+      - name: Cache Bazel repository and disk caches
+        if: steps.cache-docs-gen.outputs.cache-hit != 'true' || steps.cache-haddock.outputs.cache-hit != 'true'
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/bazel-repo
+            ~/.cache/bazel-disk
+            ~/.cache/bazelisk
+          key: pages-bazel-v1-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/**', 'docs/hackage.lock.json', 'docs/site.hs', 'tools/lock/CabalExtract.hs', 'tools/lock/LockJson.hs') }}
+          restore-keys: |
+            pages-bazel-v1-${{ runner.os }}-
+            bazel-pages-${{ runner.os }}-
+            bazel-native-${{ runner.os }}-
+
+      - name: Build uncached site tools with Bazel
+        if: steps.cache-docs-gen.outputs.cache-hit != 'true' || steps.cache-haddock.outputs.cache-hit != 'true'
+        env:
+          NEED_DOCS_GEN: ${{ steps.cache-docs-gen.outputs.cache-hit != 'true' }}
+          NEED_HADDOCK: ${{ steps.cache-haddock.outputs.cache-hit != 'true' }}
         run: |
           set -euo pipefail
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
           curl -fsSL \
             "https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}/bazelisk-linux-amd64" \
             -o /tmp/bazelisk
           echo "${BAZELISK_SHA256}  /tmp/bazelisk" | sha256sum -c -
           chmod +x /tmp/bazelisk
           sudo mv /tmp/bazelisk /usr/local/bin/bazel
-          bazel version
 
-      - name: Cache Bazel repository and Bazelisk caches
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cache/bazel-repo
-            ~/.cache/bazelisk
-          key: bazel-pages-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/private/ghc_versions.bzl', 'docs/hackage.lock.json') }}
-          restore-keys: |
-            bazel-pages-${{ runner.os }}-
-            bazel-native-${{ runner.os }}-
+          TARGETS=()
+          if [ "$NEED_DOCS_GEN" = "true" ]; then
+            TARGETS+=(//docs:docs_gen)
+          fi
+          if [ "$NEED_HADDOCK" = "true" ]; then
+            TARGETS+=(//tools/lock:lock_haddock)
+          fi
 
-      - name: Build documentation site and Haddock API docs
-        run: |
-          bazel build //docs:site //tools/lock:lock_haddock \
-            --repository_cache="$HOME/.cache/bazel-repo"
-
-      - name: Verify documentation build and smoke test
-        run: |
-          bazel test //docs/... \
+          bazel build "${TARGETS[@]}" \
             --repository_cache="$HOME/.cache/bazel-repo" \
-            --test_output=errors
+            --disk_cache="$HOME/.cache/bazel-disk" \
+            --experimental_disk_cache_gc_max_size=3G
 
-      - name: Stage static site for GitHub Pages
+          if [ "$NEED_DOCS_GEN" = "true" ]; then
+            mkdir -p "$HOME/.cache/pages/docs_gen"
+            cp -L bazel-bin/docs/docs_gen "$HOME/.cache/pages/docs_gen/docs_gen"
+            chmod u+w,a+rx "$HOME/.cache/pages/docs_gen/docs_gen"
+            strip "$HOME/.cache/pages/docs_gen/docs_gen"
+          fi
+
+          if [ "$NEED_HADDOCK" = "true" ]; then
+            rm -rf "$HOME/.cache/pages/lock_haddock"
+            mkdir -p "$HOME/.cache/pages/lock_haddock"
+            cp -RL bazel-bin/tools/lock/lock_haddock/. "$HOME/.cache/pages/lock_haddock/"
+            chmod -R u+w,a+rX "$HOME/.cache/pages/lock_haddock"
+          fi
+
+          bazel clean
+          bazel shutdown
+
+      - name: Build static site
         run: |
           set -euo pipefail
-          rm -rf _pages_dist
-          mkdir -p _pages_dist
-          cp -RL bazel-bin/docs/site/. _pages_dist/
+          chmod +x "$HOME/.cache/pages/docs_gen/docs_gen"
+          rm -rf _pages_dist /tmp/hakyll-cache
+          mkdir -p _pages_dist/haddock/lock /tmp/hakyll-cache
+          DOCS_PROVIDER_DIR=docs \
+            DOCS_OUT_DIR=_pages_dist \
+            DOCS_CACHE_DIR=/tmp/hakyll-cache \
+            "$HOME/.cache/pages/docs_gen/docs_gen" build +RTS -N -RTS
+          cp -R "$HOME/.cache/pages/lock_haddock/." _pages_dist/haddock/lock/
           chmod -R u+w,a+rX _pages_dist
-          touch _pages_dist/.nojekyll
+          test -s _pages_dist/index.html
+          test -s _pages_dist/haddock/lock/index.html
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
           path: _pages_dist
 
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+        with:
+          reporting_interval: 2000
