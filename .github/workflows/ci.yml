@@ -51,8 +51,9 @@ jobs:
             ~/.cache/bazel-repo
             ~/.cache/bazel-disk
             ~/.cache/bazelisk
-          key: bazel-native-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/private/ghc_versions.bzl', 'docs/hackage.lock.json', 'examples/**/MODULE.bazel', 'examples/**/hackage.lock.json') }}
+          key: bazel-native-v2-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/private/ghc_versions.bzl', 'docs/hackage.lock.json', 'examples/**/MODULE.bazel', 'examples/**/hackage.lock.json') }}
           restore-keys: |
+            bazel-native-v2-${{ runner.os }}-
             bazel-native-${{ runner.os }}-
 
       - name: Inspect root Bzlmod dependency graph
@@ -63,6 +64,7 @@ jobs:
           bazel test //... \
             --repository_cache="$HOME/.cache/bazel-repo" \
             --disk_cache="$HOME/.cache/bazel-disk" \
+            --experimental_disk_cache_gc_max_size=5G \
             --test_output=errors
 
       - name: Smoke-test lockfile generator CLI
@@ -70,8 +72,9 @@ jobs:
           bazel run //tools/lock:lock \
             --repository_cache="$HOME/.cache/bazel-repo" \
             --disk_cache="$HOME/.cache/bazel-disk" \
+            --experimental_disk_cache_gc_max_size=5G \
             -- --help
-          bazel shutdown
+          bazel clean --expunge
 
       - name: Run standalone feature example workspaces
         run: |
@@ -92,8 +95,9 @@ jobs:
               bazel test //... \
                 --repository_cache="$HOME/.cache/bazel-repo" \
                 --disk_cache="$HOME/.cache/bazel-disk" \
+                --experimental_disk_cache_gc_max_size=5G \
                 --test_output=errors
-              bazel shutdown
+              bazel clean --expunge
             )
           done
 
@@ -107,6 +111,7 @@ jobs:
           bazel test //... \
             --repository_cache="$HOME/.cache/bazel-repo" \
             --disk_cache="$HOME/.cache/bazel-disk" \
+            --experimental_disk_cache_gc_max_size=5G \
             --test_output=errors
 
       - name: Live HTTPS smoke test (examples/size)
@@ -116,11 +121,12 @@ jobs:
           OUT="$(bazel run //:size \
             --repository_cache="$HOME/.cache/bazel-repo" \
             --disk_cache="$HOME/.cache/bazel-disk" \
+            --experimental_disk_cache_gc_max_size=5G \
             -- https://docs.stripe.com/sitemap.xml)"
           echo "$OUT"
           echo "$OUT" | grep -qF "pages"
           echo "$OUT" | grep -qF "https://docs.stripe.com/sitemap.xml"
-          bazel shutdown
+          bazel clean --expunge
 
   hermetic-containers:
     name: Clean Container (${{ matrix.name }})
@@ -141,6 +147,7 @@ jobs:
             pkg_mgr: dnf
     container:
       image: ${{ matrix.image }}
+      options: --init
     steps:
       # Install minimal POSIX/archive/TLS bootstrap tools BEFORE actions/checkout
       # and actions/cache (actions/cache requires tar + zstd/gzip inside container).
@@ -231,8 +238,9 @@ jobs:
             ~/.cache/bazel-repo
             ~/.cache/bazel-disk
             ~/.cache/bazelisk
-          key: bazel-container-${{ matrix.name }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/private/ghc_versions.bzl', 'docs/hackage.lock.json', 'examples/**/MODULE.bazel', 'examples/**/hackage.lock.json') }}
+          key: bazel-container-v2-${{ matrix.name }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/private/ghc_versions.bzl', 'docs/hackage.lock.json', 'examples/**/MODULE.bazel', 'examples/**/hackage.lock.json') }}
           restore-keys: |
+            bazel-container-v2-${{ matrix.name }}-
             bazel-container-${{ matrix.name }}-
 
       # Unprivileged GitHub Actions containers disallow CLONE_NEWUSER/mount for
@@ -245,8 +253,9 @@ jobs:
             --spawn_strategy=processwrapper-sandbox \
             --repository_cache="$HOME/.cache/bazel-repo" \
             --disk_cache="$HOME/.cache/bazel-disk" \
+            --experimental_disk_cache_gc_max_size=5G \
             --test_output=errors
-          bazel shutdown
+          bazel clean --expunge
 
       - name: Run hermetic feature example workspaces in clean ${{ matrix.name }} container
         run: |
@@ -268,7 +277,8 @@ jobs:
                 --spawn_strategy=processwrapper-sandbox \
                 --repository_cache="$HOME/.cache/bazel-repo" \
                 --disk_cache="$HOME/.cache/bazel-disk" \
+                --experimental_disk_cache_gc_max_size=5G \
                 --test_output=errors
-              bazel shutdown
+              bazel clean --expunge
             )
           done
