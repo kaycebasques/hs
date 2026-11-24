@@ -26,7 +26,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   BAZELISK_VERSION: v1.30.0
@@ -37,16 +37,16 @@ defaults:
     shell: bash
 
 jobs:
-  deploy:
-    name: Deploy Pages
+  build:
+    name: Build Pages
     runs-on: ubuntu-24.04
     timeout-minutes: 25
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
 
       - name: Cache compiled Hakyll site generator
         id: cache-docs-gen
@@ -141,6 +141,15 @@ jobs:
         with:
           path: _pages_dist
 
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
