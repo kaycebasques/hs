@@ -17,14 +17,14 @@ sysroot = use_repo_rule("@toolchains_llvm//toolchain:sysroot.bzl", "sysroot")
 
 sysroot(
     name = "debian_bullseye_amd64_sysroot",
-    sha256 = "f851add76bdae472fb6c94b4f920bc4a132d85ac607951391297f636af7e934e",
-    urls = ["https://commondatastorage.googleapis.com/chrome-linux-sysroot/f851add76bdae472fb6c94b4f920bc4a132d85ac607951391297f636af7e934e"],
+    sha256 = "bacf1506da1bfc9dbb4e856aa61b2a80af75956d4f812708e29058042c27b444",
+    urls = ["https://commondatastorage.googleapis.com/chrome-linux-sysroot/toolchain/3bdb3503702d35520d101fc5eec9a8ab5353149f/debian_bullseye_amd64_sysroot.tar.xz"],
 )
 
 sysroot(
     name = "debian_bullseye_arm64_sysroot",
-    sha256 = "278c36fe3a785d7f89fbe3f46956899a3bd49fe665f68dc667d6f626a951fcd6",
-    urls = ["https://commondatastorage.googleapis.com/chrome-linux-sysroot/278c36fe3a785d7f89fbe3f46956899a3bd49fe665f68dc667d6f626a951fcd6"],
+    sha256 = "e4a9ae49ffa75c5fabe41c1a73209769fcfd202c786a1cb52057ddbd68b91c45",
+    urls = ["https://commondatastorage.googleapis.com/chrome-linux-sysroot/toolchain/286feb74e2209a7a70add5497609ac27685022fa/debian_bullseye_arm64_sysroot.tar.xz"],
 )
 
 llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm")
@@ -34,8 +34,8 @@ llvm.toolchain(
         "linux-x86_64": "mold",
         "linux-aarch64": "mold",
     },
-    linker_version = "2.42.1",
-    llvm_version = "22.1.8",
+    linker_version = "3.0.0",
+    llvm_version = "20.1.8",
 )
 llvm.sysroot(
     name = "llvm_toolchain",
