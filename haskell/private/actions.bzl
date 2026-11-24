@@ -7,6 +7,8 @@ load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("//haskell:providers.bzl", "HsLinkInfo", "HsPackageInfo")
 load("//haskell:toolchain.bzl", "TOOLCHAIN_TYPE")
 
+visibility(["//haskell/..."])
+
 HsDocSourceInfo = provider(
     doc = "Internal library source and GHC flag metadata consumed by hs_haddock.",
     fields = [
@@ -38,7 +40,7 @@ _HEADER_EXTENSIONS = (".h", ".hh", ".hpp", ".hxx", ".inc", ".inl")
 def get_hs_toolchain(ctx):
     return ctx.toolchains[TOOLCHAIN_TYPE].hs
 
-def _toolchain_c_include_dirs(hs_tc):
+def toolchain_c_include_dirs(hs_tc):
     """Returns deduplicated C include directories for RTS and boot packages (base, unix, time, etc.)."""
     dirs = []
     seen = {}
@@ -390,6 +392,8 @@ def _strip_prefix_path(file_path, dir_prefixes):
 def ghc_base_env(cc_tools):
     """Environment dict for GHC / hsc2hs / configure actions using ghc_cc_wrapper."""
     env = {
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
         "RULES_HASKELL_REAL_CC": cc_tools.cc,
         "RULES_HASKELL_FORCE_PIC": "1",
     }
@@ -431,87 +435,55 @@ def ghc_tool_flags(hs_tc, cc_tools):
         ])
     return flags
 
-def _execroot_or_abs(path):
-    """Preserves absolute tool/include paths while anchoring execroot-relative paths to $EXECROOT."""
-    return path if path.startswith("/") else ("$EXECROOT/" + path)
-
-def run_configure_action(
-        ctx,
-        hs_tc,
-        cc_tools,
-        configure_script,
-        configure_srcs,
-        configure_outputs,
-        configure_args,
-        extra_include_dirs,
-        extra_headers):
-    """Runs a Cabal package's pre-generated autoconf ./configure hermetically."""
-    out_prefix = ctx.label.name + "_configure"
-    declared_outputs = []
-    out_dir_roots = []
-    pkg_root = resolve_package_dir(ctx, ".")
-
-    copy_cmds = []
-    for rel_out in configure_outputs:
-        rel_clean = rel_out.lstrip("/")
-        f = ctx.actions.declare_file(out_prefix + "/" + rel_clean)
-        declared_outputs.append(f)
-
-        # Ensure parent directory of generated output is searchable in -I.
-        if f.dirname not in out_dir_roots:
-            out_dir_roots.append(f.dirname)
-        copy_cmds.append('cp "$WORK/{rel}" "$EXECROOT/{dst}"'.format(
-            rel = rel_clean,
-            dst = f.path,
-        ))
-
-    # Also add the top-level configure output root itself to -I (for `#include "include/HsNetworkConfig.h"`).
-    configure_root = declared_outputs[0].path[:-len(configure_outputs[0].lstrip("/"))].rstrip("/")
-    if configure_root and configure_root not in out_dir_roots:
-        out_dir_roots.append(configure_root)
-
-    # Stage configure inputs into a writable workdir so autoconf can write config.log/headers.
-    stage_lines = []
-    all_cfg_files = [configure_script] + list(configure_srcs)
-    seen_paths = {}
-    for f in all_cfg_files:
-        if f.path in seen_paths:
-            continue
-        seen_paths[f.path] = True
-        rel = _strip_prefix_path(f.path, [pkg_root])
-        stage_lines.append('mkdir -p "$WORK/$(dirname "{rel}")" && cp -L "$EXECROOT/{src}" "$WORK/{rel}"'.format(
-            src = f.path,
-            rel = rel,
-        ))
-
-    script_rel = _strip_prefix_path(configure_script.path, [pkg_root])
-    cflags_list = ["-fPIC"]
-    for tc_inc in _toolchain_c_include_dirs(hs_tc):
-        cflags_list.append("-I" + _execroot_or_abs(tc_inc))
-    for d in extra_include_dirs:
-        cflags_list.append("-I" + _execroot_or_abs(d))
-
-    cfg_env = {}
-    if cc_tools.is_gcc:
-        cfg_env["RULES_HASKELL_CC_IS_GCC"] = "1"
-    if cc_tools.extra_cc_args:
-        cfg_env["RULES_HASKELL_CC_EXTRA_ARGS"] = "\n".join(cc_tools.extra_cc_args)
-
-    cmd = """\
+_CONFIGURE_COMMAND = """\
 set -euo pipefail
 unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY
+
+REAL_CC_RAW="$1"
+CC_WRAPPER_RAW="$2"
+AR_RAW="$3"
+LD_RAW="$4"
+LDFLAGS_VAL="$5"
+SCRIPT_REL="$6"
+shift 6
+
 EXECROOT="$(pwd)"
-WORK_ROOT="$(mktemp -d "${{TMPDIR:-/tmp}}/hs_cfg.XXXXXX")"
+anchor_path() {
+    case "$1" in
+        ""|/*) printf '%s' "$1" ;;
+        *) printf '%s/%s' "$EXECROOT" "$1" ;;
+    esac
+}
+
+WORK_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/hs_cfg.XXXXXX")"
 trap 'rm -rf "$WORK_ROOT"' EXIT
 WORK="$WORK_ROOT/src"
 export TMPDIR="$WORK_ROOT/tmp"
 mkdir -p "$WORK" "$TMPDIR"
 
-{stage_cmds}
+STAGE_SPECS=()
+INC_DIRS=()
+CFG_ARGS=()
+OUT_SPECS=()
+for item in "$@"; do
+    case "$item" in
+        stage:*) STAGE_SPECS+=("${item#stage:}") ;;
+        inc:*)   INC_DIRS+=("${item#inc:}") ;;
+        arg:*)   CFG_ARGS+=("${item#arg:}") ;;
+        out:*)   OUT_SPECS+=("${item#out:}") ;;
+    esac
+done
 
-export RULES_HASKELL_REAL_CC="{real_cc}"
+for spec in "${STAGE_SPECS[@]+"${STAGE_SPECS[@]}"}"; do
+    rel="${spec%%=*}"
+    src="${spec#*=}"
+    mkdir -p "$WORK/$(dirname "$rel")"
+    cp -L "$EXECROOT/$src" "$WORK/$rel"
+done
+
+export RULES_HASKELL_REAL_CC="$(anchor_path "$REAL_CC_RAW")"
 export RULES_HASKELL_FORCE_PIC=1
-if [ -n "${{RULES_HASKELL_CC_EXTRA_ARGS:-}}" ]; then
+if [ -n "${RULES_HASKELL_CC_EXTRA_ARGS:-}" ]; then
     RESOLVED_EXTRA=""
     PREV_IS_SYSROOT=0
     while IFS= read -r arg; do
@@ -527,17 +499,17 @@ if [ -n "${{RULES_HASKELL_CC_EXTRA_ARGS:-}}" ]; then
         else
             case "$arg" in
                 --sysroot=/*) ;;
-                --sysroot=*) arg="--sysroot=$EXECROOT/${{arg#--sysroot=}}" ;;
+                --sysroot=*) arg="--sysroot=$EXECROOT/${arg#--sysroot=}" ;;
                 -resource-dir=/*) ;;
-                -resource-dir=*) arg="-resource-dir=$EXECROOT/${{arg#-resource-dir=}}" ;;
+                -resource-dir=*) arg="-resource-dir=$EXECROOT/${arg#-resource-dir=}" ;;
                 -B/*) ;;
-                -B*) arg="-B$EXECROOT/${{arg#-B}}" ;;
-                --ld-path=external/*|--ld-path=bazel-out/*) arg="--ld-path=$EXECROOT/${{arg#--ld-path=}}" ;;
+                -B*) arg="-B$EXECROOT/${arg#-B}" ;;
+                --ld-path=external/*|--ld-path=bazel-out/*) arg="--ld-path=$EXECROOT/${arg#--ld-path=}" ;;
             esac
         fi
         if [ -n "$RESOLVED_EXTRA" ]; then
-            RESOLVED_EXTRA="${{RESOLVED_EXTRA}}
-${{arg}}"
+            RESOLVED_EXTRA="${RESOLVED_EXTRA}
+${arg}"
         else
             RESOLVED_EXTRA="$arg"
         fi
@@ -546,35 +518,104 @@ $RULES_HASKELL_CC_EXTRA_ARGS
 EOF_EXTRA
     export RULES_HASKELL_CC_EXTRA_ARGS="$RESOLVED_EXTRA"
 fi
-export CC="{cc_wrapper}"
-export CXX="{cc_wrapper}"
-export AR="{ar}"
-{ld_export}
-export CFLAGS="{cflags}"
-export LDFLAGS="{ldflags}"
+export CC="$(anchor_path "$CC_WRAPPER_RAW")"
+export CXX="$(anchor_path "$CC_WRAPPER_RAW")"
+export AR="$(anchor_path "$AR_RAW")"
+if [ -n "$LD_RAW" ]; then
+    export LD="$(anchor_path "$LD_RAW")"
+fi
+CFLAGS_VAL="-fPIC"
+for inc_d in "${INC_DIRS[@]+"${INC_DIRS[@]}"}"; do
+    [ -z "$inc_d" ] && continue
+    CFLAGS_VAL="$CFLAGS_VAL -I$(anchor_path "$inc_d")"
+done
+export CFLAGS="$CFLAGS_VAL"
+export LDFLAGS="$LDFLAGS_VAL"
 export CONFIG_SHELL="/bin/sh"
 
-chmod +x "$WORK/{script_rel}"
+chmod +x "$WORK/$SCRIPT_REL"
 for aux in config.guess config.sub install-sh; do
     if [ -f "$WORK/$aux" ]; then
         chmod +x "$WORK/$aux"
     fi
 done
-(cd "$WORK" && /bin/sh "./{script_rel}" {cfg_args})
+(cd "$WORK" && /bin/sh "./$SCRIPT_REL" "${CFG_ARGS[@]+"${CFG_ARGS[@]}"}")
 
-{copy_cmds}
-""".format(
-        stage_cmds = "\n".join(stage_lines),
-        real_cc = _execroot_or_abs(cc_tools.cc),
-        cc_wrapper = _execroot_or_abs(hs_tc.cc_wrapper.path),
-        ar = _execroot_or_abs(cc_tools.ar),
-        ld_export = 'export LD="{}"'.format(_execroot_or_abs(cc_tools.ld)) if cc_tools.ld else "",
-        cflags = " ".join(cflags_list),
-        ldflags = "" if cc_tools.is_gcc else "-Wno-unused-command-line-argument",
-        script_rel = script_rel,
-        cfg_args = " ".join(["'" + a.replace("'", "'\"'\"'") + "'" for a in configure_args]),
-        copy_cmds = "\n".join(copy_cmds),
-    )
+for spec in "${OUT_SPECS[@]+"${OUT_SPECS[@]}"}"; do
+    rel="${spec%%=*}"
+    dst="${spec#*=}"
+    cp "$WORK/$rel" "$EXECROOT/$dst"
+done
+"""
+
+def run_configure_action(
+        ctx,
+        hs_tc,
+        cc_tools,
+        configure_script,
+        configure_srcs,
+        configure_outputs,
+        configure_args,
+        extra_include_dirs,
+        extra_headers,
+        dep_include_dirs = depset()):
+    """Runs a Cabal package's pre-generated autoconf ./configure hermetically."""
+    out_prefix = ctx.label.name + "_configure"
+    declared_outputs = []
+    out_dir_roots = []
+    pkg_root = resolve_package_dir(ctx, ".")
+
+    out_specs = []
+    for rel_out in configure_outputs:
+        rel_clean = rel_out.lstrip("/")
+        f = ctx.actions.declare_file(out_prefix + "/" + rel_clean)
+        declared_outputs.append(f)
+
+        # Ensure parent directory of generated output is searchable in -I.
+        if f.dirname not in out_dir_roots:
+            out_dir_roots.append(f.dirname)
+        out_specs.append("out:{}={}".format(rel_clean, f.path))
+
+    # Also add the top-level configure output root itself to -I (for `#include "include/HsNetworkConfig.h"`).
+    configure_root = declared_outputs[0].path[:-len(configure_outputs[0].lstrip("/"))].rstrip("/")
+    if configure_root and configure_root not in out_dir_roots:
+        out_dir_roots.append(configure_root)
+
+    # Stage configure inputs into a writable workdir so autoconf can write config.log/headers.
+    stage_specs = []
+    all_cfg_files = [configure_script] + list(configure_srcs)
+    seen_paths = {}
+    for f in all_cfg_files:
+        if f.path in seen_paths:
+            continue
+        seen_paths[f.path] = True
+        rel = _strip_prefix_path(f.path, [pkg_root])
+        stage_specs.append("stage:{}={}".format(rel, f.path))
+
+    script_rel = _strip_prefix_path(configure_script.path, [pkg_root])
+
+    args = ctx.actions.args()
+    args.add(cc_tools.cc)
+    args.add(hs_tc.cc_wrapper.path)
+    args.add(cc_tools.ar)
+    args.add(cc_tools.ld or "")
+    args.add("" if cc_tools.is_gcc else "-Wno-unused-command-line-argument")
+    args.add(script_rel)
+    args.add_all(stage_specs)
+    args.add_all([d for d in extra_include_dirs if d], format_each = "inc:%s", uniquify = True)
+    args.add_all(dep_include_dirs, format_each = "inc:%s", uniquify = True)
+    args.add_all(toolchain_c_include_dirs(hs_tc), format_each = "inc:%s", uniquify = True)
+    args.add_all(configure_args, format_each = "arg:%s")
+    args.add_all(out_specs)
+
+    cfg_env = {
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+    }
+    if cc_tools.is_gcc:
+        cfg_env["RULES_HASKELL_CC_IS_GCC"] = "1"
+    if cc_tools.extra_cc_args:
+        cfg_env["RULES_HASKELL_CC_EXTRA_ARGS"] = "\n".join(cc_tools.extra_cc_args)
 
     ctx.actions.run_shell(
         mnemonic = "HsConfigure",
@@ -586,7 +627,8 @@ done
         tools = [hs_tc.cc_wrapper],
         outputs = declared_outputs,
         env = cfg_env,
-        command = cmd,
+        command = _CONFIGURE_COMMAND,
+        arguments = [args],
     )
 
     return declared_outputs, out_dir_roots, configure_root
@@ -627,7 +669,8 @@ def run_hsc2hs_actions(
         headers,
         cabal_macros_h,
         cpp_options,
-        cc_options):
+        cc_options,
+        dep_include_dirs = depset()):
     """Runs per-file hsc2hs actions hermetically, preserving module-relative .hs paths."""
     if not hsc_srcs:
         return [], None
@@ -654,10 +697,9 @@ def run_hsc2hs_actions(
         args.add("--cc=" + hs_tc.cc_wrapper.path)
         args.add("--ld=" + hs_tc.cc_wrapper.path)
         args.add("-I.")
-        for tc_inc in _toolchain_c_include_dirs(hs_tc):
-            args.add("-I" + tc_inc)
-        for d in include_dirs:
-            args.add("-I" + d)
+        args.add_all([d for d in include_dirs if d], format_each = "-I%s", uniquify = True)
+        args.add_all(dep_include_dirs, format_each = "-I%s", uniquify = True)
+        args.add_all(toolchain_c_include_dirs(hs_tc), format_each = "-I%s", uniquify = True)
         if cabal_macros_h:
             args.add("--cflag=-include")
             args.add("--cflag=" + cabal_macros_h.path)
@@ -744,22 +786,6 @@ def compile_c_sources(
         configure_outputs,
     )
 
-    # Separate real header files (for private_hdrs) from non-header textual includes
-    # (e.g. crypton's `.c` files `#include`d by other `.c` files, passed via additional_inputs!).
-    private_hdrs = []
-    additional_inputs = []
-    for f in list(hdrs) + list(configure_outputs):
-        if f.path.endswith(_HEADER_EXTENSIONS):
-            private_hdrs.append(f)
-        additional_inputs.append(f)
-    if cabal_macros_h:
-        private_hdrs.append(cabal_macros_h)
-        additional_inputs.append(cabal_macros_h)
-
-    # Always include GHC RTS headers (Rts.h, HsFFI.h, ghcversion.h) for C FFI sources.
-    rts_hdr_list = hs_tc.rts_headers.to_list()
-    private_hdrs.extend(rts_hdr_list)
-
     # Only expose package/configure include dirs publicly (NOT GHC's internal RTS include dir).
     public_inc_dirs = []
     for d in resolved_inc_dirs + list(configure_include_dirs):
@@ -796,11 +822,26 @@ def compile_c_sources(
             return dep_cc_info, public_inc_dirs, depset(public_hdrs)
         return cc_common.merge_cc_infos(cc_infos = extra_cc_infos + [dep_cc_info]), public_inc_dirs, depset(public_hdrs)
 
+    # Separate real header files (for private_hdrs) from non-header textual includes
+    # (e.g. crypton's `.c` files `#include`d by other `.c` files, passed via additional_inputs!).
+    private_hdrs = []
+    additional_inputs = []
+    for f in list(hdrs) + list(configure_outputs):
+        if f.path.endswith(_HEADER_EXTENSIONS):
+            private_hdrs.append(f)
+        additional_inputs.append(f)
+    if cabal_macros_h:
+        private_hdrs.append(cabal_macros_h)
+        additional_inputs.append(cabal_macros_h)
+
+    # Always include GHC RTS headers (Rts.h, HsFFI.h, ghcversion.h) for C FFI sources.
+    private_hdrs.extend(hs_tc.rts_headers.to_list())
+
     user_flags = ["-fPIC"]
     if not cc_tools.is_gcc:
         user_flags.append("-Wno-unused-command-line-argument")
     user_flags.extend(_hsc2hs_ghc_defines(hs_tc))
-    for tc_inc in _toolchain_c_include_dirs(hs_tc):
+    for tc_inc in toolchain_c_include_dirs(hs_tc):
         user_flags.append("-I" + tc_inc)
     if cabal_macros_h:
         user_flags.extend(["-include", cabal_macros_h.path])
@@ -977,13 +1018,10 @@ def compile_hs_library_action(
         if d and d not in all_import_dirs:
             all_import_dirs.append(d)
 
-    # Collect all -I C include dirs for CPP, C--, & CApiFFI.
-    all_c_inc_dirs = []
-    for d in list(include_dirs) + dep_info.include_dirs.to_list() + _toolchain_c_include_dirs(hs_tc):
-        if d and d not in all_c_inc_dirs:
-            all_c_inc_dirs.append(d)
+    local_c_inc_dirs = [d for d in include_dirs if d]
+    tc_c_inc_dirs = toolchain_c_include_dirs(hs_tc)
 
-    # Assemble GHC args.
+    # Assemble GHC args (using depset-backed Args to avoid analysis-time .to_list() flattening).
     ghc_args = ctx.actions.args()
     ghc_args.add("--make")
     ghc_args.add("-c")
@@ -994,8 +1032,12 @@ def compile_hs_library_action(
     ghc_args.add("-hide-all-packages")
     ghc_args.add("-hidir", pkg_db.path + "/hi")
 
-    for db in dep_info.pkg_dbs.to_list():
-        ghc_args.add("-package-db", db.path)
+    ghc_args.add_all(
+        dep_info.pkg_dbs,
+        before_each = "-package-db",
+        uniquify = True,
+        expand_directories = False,
+    )
 
     direct_unit_ids = []
     seen_uid = {}
@@ -1015,8 +1057,9 @@ def compile_hs_library_action(
     for d in all_import_dirs:
         ghc_args.add("-i" + d)
 
-    for d in all_c_inc_dirs:
-        ghc_args.add("-I" + d)
+    ghc_args.add_all(local_c_inc_dirs, format_each = "-I%s", uniquify = True)
+    ghc_args.add_all(dep_info.include_dirs, format_each = "-I%s", uniquify = True)
+    ghc_args.add_all(tc_c_inc_dirs, format_each = "-I%s", uniquify = True)
 
     if cabal_macros_h:
         ghc_args.add("-optP-include")
@@ -1062,20 +1105,32 @@ def compile_hs_library_action(
     pkg_root = resolve_package_dir(ctx, ".")
 
     action_env = dict(ghc_base_env(cc_tools))
+    extra_in = list(hs_srcs) + list(generated_hs_srcs) + list(cmm_srcs) + list(compile_data)
+    if cabal_macros_h:
+        extra_in.append(cabal_macros_h)
     if cmm_srcs:
-        cmm_ghc_args = ["-c", "-fPIC", "-this-unit-id", unit_id, "-hide-all-packages"]
-        for db in dep_info.pkg_dbs.to_list():
-            cmm_ghc_args.extend(["-package-db", db.path])
-        for uid in direct_unit_ids:
-            cmm_ghc_args.extend(["-package-id", uid])
-        for d in all_c_inc_dirs:
-            cmm_ghc_args.append("-I" + d)
+        cmm_args_file = ctx.actions.declare_file(ctx.label.name + ".cmm.args")
+        cmm_args = ctx.actions.args()
+        cmm_args.set_param_file_format("multiline")
+        cmm_args.add_all(["-c", "-fPIC", "-this-unit-id", unit_id, "-hide-all-packages"])
+        cmm_args.add_all(
+            dep_info.pkg_dbs,
+            before_each = "-package-db",
+            uniquify = True,
+            expand_directories = False,
+        )
+        cmm_args.add_all(direct_unit_ids, before_each = "-package-id")
+        cmm_args.add_all(local_c_inc_dirs, format_each = "-I%s", uniquify = True)
+        cmm_args.add_all(dep_info.include_dirs, format_each = "-I%s", uniquify = True)
+        cmm_args.add_all(tc_c_inc_dirs, format_each = "-I%s", uniquify = True)
         if cabal_macros_h:
-            cmm_ghc_args.extend(["-optCmmP-include", "-optCmmP" + cabal_macros_h.path])
-        for opt in cpp_options:
-            cmm_ghc_args.append("-optCmmP" + opt)
-        cmm_ghc_args.extend(ghc_tool_flags(hs_tc, cc_tools))
-        action_env["RULES_HASKELL_CMM_ARGS"] = "\n".join(cmm_ghc_args)
+            cmm_args.add("-optCmmP-include")
+            cmm_args.add("-optCmmP" + cabal_macros_h.path)
+        cmm_args.add_all(cpp_options, format_each = "-optCmmP%s")
+        cmm_args.add_all(ghc_tool_flags(hs_tc, cc_tools))
+        ctx.actions.write(output = cmm_args_file, content = cmm_args)
+        extra_in.append(cmm_args_file)
+        action_env["RULES_HASKELL_CMM_ARGS_FILE"] = cmm_args_file.path
         action_env["RULES_HASKELL_CMM_SRCS"] = "\n".join([f.path for f in cmm_srcs])
     if unresolved_reexports:
         action_env["RULES_HASKELL_UNRESOLVED_REEXPORTS"] = "\n".join(unresolved_reexports)
@@ -1084,14 +1139,14 @@ def compile_hs_library_action(
             for p in dep_info.direct_pkgs
             if p.unit_id and p.pkg_db
         ])
-    extra_in = list(hs_srcs) + list(generated_hs_srcs) + list(cmm_srcs) + list(compile_data)
-    if cabal_macros_h:
-        extra_in.append(cabal_macros_h)
     if hs_tc.is_dynamic_ghc:
         shim_archives = [f for f in rt_shims if f.path.endswith(".a")] if cc_archives else []
         all_dyn_cc_archives = list(cc_archives) + shim_archives
         extra_in.extend(all_dyn_cc_archives)
-        dyn_link_args = [
+        dyn_args_file = ctx.actions.declare_file(ctx.label.name + ".dyn_link.args")
+        dyn_args = ctx.actions.args()
+        dyn_args.set_param_file_format("multiline")
+        dyn_args.add_all([
             "-shared",
             "-dynamic",
             "-fPIC",
@@ -1099,24 +1154,26 @@ def compile_hs_library_action(
             unit_id,
             "-hide-all-packages",
             "-no-auto-link-packages",
-        ]
-        for db in dep_info.pkg_dbs.to_list():
-            dyn_link_args.extend(["-package-db", db.path])
-        for uid in direct_unit_ids:
-            dyn_link_args.extend(["-package-id", uid])
-        dyn_link_args.extend(ghc_tool_flags(hs_tc, cc_tools))
-        dyn_link_args.append("-optl-Wl,-Bsymbolic")
-        dyn_link_args.append("-optl-L{}/{}".format(hs_tc.libdir.path, hs_tc.arch_libdir))
+        ])
+        dyn_args.add_all(
+            dep_info.pkg_dbs,
+            before_each = "-package-db",
+            uniquify = True,
+            expand_directories = False,
+        )
+        dyn_args.add_all(direct_unit_ids, before_each = "-package-id")
+        dyn_args.add_all(ghc_tool_flags(hs_tc, cc_tools))
+        dyn_args.add("-optl-Wl,-Bsymbolic")
+        dyn_args.add("-optl-L{}/{}".format(hs_tc.libdir.path, hs_tc.arch_libdir))
         if cc_archives:
-            dyn_link_args.append("-optl-Wl,--whole-archive")
-            for a in cc_archives:
-                dyn_link_args.append("-optl" + a.path)
-            dyn_link_args.append("-optl-Wl,--no-whole-archive")
-            for sa in shim_archives:
-                dyn_link_args.append("-optl" + sa.path)
-        for lf in cc_link_flags:
-            dyn_link_args.append("-optl" + lf)
-        action_env["RULES_HASKELL_DYN_LINK_ARGS"] = "\n".join(dyn_link_args)
+            dyn_args.add("-optl-Wl,--whole-archive")
+            dyn_args.add_all(cc_archives, format_each = "-optl%s", expand_directories = False)
+            dyn_args.add("-optl-Wl,--no-whole-archive")
+            dyn_args.add_all(shim_archives, format_each = "-optl%s", expand_directories = False)
+        dyn_args.add_all(cc_link_flags, format_each = "-optl%s")
+        ctx.actions.write(output = dyn_args_file, content = dyn_args)
+        extra_in.append(dyn_args_file)
+        action_env["RULES_HASKELL_DYN_LINK_ARGS_FILE"] = dyn_args_file.path
 
     ctx.actions.run_shell(
         mnemonic = "HsCompileLibrary",
@@ -1204,9 +1261,7 @@ if [ -n "${RULES_HASKELL_CMM_SRCS:-}" ]; then
     while IFS= read -r carg; do
         [ -z "$carg" ] && continue
         CMM_ARGV+=("$carg")
-    done <<EOF_CMM_ARGS
-$RULES_HASKELL_CMM_ARGS
-EOF_CMM_ARGS
+    done < "$EXECROOT/$RULES_HASKELL_CMM_ARGS_FILE"
     CMM_IDX=0
     while IFS= read -r cmm_src; do
         [ -z "$cmm_src" ] && continue
@@ -1235,13 +1290,11 @@ if [ "$IS_DYNAMIC" = "1" ] && [ "$HAS_ARCHIVE_OBJS" = "1" ]; then
     mkdir -p "$DYN_DIR"
     DYN_LIB="$DYN_DIR/libHS${UNIT_ID}-ghc${GHC_VER}.so"
     DYN_ARGV=()
-    if [ -n "${RULES_HASKELL_DYN_LINK_ARGS:-}" ]; then
+    if [ -n "${RULES_HASKELL_DYN_LINK_ARGS_FILE:-}" ]; then
         while IFS= read -r darg; do
             [ -z "$darg" ] && continue
             DYN_ARGV+=("$darg")
-        done <<EOF_DYN
-$RULES_HASKELL_DYN_LINK_ARGS
-EOF_DYN
+        done < "$EXECROOT/$RULES_HASKELL_DYN_LINK_ARGS_FILE"
     fi
     while IFS= read -r dyn_obj; do
         [ -z "$dyn_obj" ] && continue
@@ -1256,7 +1309,8 @@ EXPOSED="$EXPLICIT_EXPOSED"
 HIDDEN="$EXPLICIT_HIDDEN"
 if [ -z "$EXPOSED" ] && [ -z "${RULES_HASKELL_UNRESOLVED_REEXPORTS:-}" ] && [ "$HAS_TARGETS" = "1" ]; then
     DISCOVERED=""
-    for hi in $(cd "$HI_DIR" && find . -name '*.hi' | sort); do
+    while IFS= read -r hi; do
+        [ -z "$hi" ] && continue
         mod="${hi#./}"
         mod="${mod%.hi}"
         mod="$(printf '%s' "$mod" | tr '/' '.')"
@@ -1264,7 +1318,7 @@ if [ -z "$EXPOSED" ] && [ -z "${RULES_HASKELL_UNRESOLVED_REEXPORTS:-}" ] && [ "$
             *" $mod "*) ;;
             *) DISCOVERED="$DISCOVERED $mod" ;;
         esac
-    done
+    done < <(cd "$HI_DIR" && find . -name '*.hi' | sort)
     EXPOSED="${DISCOVERED# }"
 fi
 

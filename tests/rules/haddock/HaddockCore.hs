@@ -1,5 +1,7 @@
 {-# LANGUAGE CPP #-}
 
+#include "HsBaseConfig.h"
+
 -- | Core value primitives for testing @hs_haddock@ HTML, QuickJump,
 -- hyperlinked source, and hermetic CPP preprocessing.
 module HaddockCore

@@ -1,6 +1,8 @@
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//haskell:defs.bzl", "hs_binary")
 
+package(default_visibility = ["//visibility:private"])
+
 hs_binary(
     name = "hermetic_bin",
     srcs = ["HermeticMain.hs"],
@@ -22,4 +24,12 @@ sh_test(
         ":hermetic_bin",
         "//:MODULE.bazel",
     ],
+)
+
+sh_test(
+    name = "lock_cli_test",
+    size = "small",
+    srcs = ["//tools/lock:lock_cli_test.sh"],
+    args = ["$(rootpath //tools/lock:lock)"],
+    data = ["//tools/lock:lock"],
 )

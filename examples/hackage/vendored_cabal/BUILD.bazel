@@ -1,5 +1,11 @@
-load("@rules_haskell//haskell:defs.bzl", "hs_cabal_library", "hs_library", "hs_test")
-load("@rules_haskell//haskell/private:cabal_codegen.bzl", "hs_alex_gen", "hs_happy_gen")
+load(
+    "@rules_haskell//haskell:defs.bzl",
+    "hs_alex_gen",
+    "hs_cabal_library",
+    "hs_happy_gen",
+    "hs_library",
+    "hs_test",
+)
 
 # 1. C-only Cabal library exporting tiny_clib.h via install_includes.
 hs_cabal_library(
@@ -64,24 +70,18 @@ hs_cabal_library(
 hs_alex_gen(
     name = "expr_lexer_hs",
     src = "ExprLexer.x",
-    alex = "@hackage__bootstrap_alex//:alex",
-    alex_data = ["@hackage__bootstrap_alex//:data_files"],
     out = "ExprLexer.hs",
 )
 
 hs_happy_gen(
     name = "expr_parser_hs",
     src = "ExprParser.y",
-    happy = "@hackage__bootstrap_happy//:happy",
-    happy_data = ["@hackage__bootstrap_happy//:data_files"],
     out = "ExprParser.hs",
 )
 
 hs_happy_gen(
     name = "lit_sum_parser_hs",
     src = "LitSumParser.ly",
-    happy = "@hackage__bootstrap_happy//:happy",
-    happy_data = ["@hackage__bootstrap_happy//:data_files"],
     out = "LitSumParser.hs",
 )
 

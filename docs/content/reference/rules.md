@@ -1,6 +1,6 @@
 ---
 title: "Rules reference"
-description: "Complete Starlark rule and attribute reference for hs_library, hs_binary, hs_test, hs_repl, hs_haddock, hs_toolchain_library, hs_cabal_library, and hs_toolchain."
+description: "Complete Starlark rule and attribute reference for hs_library, hs_binary, hs_test, hs_repl, hs_haddock, hs_toolchain_library, hs_cabal_library, hs_alex_gen, hs_happy_gen, and hs_toolchain."
 section: reference
 nav_title: "Rules reference"
 order: 10
@@ -15,9 +15,11 @@ Load user-facing build rules from `@rules_haskell//haskell:defs.bzl`:
 ```starlark
 load(
     "@rules_haskell//haskell:defs.bzl",
+    "hs_alex_gen",
     "hs_binary",
     "hs_cabal_library",
     "hs_haddock",
+    "hs_happy_gen",
     "hs_library",
     "hs_repl",
     "hs_test",
@@ -33,7 +35,7 @@ load("@rules_haskell//haskell:toolchain.bzl", "TOOLCHAIN_TYPE", "hs_toolchain")
 
 Choose a rule based on what you're building:
 
-- **In-repo Haskell targets:** Use [`hs_library`](rules.md#hs_library) for reusable modules, [`hs_binary`](rules.md#hs_binary) for executables, [`hs_test`](rules.md#hs_test) for automated tests, [`hs_repl`](rules.md#hs_repl) for interactive `ghci` sessions (or `@rules_haskell//tools/ghci` and `@rules_haskell//tools/ghci:runghc` for ad-hoc boot-package sessions and scripts), and [`hs_haddock`](rules.md#hs_haddock) for HTML API documentation.
+- **In-repo Haskell targets:** Use [`hs_library`](rules.md#hs_library) for reusable modules, [`hs_binary`](rules.md#hs_binary) for executables, [`hs_test`](rules.md#hs_test) for automated tests, [`hs_repl`](rules.md#hs_repl) for interactive `ghci` sessions (or `@rules_haskell//tools/ghci` and `@rules_haskell//tools/ghci:runghc` for ad-hoc boot-package sessions and scripts), [`hs_alex_gen`](rules.md#hs_alex_gen) and [`hs_happy_gen`](rules.md#hs_happy_gen) for `.x`, `.y`, and `.ly` lexer and parser grammars, and [`hs_haddock`](rules.md#hs_haddock) for HTML API documentation.
 - **Boot and Hackage dependencies:** Reference `@hs_boot//:<pkg>` or `@hackage//:<pkg>` directly in `deps`. Those repositories generate [`hs_toolchain_library`](rules.md#hs_toolchain_library) and [`hs_cabal_library`](rules.md#hs_cabal_library) targets for you automatically.
 
 > **Note:** Every rule also accepts Bazel's built-in [common attributes](https://bazel.build/reference/be/common-definitions#common-attributes) (such as `name`, [`visibility`](https://bazel.build/concepts/visibility), `tags`, `testonly`, and [`target_compatible_with`](https://bazel.build/concepts/platforms)), and [`hs_test`](rules.md#hs_test) accepts Bazel's built-in [test attributes](https://bazel.build/reference/be/common-definitions#common-attributes-tests) (such as `size`, `timeout`, `args`, `env`, and `flaky`).
@@ -80,7 +82,7 @@ hs_library(
 | `srcs` | `list[Label]` | — | **Yes** | Haskell source files (`.hs`, literate `.lhs`) and mutual-recursion forward-declaration files (`.hs-boot`, `.lhs-boot`) belonging to this library. List every module compiled into this target here. |
 | `deps` | `list[Label]` | `[]` | No | Direct Haskell or C library dependencies (`hs_library`, `@hs_boot//:<pkg>` [`hs_toolchain_library`](rules.md#hs_toolchain_library), `@hackage//:<pkg>` [`hs_cabal_library`](rules.md#hs_cabal_library), or `CcInfo` targets). List every Haskell package whose modules your `srcs` `import` directly; transitive packages link automatically but stay hidden from `import` statements. |
 | `cc_deps` | `list[Label]` | `[]` | No | Existing Bazel C/C++ library targets ([`cc_library`](https://bazel.build/reference/be/c-cpp#cc_library) or any rule providing `CcInfo`). Prefer `cc_deps` over `c_sources` when linking a shared C/C++ library in your repository or a [BCR](https://bazel.build/external/registry#bazel-central-registry) module such as `@zlib//:zlib`; its public headers and static archives propagate automatically to downstream binaries and Template Haskell. |
-| `c_sources` | `list[Label]` | `[]` | No | Small C, C++, or assembly helper files (`.c`, `.cc`, `.cpp`, `.S`, `.s`) owned directly by this Haskell library (for example, `cbits/fast_hash.c` backing a `foreign import ccall`). Compiled with `-fPIC` and GHC's runtime header path (`HsFFI.h`, `Rts.h`) automatically on the include path; prefer `cc_deps` if non-Haskell targets also depend on the C code. |
+| `c_sources` | `list[Label]` | `[]` | No | Small C, C++, assembly, or Cmm helper files (`.c`, `.cc`, `.cpp`, `.cxx`, `.C`, `.S`, `.s`, `.cmm`) owned directly by this Haskell library (for example, `cbits/fast_hash.c` backing a `foreign import ccall`). Compiled with `-fPIC` and GHC's runtime and boot header paths (`HsFFI.h`, `Rts.h`, `HsBase.h`) automatically on the include path; prefer `cc_deps` if non-Haskell targets also depend on the C code. |
 | `hdrs` | `list[Label]` | `[]` | No | C/C++ header files (`.h`) needed when compiling `c_sources`, evaluating `#include` directives in `{-# LANGUAGE CPP #-}` Haskell files, or generating `CApiFFI` C wrapper stubs. Also propagated to downstream targets via `CcInfo` and [`HsLinkInfo`](extensions-and-providers.md#hslinkinfo). |
 | `include_dirs` | `list[str]` | `[]` | No | Directories relative to this `BUILD.bazel` file (such as `["cbits"]` or `["include"]`) added to the `-I` C header search path so `c_sources` and `CApiFFI` imports can write `#include "fast_hash.h"` without directory prefixes. |
 | `hs_source_dirs` | `list[str]` | `[]` | No | Haskell import root directories relative to this `BUILD.bazel` file, passed to GHC via `-i` (defaults to `["."]` when empty). GHC expects a module's dotted name (`module Engine.Internal`) to match its path relative to a source root (`Engine/Internal.hs`); set `hs_source_dirs = ["src"]` when your files live under `src/` so imports stay `Engine.Internal`. |
@@ -161,7 +163,7 @@ hs_binary(
 | `srcs` | `list[Label]` | — | **Yes** | Haskell source files (`.hs`, `.lhs`, `.hs-boot`, `.lhs-boot`) compiled directly into this executable (typically `["app/Main.hs"]` when core logic lives in an [`hs_library`](rules.md#hs_library) so [`hs_test`](rules.md#hs_test) and [`hs_haddock`](rules.md#hs_haddock) can share it). |
 | `deps` | `list[Label]` | `[]` | No | Direct library dependencies providing [`HsPackageInfo`](extensions-and-providers.md#hspackageinfo) or `CcInfo` imported by `srcs`. |
 | `cc_deps` | `list[Label]` | `[]` | No | Existing Bazel `cc_library` (`CcInfo`) targets linked statically into the executable. Prefer `cc_deps` for shared C/C++ libraries instead of single-target `c_sources`. |
-| `c_sources` | `list[Label]` | `[]` | No | Inline C, C++, or assembly files (`.c`, `.cc`, `.cpp`, `.S`, `.s`) owned solely by this executable, compiled via `cc_common.compile` and linked into the binary. |
+| `c_sources` | `list[Label]` | `[]` | No | Inline C, C++, assembly, or Cmm files (`.c`, `.cc`, `.cpp`, `.cxx`, `.C`, `.S`, `.s`, `.cmm`) owned solely by this executable, compiled via `cc_common.compile` and linked into the binary. |
 | `hdrs` | `list[Label]` | `[]` | No | C header files available to `c_sources`, `CPP`, and `CApiFFI` while compiling this executable. |
 | `include_dirs` | `list[str]` | `[]` | No | Package-relative `-I` C header directories for `hdrs` and `c_sources`. |
 | `hs_source_dirs` | `list[str]` | `[]` | No | Package-relative Haskell import root directories passed via `-i` (for example, `["app"]` when `srcs = ["app/Main.hs"]`; defaults to `["."]` when empty). |
@@ -306,7 +308,7 @@ hs_repl(
 | `interpret_deps` | `bool` | `True` | No | When `True`, in-workspace targets in `deps` load from source into GHCi bytecode (`*Module` scope, `:reload`, `:break`, internal bindings). When `False`, in-workspace [`hs_library`](rules.md#hs_library) targets load as precompiled packages from `.pkgdb` (enforcing `hidden_modules`). External `@hs_boot` and `@hackage` packages always load precompiled. |
 | `expose_boot_packages` | `bool` | `False` | No | When `False` (default), passes `-hide-all-packages` so only packages declared in `deps` and `compiled_deps` (or `base` when both are empty) are visible. When `True`, omits `-hide-all-packages` so all 41+ GHC boot packages can be imported without listing each one (used by `@rules_haskell//tools/ghci`). |
 | `cc_deps` | `list[Label]` | `[]` | No | Native C/C++ `cc_library` (`CcInfo`) targets linked into the REPL's shared C/C++ helper library (`HsLinkReplCbits`) for interactive FFI calls. Transitive `CcInfo` archives from `deps` and `compiled_deps` are included automatically. |
-| `c_sources` | `list[Label]` | `[]` | No | Inline C, C++, or assembly files (`.c`, `.cc`, `.cpp`, `.S`, `.s`) compiled with `-fPIC` and linked into the REPL's shared C/C++ helper library. |
+| `c_sources` | `list[Label]` | `[]` | No | Inline C, C++, assembly, or Cmm files (`.c`, `.cc`, `.cpp`, `.cxx`, `.C`, `.S`, `.s`, `.cmm`) compiled with `-fPIC` and linked into the REPL's shared C/C++ helper library. |
 | `hdrs` | `list[Label]` | `[]` | No | C/C++ header files visible to `c_sources`, `-XCPP`, and `CApiFFI` stubs inside GHCi. |
 | `include_dirs` | `list[str]` | `[]` | No | Package-relative C header search directories (`-I`) for `srcs` and `c_sources`. |
 | `hs_source_dirs` | `list[str]` | `[]` | No | Package-relative Haskell import root directories (`-i`) for `srcs`. |
@@ -525,7 +527,7 @@ hs_cabal_library(
 | `version` | `str` | — | **Yes** | Dotted Cabal version string (for example, `"0.14.4"`), written into `.pkgdb`, `Paths_<pkg>.version`, and `cabal_macros.h` (`CURRENT_PACKAGE_VERSION` and downstream `MIN_VERSION_<pkg>` checks). |
 | `srcs` | `list[Label]` | `[]` | No | Haskell source files (`.hs`, `.lhs`, `.hs-boot`, `.lhs-boot`). Can be empty when a package consists solely of `.hsc` templates, `reexported_modules`, or C files (`zlib-clib`). |
 | `hsc_srcs` | `list[Label]` | `[]` | No | `hsc2hs` C-binding template files (`*.hsc`). In Stage 3, each `.hsc` file is preprocessed into a `.hs` module using target C headers, `-include cabal_macros.h`, and standard GHC OS/CPU macros before Stage 5 compiles Haskell sources. |
-| `c_sources` | `list[Label]` | `[]` | No | Native C, C++, or assembly source files (`.c`, `.cc`, `.cpp`, `.S`, `.s`) from Cabal `c-sources:` and `cxx-sources:`, compiled in parallel in Stage 4 with `-fPIC`, `-include cabal_macros.h`, and GHC RTS headers. |
+| `c_sources` | `list[Label]` | `[]` | No | Native C, C++, assembly, or Cmm source files (`.c`, `.cc`, `.cpp`, `.cxx`, `.C`, `.S`, `.s`, `.cmm`) from Cabal `c-sources:`, `cxx-sources:`, `asm-sources:`, and `cmm-sources:`, compiled in parallel in Stage 4 with `-fPIC`, `-include cabal_macros.h`, and GHC RTS and boot headers. |
 | `hdrs` | `list[Label]` | `[]` | No | All header files in the package (both private internal headers and public headers), plus any non-header `.c` files textually `#include`d by other `.c` files (such as `crypton`'s `cbits/*_impl.c`). |
 | `install_includes` | `list[str]` | `[]` | No | Header filenames or relative paths from Cabal `install-includes:` (matched against `hdrs` and `configure_outputs`) exported publicly via `CcInfo` and [`HsLinkInfo`](extensions-and-providers.md#hslinkinfo) so downstream packages can `#include` them (for example, `zlib-clib` exporting `["zlib.h", "zconf.h"]` to `streaming-commons`). Headers in `hdrs` omitted from `install_includes` stay private to this package. |
 | `include_dirs` | `list[str]` | `[]` | No | Package-relative C include directories from Cabal `include-dirs:`, added to `-I` during `./configure`, `hsc2hs`, C compilation, and GHC compilation, and propagated publicly when `install_includes` is non-empty. |
@@ -562,6 +564,104 @@ hs_cabal_library(
     include_dirs = ["cbits"],
     install_includes = ["zlib.h", "zconf.h"],
     version = "1.3.2",
+)
+```
+
+---
+
+## `hs_alex_gen` {#hs_alex_gen}
+
+Use `hs_alex_gen` to generate a `.hs` lexer module from an [Alex](https://haskell-alex.readthedocs.io/) `.x` specification so [`hs_library`](rules.md#hs_library), [`hs_binary`](rules.md#hs_binary), or [`hs_cabal_library`](rules.md#hs_cabal_library) can compile it in `srcs`.
+
+`hs_alex_gen` compiles `alex-3.5.4.2` on demand from `@hs_boot` inside `@hs_alex` (in Bazel's [exec configuration](https://bazel.build/extending/config#exec-configuration)) without requiring `alex` on the host machine. Locked Hackage packages with `.x` files wire `hs_alex_gen` automatically inside `@<hub>__<pkg>`.
+
+- **Load from:** `@rules_haskell//haskell:defs.bzl`
+- **Provides:** `DefaultInfo` (generated `.hs` source file)
+
+### Signature
+
+```starlark
+hs_alex_gen(
+    name,
+    src,
+    out,
+    alex = Label("@hs_alex//:alex"),
+    alex_data = [Label("@hs_alex//:data_files")],
+)
+```
+
+### Attributes
+
+| Attribute | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `name` | `Name` | — | **Yes** | Target name referenced in downstream `srcs` (for example, `":expr_lexer_hs"`). |
+| `src` | `Label` | — | **Yes** | Single Alex lexer grammar file (`*.x`). |
+| `out` | `str` | — | **Yes** | Package-relative output `.hs` path matching the grammar's module declaration (for example, `"ExprLexer.hs"`). |
+| `alex` | `Label` | `Label("@hs_alex//:alex")` | No | Exec-configured `alex` executable. Override only when testing a custom `alex` binary. |
+| `alex_data` | `list[Label]` | `[Label("@hs_alex//:data_files")]` | No | Exec-configured template data files passed via `alex -t` and `alex_datadir`. |
+
+---
+
+## `hs_happy_gen` {#hs_happy_gen}
+
+Use `hs_happy_gen` to generate a `.hs` parser module from a [Happy](https://haskell-happy.readthedocs.io/) `.y` or literate `.ly` grammar with `--ghc` enabled.
+
+Like [`hs_alex_gen`](rules.md#hs_alex_gen), `hs_happy_gen` compiles `happy-2.1.7` lazily from `@hs_boot` inside `@hs_happy` only when a build target depends on a grammar rule.
+
+- **Load from:** `@rules_haskell//haskell:defs.bzl`
+- **Provides:** `DefaultInfo` (generated `.hs` source file)
+
+### Signature
+
+```starlark
+hs_happy_gen(
+    name,
+    src,
+    out,
+    happy = Label("@hs_happy//:happy"),
+    happy_data = [Label("@hs_happy//:data_files")],
+)
+```
+
+### Attributes
+
+| Attribute | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `name` | `Name` | — | **Yes** | Target name referenced in downstream `srcs` (for example, `":expr_parser_hs"`). |
+| `src` | `Label` | — | **Yes** | Single Happy parser grammar file (`*.y` or `*.ly`). |
+| `out` | `str` | — | **Yes** | Package-relative output `.hs` path matching the grammar's module declaration (for example, `"ExprParser.hs"`). |
+| `happy` | `Label` | `Label("@hs_happy//:happy")` | No | Exec-configured `happy` executable. Override only when testing a custom `happy` binary. |
+| `happy_data` | `list[Label]` | `[Label("@hs_happy//:data_files")]` | No | Exec-configured template data files passed via `happy -t` and `happy_datadir`. |
+
+### Example
+
+Adapted from `examples/hackage/vendored_cabal/BUILD.bazel`:
+
+```starlark
+load("@rules_haskell//haskell:defs.bzl", "hs_alex_gen", "hs_happy_gen", "hs_library")
+
+hs_alex_gen(
+    name = "expr_lexer_hs",
+    src = "ExprLexer.x",
+    out = "ExprLexer.hs",
+)
+
+hs_happy_gen(
+    name = "expr_parser_hs",
+    src = "ExprParser.y",
+    out = "ExprParser.hs",
+)
+
+hs_library(
+    name = "expr_grammar",
+    srcs = [
+        ":expr_lexer_hs",
+        ":expr_parser_hs",
+    ],
+    deps = [
+        "@hs_boot//:array",
+        "@hs_boot//:base",
+    ],
 )
 ```
 

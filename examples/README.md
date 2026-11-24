@@ -21,7 +21,7 @@ Each directory in `examples/` is a standalone Bazel 9 ([`MODULE.bazel`](https://
 
 | Feature | Minimal example | Example tests | Root tests |
 |---|---|---|---|
-| `hs_library`, `hs_binary`, `hs_test`, `hs_toolchain_library` | [`quickstart/`](quickstart/BUILD.bazel) | `//:greet_test`, `//:elf_hermeticity_test` | `//tests/basic:basic_test`, `//tests/starlark:...` |
+| `hs_library`, `hs_binary`, `hs_test`, `hs_toolchain_library` | [`quickstart/`](quickstart/BUILD.bazel) | `//:greet_test`, `//:elf_hermeticity_test` | `//tests/basic:basic_test`, `//tests/starlark/...` |
 | `hs_repl`, `@rules_haskell//tools/ghci`, `@rules_haskell//tools/ghci:runghc`, live `:reload`, `:break`/`:continue`, `-e`, `.ghci` scripts, `-fexternal-interpreter`, and C11 `terminfo` | [`repl/`](repl/BUILD.bazel), [`size/`](size/BUILD.bazel) | `//:repl_test`, `//:terminfo_test`, `//:size_repl_test` | `//tests/rules/repl:repl_modes_test`, `//tests/rules/repl:pty_repl_test`, `//tests/rules/repl:terminfo_test`, `//tests/starlark:hs_repl_interpreted_test`, `//tests/starlark:hs_repl_cbits_and_compiled_test` |
 | `hs_haddock` (HTML, hyperlinked source, QuickJump, Hoogle, cross-target `haddock_deps`) | [`haddock/`](haddock/BUILD.bazel) | `//:haddock_test` | `//tests/rules/haddock:haddock_test`, `//tests/starlark:hs_haddock_action_test` |
 | `hs_cabal_library` (5-stage Cabal rule) | [`hackage/vendored_cabal/`](hackage/vendored_cabal/BUILD.bazel) | `//vendored_cabal:vendored_cabal_test` | `//tests/basic:basic_test`, `//tests/rules/codegen:codegen_test` |
@@ -39,7 +39,7 @@ Each directory in `examples/` is a standalone Bazel 9 ([`MODULE.bazel`](https://
 | Inline `c_sources` (C, C++, and assembly `.S`/`.s`) | [`c_interop/`](c_interop/BUILD.bazel) | `//:c_interop_test` | `//tests/rules/ffi:ffi_test` |
 | `cc_deps` (repository `cc_library` and BCR `@zlib//:zlib`) | [`c_interop/`](c_interop/BUILD.bazel) | `//:c_interop_test`, `//:elf_hermeticity_test` | `//tests/rules/ffi:ffi_test` |
 | C toolchains (`hermetic_cc_toolchain`, `toolchains_llvm`, GCC/Clang) | [`quickstart/`](quickstart/MODULE.bazel), [`llvm_toolchain/`](llvm_toolchain/MODULE.bazel), [`system_cc_toolchain/`](system_cc_toolchain/MODULE.bazel) | `//:llvm_test`, `//:sys_cc_test` | CI + standalone toolchain workspaces |
-| `@rules_haskell//tools/lock:lock`, `hackage.from_lock`, `hackage.override` | [`hackage/`](hackage/MODULE.bazel) | `//:hackage_test`, `//:elf_hermeticity_test` | `//tools/lock:lock_test`, `//tools/lock:lock_cli_test` |
+| `@rules_haskell//tools/lock:lock`, `hackage.from_lock`, `hackage.override` | [`hackage/`](hackage/MODULE.bazel) | `//:hackage_test`, `//:elf_hermeticity_test` | `//tools/lock:lock_test`, `//tests/rules:lock_cli_test` |
 | Cabal `Simple`, `Configure` (`./configure`), `Custom` (`cabal-doctest`) | [`hackage/`](hackage/test/HackageTest.hs) | `//:hackage_test` | `//tests/basic:basic_test`, `//tests/rules/codegen:codegen_test` |
 | C-only Cabal packages, internal and Cabal 3.0 public sublibraries, `reexported-modules` | [`hackage/`](hackage/BUILD.bazel), [`hackage/vendored_cabal/`](hackage/vendored_cabal/BUILD.bazel) | `//:hackage_test`, `//vendored_cabal:vendored_cabal_test` | `//tests/basic:basic_test`, `//tests/rules/codegen:codegen_test` |
 | `Paths_<pkg>` and compile-time `data-files`, `.hsc` (`hsc2hs`), `.x` (`alex`), `.y`/`.ly` (`happy`) | [`hackage/`](hackage/BUILD.bazel), [`hackage/vendored_cabal/`](hackage/vendored_cabal/BUILD.bazel) | `//:hackage_test`, `//vendored_cabal:vendored_cabal_test` | `//tests/basic:basic_test`, `//tests/rules/codegen:codegen_test` |

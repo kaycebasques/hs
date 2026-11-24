@@ -1,5 +1,6 @@
 """Bzlmod module extensions for rules_haskell."""
 
+load("//haskell/private:cabal_codegen.bzl", "alex_bootstrap_repo", "happy_bootstrap_repo")
 load("//haskell/private:ghc_bindist.bzl", "ghc_bindist_repo", "hs_boot_repo", "hs_toolchains_repo")
 load("//haskell/private:ghc_versions.bzl", "DEFAULT_GHC_VERSION", "GHC_BINDISTS", "SUPPORTED_PLATFORMS")
 load("//haskell/private:hackage.bzl", _hackage = "hackage")
@@ -86,6 +87,13 @@ def _hs_extension_impl(module_ctx):
     hs_boot_repo(
         name = "hs_boot",
         ghc_version = selected_version,
+    )
+
+    alex_bootstrap_repo(
+        name = "hs_alex",
+    )
+    happy_bootstrap_repo(
+        name = "hs_happy",
     )
 
     return module_ctx.extension_metadata(reproducible = True)

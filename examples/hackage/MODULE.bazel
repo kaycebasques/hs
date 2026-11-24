@@ -53,9 +53,4 @@ hackage.override(
     configure_args = ["--disable-option-checking"],
 )
 
-use_repo(
-    hackage,
-    "hackage",
-    "hackage__bootstrap_alex",
-    "hackage__bootstrap_happy",
-)
+use_repo(hackage, "hackage")

@@ -20,9 +20,7 @@ load(
     "write_paths_module",
 )
 
-def resolve_override_labels(raw_labels):
-    """Converts canonical label strings (e.g. '@@zlib+//:zlib') from hackage.override into Labels."""
-    return [Label(s) for s in raw_labels]
+visibility(["//haskell/..."])
 
 def _cabal_unit_id(package_name, component_name, version):
     if component_name:
@@ -70,7 +68,8 @@ def _hs_cabal_library_impl(ctx):
             configure_srcs = ctx.files.configure_srcs,
             configure_outputs = ctx.attr.configure_outputs,
             configure_args = ctx.attr.configure_args,
-            extra_include_dirs = [resolve_package_dir(ctx, d) for d in ctx.attr.include_dirs] + dep_info.include_dirs.to_list(),
+            extra_include_dirs = [resolve_package_dir(ctx, d) for d in ctx.attr.include_dirs],
+            dep_include_dirs = dep_info.include_dirs,
             extra_headers = depset(ctx.files.hdrs, transitive = [dep_info.headers]),
         )
 
@@ -114,7 +113,7 @@ def _hs_cabal_library_impl(ctx):
     # ------------------------------------------------------------------
     local_inc_dirs = [resolve_package_dir(ctx, d) for d in ctx.attr.include_dirs]
     hsc_inc_dirs = []
-    for d in local_inc_dirs + configure_inc_dirs + dep_info.include_dirs.to_list():
+    for d in local_inc_dirs + configure_inc_dirs:
         if d and d not in hsc_inc_dirs:
             hsc_inc_dirs.append(d)
 
@@ -131,6 +130,7 @@ def _hs_cabal_library_impl(ctx):
             hsc_srcs = ctx.files.hsc_srcs,
             hs_source_dirs = ctx.attr.hs_source_dirs,
             include_dirs = hsc_inc_dirs,
+            dep_include_dirs = dep_info.include_dirs,
             headers = hsc_headers,
             cabal_macros_h = cabal_macros_h,
             cpp_options = ctx.attr.cpp_options,
@@ -297,7 +297,7 @@ hs_cabal_library = rule(
             default = [],
         ),
         "c_sources": attr.label_list(
-            allow_files = [".c", ".cc", ".cpp", ".S", ".s", ".cmm"],
+            allow_files = [".c", ".cc", ".cpp", ".cxx", ".C", ".S", ".s", ".cmm"],
             default = [],
         ),
         "hdrs": attr.label_list(

@@ -12,8 +12,7 @@ on:
       - '!docs/README.md'
       - '!docs/serve.hs'
       - '!docs/site_test.sh'
-      - 'haskell/private/ghc_versions.bzl'
-      - 'haskell/private/haddock.bzl'
+      - 'haskell/**'
       - 'tools/lock/BUILD.bazel'
       - 'tools/lock/CabalExtract.hs'
       - 'tools/lock/LockJson.hs'
@@ -54,14 +53,14 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cache/pages/docs_gen
-          key: pages-docs-gen-v1-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/private/ghc_versions.bzl', 'docs/BUILD.bazel', 'docs/site.hs', 'docs/hackage.lock.json') }}
+          key: pages-docs-gen-v1-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/**', 'docs/BUILD.bazel', 'docs/site.hs', 'docs/hackage.lock.json') }}
 
       - name: Cache Haddock API docs
         id: cache-haddock
         uses: actions/cache@v5
         with:
           path: ~/.cache/pages/lock_haddock
-          key: pages-haddock-v1-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/private/ghc_versions.bzl', 'haskell/private/haddock.bzl', 'tools/lock/BUILD.bazel', 'tools/lock/CabalExtract.hs', 'tools/lock/LockJson.hs', 'tools/lock/prologue.txt') }}
+          key: pages-haddock-v1-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/**', 'tools/lock/BUILD.bazel', 'tools/lock/CabalExtract.hs', 'tools/lock/LockJson.hs', 'tools/lock/prologue.txt') }}
 
       - name: Cache Bazel repository and disk caches
         if: steps.cache-docs-gen.outputs.cache-hit != 'true' || steps.cache-haddock.outputs.cache-hit != 'true'
@@ -120,8 +119,7 @@ jobs:
             chmod -R u+w,a+rX "$HOME/.cache/pages/lock_haddock"
           fi
 
-          bazel clean
-          bazel shutdown
+          bazel clean --expunge
 
       - name: Build static site
         run: |

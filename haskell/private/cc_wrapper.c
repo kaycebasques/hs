@@ -207,11 +207,15 @@ static const char *get_session_tmpdir(void) {
         tmpdir = "/tmp";
     }
     int n = snprintf(g_session_dir, sizeof(g_session_dir), "%s/hs_ccw.XXXXXX", tmpdir);
-    if (n < 0 || (size_t)n >= sizeof(g_session_dir) || !mkdtemp(g_session_dir)) {
-        g_session_dir[0] = '\0';
-        return tmpdir;
+    if (n >= 0 && (size_t)n < sizeof(g_session_dir) && mkdtemp(g_session_dir)) {
+        return g_session_dir;
     }
-    return g_session_dir;
+    n = snprintf(g_session_dir, sizeof(g_session_dir), "/tmp/hs_ccw.XXXXXX");
+    if (n >= 0 && (size_t)n < sizeof(g_session_dir) && mkdtemp(g_session_dir)) {
+        return g_session_dir;
+    }
+    g_session_dir[0] = '\0';
+    return "/tmp";
 }
 
 static void cleanup_session_tmpdir(void) {
@@ -280,31 +284,27 @@ static void rewrite_tokens(
                 );
                 vec_free_contents(&parsed);
                 if (rsp_changed) {
-                    if (write_rsp(rsp_path, &rewritten)) {
-                        vec_push(out, xstrdup(a));
-                    } else {
-                        const char *sdir = get_session_tmpdir();
-                        char tmp_rsp[PATH_MAX];
-                        int written = snprintf(
-                            tmp_rsp,
-                            sizeof(tmp_rsp),
-                            "%s/hs_rsp_%d.rsp",
-                            sdir,
-                            g_obj_counter++
-                        );
-                        if (written > 0 && (size_t)written < sizeof(tmp_rsp) && write_rsp(tmp_rsp, &rewritten)) {
-                            vec_push(&g_cleanup_files, xstrdup(tmp_rsp));
-                            char *at_arg = (char *)malloc(strlen(tmp_rsp) + 2);
-                            if (!at_arg) {
-                                perror("ghc_cc_wrapper: malloc");
-                                exit(1);
-                            }
-                            at_arg[0] = '@';
-                            strcpy(at_arg + 1, tmp_rsp);
-                            vec_push(out, at_arg);
-                        } else {
-                            vec_push(out, xstrdup(a));
+                    const char *sdir = get_session_tmpdir();
+                    char tmp_rsp[PATH_MAX];
+                    int written = snprintf(
+                        tmp_rsp,
+                        sizeof(tmp_rsp),
+                        "%s/hs_rsp_%d.rsp",
+                        sdir,
+                        g_obj_counter++
+                    );
+                    if (written > 0 && (size_t)written < sizeof(tmp_rsp) && write_rsp(tmp_rsp, &rewritten)) {
+                        vec_push(&g_cleanup_files, xstrdup(tmp_rsp));
+                        char *at_arg = (char *)malloc(strlen(tmp_rsp) + 2);
+                        if (!at_arg) {
+                            perror("ghc_cc_wrapper: malloc");
+                            exit(1);
                         }
+                        at_arg[0] = '@';
+                        strcpy(at_arg + 1, tmp_rsp);
+                        vec_push(out, at_arg);
+                    } else {
+                        vec_push(out, xstrdup(a));
                     }
                 } else {
                     vec_push(out, xstrdup(a));

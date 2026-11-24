@@ -12,7 +12,7 @@ Creates:
     Hackage package, fetched only when referenced in the build graph.
 """
 
-load("//haskell/private:cabal_codegen.bzl", "alex_bootstrap_repo", "happy_bootstrap_repo")
+visibility(["//haskell/..."])
 
 _PLATFORM_CONFIGS = [
     ("linux_x86_64", "_linux_x86_64", ["@platforms//os:linux", "@platforms//cpu:x86_64"]),
@@ -23,8 +23,11 @@ _PLATFORM_CONFIGS = [
 
 _HDR_GLOB_PATTERNS = [
     "**/*.h",
+    "**/*.hh",
     "**/*.hpp",
+    "**/*.hxx",
     "**/*.inc",
+    "**/*.inl",
     "cbits/**/*.c",
     "cbits-extra/**/*.c",
     "cbits-unix/**/*.c",
@@ -218,13 +221,10 @@ hs_alex_gen(
     name = {name},
     src = {src},
     out = {out},
-    alex = "@{hub}__bootstrap_alex//:alex",
-    alex_data = ["@{hub}__bootstrap_alex//:data_files"],
 )""".format(
                 name = repr(gen_name),
                 src = repr(x_src),
                 out = repr(hs_out),
-                hub = hub_name,
             ),
         )
         base_hs.append(":" + gen_name)
@@ -238,13 +238,10 @@ hs_happy_gen(
     name = {name},
     src = {src},
     out = {out},
-    happy = "@{hub}__bootstrap_happy//:happy",
-    happy_data = ["@{hub}__bootstrap_happy//:data_files"],
 )""".format(
                 name = repr(gen_name),
                 src = repr(y_src),
                 out = repr(hs_out),
-                hub = hub_name,
             ),
         )
         base_hs.append(":" + gen_name)
@@ -279,13 +276,10 @@ hs_alex_gen(
     name = {name},
     src = {src},
     out = {out},
-    alex = "@{hub}__bootstrap_alex//:alex",
-    alex_data = ["@{hub}__bootstrap_alex//:data_files"],
 )""".format(
                                 name = repr(gen_name),
                                 src = repr(x_src),
                                 out = repr(hs_out),
-                                hub = hub_name,
                             ),
                         )
                     p_hs.append(seen_alex[x_src])
@@ -300,13 +294,10 @@ hs_happy_gen(
     name = {name},
     src = {src},
     out = {out},
-    happy = "@{hub}__bootstrap_happy//:happy",
-    happy_data = ["@{hub}__bootstrap_happy//:data_files"],
 )""".format(
                                 name = repr(gen_name),
                                 src = repr(y_src),
                                 out = repr(hs_out),
-                                hub = hub_name,
                             ),
                         )
                     p_hs.append(seen_happy[y_src])
@@ -476,7 +467,7 @@ hs_happy_gen(
     lines.append("    deps = {},".format(_format_selectable_list(base_deps, deps_select)))
 
     if extra_cc_deps:
-        lines.append("    extra_cc_deps = resolve_override_labels({}),".format(_format_str_list(extra_cc_deps)))
+        lines.append("    extra_cc_deps = {},".format(_format_str_list(extra_cc_deps)))
 
     raw_dep_names = list(comp.get("deps", []))
     for plat_key, _, _ in _PLATFORM_CONFIGS:
@@ -608,16 +599,13 @@ def _hackage_package_repo_impl(repository_ctx):
         used_happy = used_happy or hh
         sections.append(blk)
 
-    loads = ['load("@rules_haskell//haskell:defs.bzl", "hs_cabal_library")']
-    if overrides.get("extra_cc_deps", []):
-        loads.append('load("@rules_haskell//haskell/private:cabal_library.bzl", "resolve_override_labels")')
-    codegen_syms = []
+    def_syms = []
     if used_alex:
-        codegen_syms.append('"hs_alex_gen"')
+        def_syms.append('"hs_alex_gen"')
+    def_syms.append('"hs_cabal_library"')
     if used_happy:
-        codegen_syms.append('"hs_happy_gen"')
-    if codegen_syms:
-        loads.append('load("@rules_haskell//haskell/private:cabal_codegen.bzl", {})'.format(", ".join(codegen_syms)))
+        def_syms.append('"hs_happy_gen"')
+    loads = ['load("@rules_haskell//haskell:defs.bzl", {})'.format(", ".join(def_syms))]
 
     repository_ctx.file("BUILD.bazel", "\n".join(loads + [""] + sections) + "\n")
 
@@ -757,13 +745,6 @@ def _hackage_impl(module_ctx):
             )
             for sub_name in sorted(spec.get("sublibraries", {}).keys()):
                 sublib_entries.append([pkg_name, sub_name])
-
-        alex_bootstrap_repo(
-            name = hub_name + "__bootstrap_alex",
-        )
-        happy_bootstrap_repo(
-            name = hub_name + "__bootstrap_happy",
-        )
 
         _hackage_hub_repo(
             name = hub_name,

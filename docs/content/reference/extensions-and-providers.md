@@ -23,6 +23,7 @@ Use the `hs` module extension in `MODULE.bazel` to download a SHA-256-pinned off
   - `hs_toolchains`: Contains Bazel `toolchain()` targets for all configured platforms. Activate them in `MODULE.bazel` with [`register_toolchains("@hs_toolchains//:all")`](https://bazel.build/rules/lib/globals/module#register_toolchains).
   - `hs_boot`: Contains one [`hs_toolchain_library`](rules.md#hs_toolchain_library) target per GHC boot library (such as `@hs_boot//:base`, `@hs_boot//:bytestring`, `@hs_boot//:text`, and `@hs_boot//:Cabal-syntax`) for projects that don't use Hackage or want to distinguish boot dependencies from `@hackage` dependencies.
   - `ghc_<ver>_<platform>`: Internal per-platform compiler repositories (such as `ghc_9_10_3_linux_x86_64` and `ghc_9_10_3_linux_arm64`), downloaded lazily by Bazel only for the active execution platform.
+  - `hs_alex` and `hs_happy`: Lazy internal source-bootstrap repositories for `alex-3.5.4.2` and `happy-2.1.7`, downloaded and compiled from `@hs_boot` only when a target uses [`hs_alex_gen`](rules.md#hs_alex_gen) or [`hs_happy_gen`](rules.md#hs_happy_gen) (including locked Hackage packages with `.x`, `.y`, or `.ly` grammar files).
 - **Root-module precedence:** If both your root `MODULE.bazel` and a dependency (including `rules_haskell` itself) call `hs.toolchain(...)`, your root module's first `hs.toolchain` tag always wins.
 
 ```starlark

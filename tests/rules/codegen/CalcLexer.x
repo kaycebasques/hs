@@ -1,4 +1,5 @@
 {
+-- UTF-8 grammar check under strict action env: Café λ
 module CalcLexer (Token (..), scanCalc) where
 }
 

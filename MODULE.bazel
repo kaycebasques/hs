@@ -39,7 +39,7 @@ register_toolchains(
 # downstream consumer; a root module's hs.toolchain(...) overrides the version.
 hs = use_extension("//haskell:extensions.bzl", "hs")
 hs.toolchain(ghc_version = "9.10.3")
-use_repo(hs, "hs_boot", "hs_toolchains")
+use_repo(hs, "hs_alex", "hs_boot", "hs_happy", "hs_toolchains")
 
 register_toolchains(
     "@hs_toolchains//:all",
@@ -56,9 +56,4 @@ hackage.from_lock(
     name = "hackage",
     lockfile = "//docs:hackage.lock.json",
 )
-use_repo(
-    hackage,
-    "hackage",
-    "hackage__bootstrap_alex",
-    "hackage__bootstrap_happy",
-)
+use_repo(hackage, "hackage")

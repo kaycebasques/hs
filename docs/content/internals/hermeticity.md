@@ -70,7 +70,7 @@ You can't spawn `ghc-pkg dump` during [`bazel fetch`](https://bazel.build/extern
 
 - **Continuation lines:** Joins indented lines (`" "` or `"\t"`) onto the preceding key.
 - **Boot package metadata:** Extracts each boot package's `name`, `version`, `id` (`unit_id`), `depends`, and `exposed_modules` (stripping `from <pkg>:<OrigMod>` suffixes on re-exports).
-- **RTS headers:** Reads the `rts` package version (for example, `1.0.2`) to compute `rts_include_rel = "lib/<arch_libdir>/rts-<rts_version>/include"`, exposing `Rts.h`, `HsFFI.h`, and `ghcversion.h` as Bazel-tracked header files (`:rts_headers`).
+- **RTS and boot headers:** Globs `lib/<arch_libdir>/*/include/**` into `:rts_headers`, exposing `Rts.h`, `HsFFI.h`, `ghcversion.h`, and boot package C headers (`HsBase.h`, `HsUnix.h`, etc.) as Bazel-tracked header files.
 - **Toolchain registration:** Stores the parsed metadata as `boot_packages_json` on [`hs_toolchain`](../reference/rules.md#hs_toolchain) (`:toolchain_impl`), keeps `lib/html/**` (Haddock stylesheets and scripts) and `doc/html/libraries/**/*.haddock` (boot `.haddock` interfaces on `HsToolchainInfo.boot_haddocks`), and omits `lib/latex/**` from `:lib_files`.
 
 > **Important:** The staged directory output ([`TreeArtifact`](https://bazel.build/reference/glossary#tree-artifact)) declared by `staged_ghc` must literally be named `lib` (`<prefix>/lib`) next to `<prefix>/bin`. GHC's boot `.conf` files resolve `.hi` files, `.a` archives, and RTS headers through `${pkgroot}/../lib/...`, where `${pkgroot}` expands to the parent directory of `lib/package.conf.d` (namely `lib`). Renaming `<prefix>/lib` breaks `${pkgroot}/../lib` resolution.

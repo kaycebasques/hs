@@ -1,7 +1,10 @@
 # Root package for rules_haskell (Bzlmod-only Bazel 9 Haskell ruleset).
-package(default_visibility = ["//visibility:public"])
+package(default_visibility = ["//visibility:private"])
 
-exports_files([
-    "MODULE.bazel",
-    "README.md",
-])
+exports_files(
+    [
+        "MODULE.bazel",
+        "README.md",
+    ],
+    visibility = ["//visibility:public"],
+)

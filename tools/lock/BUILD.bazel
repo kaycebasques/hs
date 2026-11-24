@@ -1,7 +1,11 @@
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load("@rules_haskell//haskell:defs.bzl", "hs_binary", "hs_haddock", "hs_library", "hs_test")
+load("//haskell:defs.bzl", "hs_binary", "hs_haddock", "hs_library", "hs_test")
 
-package(default_visibility = ["//visibility:public"])
+package(default_visibility = ["//visibility:private"])
+
+exports_files(
+    ["lock_cli_test.sh"],
+    visibility = ["//tests/rules:__pkg__"],
+)
 
 hs_library(
     name = "lock_lib",
@@ -22,6 +26,7 @@ hs_haddock(
     name = "lock_haddock",
     prologue = "prologue.txt",
     title = "rules_haskell //tools/lock API Reference",
+    visibility = ["//visibility:public"],
     deps = [":lock_lib"],
 )
 
@@ -29,6 +34,7 @@ hs_binary(
     name = "lock",
     srcs = ["Main.hs"],
     main_module = "Main",
+    visibility = ["//visibility:public"],
     deps = [
         ":lock_lib",
         "@hs_boot//:Cabal-syntax",
@@ -55,12 +61,4 @@ hs_test(
         "@hs_boot//:containers",
         "@hs_boot//:text",
     ],
-)
-
-sh_test(
-    name = "lock_cli_test",
-    size = "small",
-    srcs = ["lock_cli_test.sh"],
-    args = ["$(rootpath :lock)"],
-    data = [":lock"],
 )

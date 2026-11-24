@@ -1,13 +1,22 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//docs:site.bzl", "hs_docs_site")
 load("//haskell:defs.bzl", "hs_binary")
 
-package(default_visibility = ["//visibility:public"])
+package(default_visibility = ["//visibility:private"])
 
-exports_files([
-    "README.md",
-    "hackage.lock.json",
-])
+exports_files(
+    [
+        "README.md",
+        "hackage.lock.json",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+bzl_library(
+    name = "site_bzl",
+    srcs = ["site.bzl"],
+)
 
 hs_binary(
     name = "docs_gen",
@@ -35,6 +44,7 @@ hs_docs_site(
         "css/*",
         "templates/*",
     ]),
+    visibility = ["//visibility:public"],
 )
 
 hs_binary(

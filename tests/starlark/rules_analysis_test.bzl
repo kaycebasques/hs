@@ -5,6 +5,8 @@ load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("//haskell:providers.bzl", "HsHaddockInfo", "HsLinkInfo", "HsPackageInfo", "HsReplInfo", "HsToolchainInfo")
 load("//haskell:toolchain.bzl", "TOOLCHAIN_TYPE")
 
+visibility(["//tests/starlark/..."])
+
 # ==============================================================================
 # Helpers
 # ==============================================================================
@@ -141,6 +143,8 @@ def _strict_direct_dep_visibility_test_impl(ctx):
     compile_actions = _find_actions_by_mnemonic(actions, "HsCompileLibrary")
     asserts.equals(env, 1, len(compile_actions), "expected exactly one HsCompileLibrary action")
     argv = compile_actions[0].argv
+    asserts.equals(env, "C.UTF-8", compile_actions[0].env.get("LC_ALL"), "HsCompileLibrary must set LC_ALL=C.UTF-8")
+    asserts.equals(env, "C.UTF-8", compile_actions[0].env.get("LANG"), "HsCompileLibrary must set LANG=C.UTF-8")
 
     pkg_c = target[HsPackageInfo]
     pkg_b = ctx.attr.direct_dep[HsPackageInfo]
@@ -217,6 +221,8 @@ def _hs_binary_action_test_impl(ctx):
     action = link_actions[0]
     argv = action.argv
     inputs = action.inputs.to_list()
+    asserts.equals(env, "C.UTF-8", action.env.get("LC_ALL"), "HsLinkExecutable must set LC_ALL=C.UTF-8")
+    asserts.equals(env, "C.UTF-8", action.env.get("LANG"), "HsLinkExecutable must set LANG=C.UTF-8")
 
     # Static libgmp.a must be an action input and its directory passed via -optl-L<dir>.
     gmp_libs = [f for f in inputs if f.basename == "libgmp.a"]
@@ -367,6 +373,8 @@ def _hs_cabal_library_test_impl(ctx):
     compile_actions = _find_actions_by_mnemonic(actions, "HsCompileLibrary")
     asserts.equals(env, 1, len(compile_actions), "expected exactly one HsCompileLibrary action")
     argv = compile_actions[0].argv
+    asserts.equals(env, "C.UTF-8", compile_actions[0].env.get("LC_ALL"), "HsCompileLibrary must set LC_ALL=C.UTF-8")
+    asserts.equals(env, "C.UTF-8", compile_actions[0].env.get("LANG"), "HsCompileLibrary must set LANG=C.UTF-8")
 
     expected_lang_flag = "-X" + ctx.attr.expected_language
     forbidden_lang_flag = "-X" + ctx.attr.forbidden_language
@@ -499,6 +507,8 @@ def _hs_binary_cc_propagation_test_impl(ctx):
     action = link_actions[0]
     argv = action.argv
     inputs = action.inputs.to_list()
+    asserts.equals(env, "C.UTF-8", action.env.get("LC_ALL"), "HsLinkExecutable must set LC_ALL=C.UTF-8")
+    asserts.equals(env, "C.UTF-8", action.env.get("LANG"), "HsLinkExecutable must set LANG=C.UTF-8")
 
     expected_archives = _extract_static_archives(cc_dep[CcInfo])
     asserts.true(env, len(expected_archives) >= 1, "fixture cc_library must provide a static archive")
@@ -555,6 +565,8 @@ def _hs_haddock_action_test_impl(ctx):
     haddock_actions = _find_actions_by_mnemonic(actions, "HsHaddock")
     asserts.equals(env, 1, len(haddock_actions), "expected exactly one HsHaddock action")
     argv = haddock_actions[0].argv
+    asserts.equals(env, "C.UTF-8", haddock_actions[0].env.get("LC_ALL"), "HsHaddock must set LC_ALL=C.UTF-8")
+    asserts.equals(env, "C.UTF-8", haddock_actions[0].env.get("LANG"), "HsHaddock must set LANG=C.UTF-8")
 
     asserts.true(env, "--html" in argv, "expected --html in HsHaddock argv")
     asserts.true(env, "--quickjump" in argv, "expected --quickjump in HsHaddock argv")

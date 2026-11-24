@@ -1,3 +1,4 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load(
     "//haskell:defs.bzl",
@@ -25,6 +26,19 @@ load(
     "toolchain_library_test",
     "toolchain_probe",
     "toolchain_registration_test",
+)
+
+package(default_visibility = ["//visibility:private"])
+
+bzl_library(
+    name = "rules_analysis_test_bzl",
+    srcs = ["rules_analysis_test.bzl"],
+    deps = [
+        "//haskell:providers",
+        "//haskell:toolchain",
+        "@bazel_skylib//lib:unittest",
+        "@rules_cc//cc/common:cc_info",
+    ],
 )
 
 # ------------------------------------------------------------------------------

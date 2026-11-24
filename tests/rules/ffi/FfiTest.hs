@@ -1,4 +1,8 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
+
+#include "HsBaseConfig.h"
+
 module Main where
 
 import AsmFfi (asmAddOffset, asmDouble)

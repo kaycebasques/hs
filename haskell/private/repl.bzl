@@ -14,7 +14,13 @@ load(
     "ghc_base_env",
     "resolve_cc_tools",
     "resolve_package_dir",
+    "toolchain_c_include_dirs",
 )
+
+visibility([
+    "//haskell/...",
+    "//tools/ghci/...",
+])
 
 def _shell_quote(s):
     return "'" + s.replace("'", "'\"'\"'") + "'"
@@ -73,21 +79,6 @@ def _execroot_str_to_shell_expr(path_str, prefer_ws_root = False):
     if path_str == ".":
         return '"$RUNFILES_DIR/_main"'
     return '"$RUNFILES_DIR"/' + _shell_quote("_main/" + path_str)
-
-def _toolchain_c_include_dirs(hs_tc):
-    dirs = []
-    seen = {}
-    if hs_tc.rts_include_dir:
-        dirs.append(hs_tc.rts_include_dir)
-        seen[hs_tc.rts_include_dir] = True
-    for f in hs_tc.rts_headers.to_list():
-        d = f.dirname
-        idx = d.rfind("/include")
-        inc_d = d[:idx + len("/include")] if idx != -1 else d
-        if inc_d and inc_d not in seen:
-            seen[inc_d] = True
-            dirs.append(inc_d)
-    return dirs
 
 def _cc_extra_args_shell_lines(cc_tools):
     """Formats RULES_HASKELL_CC_IS_GCC and RULES_HASKELL_CC_EXTRA_ARGS lines anchored to $RUNFILES_DIR."""
@@ -221,29 +212,17 @@ def _link_repl_cbits_so(ctx, hs_tc, cc_tools, cc_archives, cc_link_flags):
         args.add(lf)
     args.add("-o", out_so.path)
 
-    ctx.actions.run_shell(
+    ctx.actions.run(
         mnemonic = "HsLinkReplCbits",
         progress_message = "Linking GHCi C/C++ shared stub for {}".format(ctx.label),
         inputs = depset(
             list(cc_archives) + shim_archives,
             transitive = [hs_tc.all_files, cc_tools.all_files],
         ),
-        tools = [hs_tc.cc_wrapper],
+        executable = hs_tc.cc_wrapper,
         outputs = [out_so],
         env = ghc_base_env(cc_tools),
-        command = """\
-set -euo pipefail
-unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY
-EXECROOT="$(pwd)"
-case "${RULES_HASKELL_REAL_CC:-}" in
-    ""|/*) ;;
-    *) export RULES_HASKELL_REAL_CC="$EXECROOT/$RULES_HASKELL_REAL_CC" ;;
-esac
-WRAPPER="$1"
-shift
-"$WRAPPER" "$@"
-""",
-        arguments = [hs_tc.cc_wrapper.path, args],
+        arguments = [args],
     )
     return out_so, safe_id
 
@@ -384,7 +363,7 @@ def _hs_repl_impl(ctx):
     _append_unique(
         c_inc_dirs,
         seen_c_inc,
-        local_c_inc_dirs + dep_info.include_dirs.to_list() + _toolchain_c_include_dirs(hs_tc),
+        local_c_inc_dirs + dep_info.include_dirs.to_list() + toolchain_c_include_dirs(hs_tc),
     )
 
     cc_archives, cc_link_flags = extract_cc_static_libs_and_flags(merged_cc_info)
@@ -506,6 +485,10 @@ else
 fi
 
 GHC_BIN={ghc_expr}
+if [ -z "${{LC_ALL:-}}" ] && [ -z "${{LANG:-}}" ]; then
+    export LC_ALL="C.UTF-8"
+    export LANG="C.UTF-8"
+fi
 export RULES_HASKELL_REAL_CC={real_cc_expr}
 export RULES_HASKELL_FORCE_PIC=1
 {cc_extra_setup}
@@ -800,7 +783,7 @@ hs_repl = rule(
             doc = "Native C/C++ libraries linked into a shared stub for FFI calls inside GHCi.",
         ),
         "c_sources": attr.label_list(
-            allow_files = [".c", ".cc", ".cpp", ".S", ".s"],
+            allow_files = [".c", ".cc", ".cpp", ".cxx", ".C", ".S", ".s"],
             default = [],
             doc = "Inline C/C++/assembly files compiled and linked into a shared stub for FFI calls inside GHCi.",
         ),
@@ -907,6 +890,10 @@ export RUNFILES_DIR
 
 RUNGHC_BIN={runghc_expr}
 GHC_BIN={ghc_expr}
+if [ -z "${{LC_ALL:-}}" ] && [ -z "${{LANG:-}}" ]; then
+    export LC_ALL="C.UTF-8"
+    export LANG="C.UTF-8"
+fi
 export RULES_HASKELL_REAL_CC={real_cc_expr}
 export RULES_HASKELL_FORCE_PIC=1
 {cc_extra_setup}

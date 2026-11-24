@@ -1,5 +1,7 @@
 """Official GHC bindist metadata table (cross-OS extensible)."""
 
+visibility(["//haskell/..."])
+
 DEFAULT_GHC_VERSION = "9.10.3"
 
 # Active Linux platforms registered by default in Phase 2.

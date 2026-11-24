@@ -6,6 +6,9 @@ load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("//haskell:providers.bzl", "HsToolchainInfo")
 
+# Loaded across repository boundaries by extension-generated @ghc_<ver>_<plat> repos.
+visibility("public")
+
 def _find_static_archives(cc_info, desc):
     """Returns (pic_archive, static_archive) from a CcInfo provider."""
     pic_a = None
@@ -115,6 +118,8 @@ def _staged_ghc_impl(ctx):
     stage_extra_inputs = []
 
     if ctx.attr.bignum == "gmp":
+        if not ctx.attr.gmp:
+            fail("staged_ghc requires gmp attribute when bignum == 'gmp'")
         gmp_pic_a, gmp_static_a = _find_static_archives(ctx.attr.gmp[CcInfo], "@gmp//:gmp")
 
         # Clean static-only directory containing strictly static archives (no .so!).
@@ -128,24 +133,25 @@ def _staged_ghc_impl(ctx):
         # Build libgmp.so.10 for GHC compiler binary's $ORIGIN RUNPATH.
         if ctx.attr.is_dynamic_ghc:
             gmp_shared_so = ctx.actions.declare_file(prefix + "/_gmp_so/libgmp.so.10")
-            ctx.actions.run_shell(
+            gmp_args = ctx.actions.args()
+            gmp_args.add_all(extra_link_args)
+            gmp_args.add_all([
+                "-shared",
+                "-fPIC",
+                "-Wl,-soname,libgmp.so.10",
+                "-Wl,--whole-archive",
+                gmp_pic_a.path,
+                "-Wl,--no-whole-archive",
+                "-o",
+                gmp_shared_so.path,
+            ])
+            ctx.actions.run(
                 mnemonic = "HsLinkGmpShared",
                 progress_message = "Building hermetic libgmp.so.10 for GHC {}".format(ver),
                 inputs = depset([gmp_pic_a], transitive = [cc_toolchain.all_files]),
                 outputs = [gmp_shared_so],
-                command = """\
-set -euo pipefail
-unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY
-CC_BIN="$1"
-GMP_A="$2"
-OUT_SO="$3"
-shift 3
-"$CC_BIN" "$@" -shared -fPIC \
-    -Wl,-soname,libgmp.so.10 \
-    -Wl,--whole-archive "$GMP_A" -Wl,--no-whole-archive \
-    -o "$OUT_SO"
-""",
-                arguments = [cc_bin, gmp_pic_a.path, gmp_shared_so.path] + extra_link_args,
+                executable = cc_bin,
+                arguments = [gmp_args],
             )
             stage_extra_inputs.append(gmp_shared_so)
 
@@ -194,15 +200,45 @@ shift 3
 
     # Locate bindist lib root from template-hsc.h (always at <bindist>/lib/template-hsc.h).
     src_lib_dir = ctx.file.template_hsc_h.dirname
+    lib_files_depsets = [t[DefaultInfo].files for t in ctx.attr.lib_files]
+    rts_headers_depset = depset(transitive = [t[DefaultInfo].files for t in ctx.attr.rts_headers])
+
+    stage_args = ctx.actions.args()
+    stage_args.add_all([
+        src_lib_dir,
+        out_lib.path,
+        arch_libdir,
+        ctx.file.ghc.path,
+        out_ghc.path,
+        ctx.file.ghc_pkg.path,
+        out_ghc_pkg.path,
+        ctx.file.hsc2hs.path,
+        out_hsc2hs.path,
+        ctx.file.haddock.path,
+        out_haddock.path,
+        ctx.file.runghc.path,
+        out_runghc.path,
+        ctx.file.unlit.path,
+        out_unlit.path,
+        iserv_src,
+        iserv_dst,
+        iserv_alias_dst,
+        gmp_shared_so.path if gmp_shared_so else "",
+        tinfo_so.path if tinfo_so else "",
+    ])
 
     ctx.actions.run_shell(
         mnemonic = "HsStageGhc",
         progress_message = "Staging hermetic GHC {} ($ORIGIN layout)".format(ver),
         inputs = depset(
             inputs + [ctx.file.template_hsc_h],
-            transitive = [depset(ctx.files.lib_files)],
+            transitive = lib_files_depsets,
         ),
         outputs = outputs,
+        env = {
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+        },
         command = """\
 set -euo pipefail
 unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY
@@ -259,28 +295,7 @@ rm -f "$OUT_LIB/package.conf.d/package.cache" "$OUT_LIB/package.conf.d/package.c
 "$GHCPKG_DST" --global-package-db="$OUT_LIB/package.conf.d" recache
 rm -f "$OUT_LIB/package.conf.d/package.cache.lock"
 """,
-        arguments = [
-            src_lib_dir,
-            out_lib.path,
-            arch_libdir,
-            ctx.file.ghc.path,
-            out_ghc.path,
-            ctx.file.ghc_pkg.path,
-            out_ghc_pkg.path,
-            ctx.file.hsc2hs.path,
-            out_hsc2hs.path,
-            ctx.file.haddock.path,
-            out_haddock.path,
-            ctx.file.runghc.path,
-            out_runghc.path,
-            ctx.file.unlit.path,
-            out_unlit.path,
-            iserv_src,
-            iserv_dst,
-            iserv_alias_dst,
-            gmp_shared_so.path if gmp_shared_so else "",
-            tinfo_so.path if tinfo_so else "",
-        ],
+        arguments = [stage_args],
     )
 
     # Compute execroot-relative RTS include dir directly from bindist rts_headers
@@ -322,8 +337,8 @@ rm -f "$OUT_LIB/package.conf.d/package.cache.lock"
             libdir = out_lib,
             template_hsc_h = ctx.file.template_hsc_h,
             rts_include_dir = rts_include_dir,
-            rts_headers = depset(ctx.files.rts_headers),
-            all_files = depset(all_files_list, transitive = [depset(ctx.files.rts_headers)]),
+            rts_headers = rts_headers_depset,
+            all_files = depset(all_files_list, transitive = [rts_headers_depset]),
             cc_wrapper = None,  # Populated by hs_toolchain rule
             gmp_static_dir = gmp_static_dir,
             gmp_static_lib = gmp_static_lib,
@@ -342,7 +357,6 @@ staged_ghc = rule(
     attrs = {
         "version": attr.string(mandatory = True),
         "arch_libdir": attr.string(mandatory = True),
-        "rts_include_rel": attr.string(mandatory = True),
         "bignum": attr.string(default = "gmp"),
         "is_dynamic_ghc": attr.bool(default = True),
         "needs_tinfo_stub": attr.bool(default = True),
@@ -357,7 +371,7 @@ staged_ghc = rule(
         "lib_files": attr.label_list(allow_files = True, mandatory = True),
         "boot_haddock_files": attr.label_list(allow_files = True, default = []),
         "rts_headers": attr.label_list(allow_files = True, mandatory = True),
-        "gmp": attr.label(mandatory = True, providers = [CcInfo]),
+        "gmp": attr.label(providers = [CcInfo]),
         "tinfo_stub": attr.label(allow_single_file = True),
         "tinfo_stub_static": attr.label(providers = [CcInfo]),
     },

@@ -1,5 +1,7 @@
 """Minimal Bazel rule building the Hakyll docs TreeArtifact and mounting hs_haddock outputs."""
 
+visibility(["//docs/..."])
+
 def _hs_docs_site_impl(ctx):
     out_dir = ctx.actions.declare_directory(ctx.label.name)
     pkg_prefix = ctx.label.package + "/" if ctx.label.package else ""
@@ -31,6 +33,10 @@ def _hs_docs_site_impl(ctx):
         inputs = depset(ctx.files.srcs + haddock_dirs),
         tools = [ctx.executable.compiler],
         outputs = [out_dir],
+        env = {
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+        },
         command = """\
 set -euo pipefail
 unset RUNFILES_DIR RUNFILES_MANIFEST_FILE RUNFILES_MANIFEST_ONLY

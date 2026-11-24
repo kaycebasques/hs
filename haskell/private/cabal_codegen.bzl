@@ -6,6 +6,8 @@ official Hackage release tarballs and depend strictly on GHC boot libraries
 zero extra non-dev Bzlmod dependencies.
 """
 
+visibility(["//haskell/..."])
+
 def _hs_alex_gen_impl(ctx):
     out_hs = ctx.actions.declare_file(ctx.attr.out)
     data_files = ctx.files.alex_data
@@ -24,9 +26,13 @@ def _hs_alex_gen_impl(ctx):
         progress_message = "Running hermetic alex on {}".format(ctx.file.src.short_path),
         executable = ctx.executable.alex,
         arguments = [args],
-        inputs = depset([ctx.file.src] + data_files),
+        inputs = depset([ctx.file.src], transitive = [t[DefaultInfo].files for t in ctx.attr.alex_data]),
         outputs = [out_hs],
-        env = {"alex_datadir": template_dir},
+        env = {
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+            "alex_datadir": template_dir,
+        },
     )
     return [DefaultInfo(files = depset([out_hs]))]
 
@@ -35,8 +41,16 @@ hs_alex_gen = rule(
     attrs = {
         "src": attr.label(mandatory = True, allow_single_file = [".x"]),
         "out": attr.string(mandatory = True),
-        "alex": attr.label(mandatory = True, executable = True, cfg = "exec"),
-        "alex_data": attr.label_list(mandatory = True, allow_files = True),
+        "alex": attr.label(
+            default = Label("@hs_alex//:alex"),
+            executable = True,
+            cfg = "exec",
+        ),
+        "alex_data": attr.label_list(
+            default = [Label("@hs_alex//:data_files")],
+            allow_files = True,
+            cfg = "exec",
+        ),
     },
     doc = "Generates a Haskell lexer module (.hs) from an Alex grammar (.x).",
 )
@@ -49,6 +63,7 @@ def _hs_happy_gen_impl(ctx):
     template_dir = data_files[0].dirname
 
     args = ctx.actions.args()
+    args.add("--ghc")
     args.add("-t", template_dir)
     args.add("-o", out_hs.path)
     args.add(ctx.file.src.path)
@@ -58,9 +73,13 @@ def _hs_happy_gen_impl(ctx):
         progress_message = "Running hermetic happy on {}".format(ctx.file.src.short_path),
         executable = ctx.executable.happy,
         arguments = [args],
-        inputs = depset([ctx.file.src] + data_files),
+        inputs = depset([ctx.file.src], transitive = [t[DefaultInfo].files for t in ctx.attr.happy_data]),
         outputs = [out_hs],
-        env = {"happy_datadir": template_dir},
+        env = {
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+            "happy_datadir": template_dir,
+        },
     )
     return [DefaultInfo(files = depset([out_hs]))]
 
@@ -69,8 +88,16 @@ hs_happy_gen = rule(
     attrs = {
         "src": attr.label(mandatory = True, allow_single_file = [".y", ".ly"]),
         "out": attr.string(mandatory = True),
-        "happy": attr.label(mandatory = True, executable = True, cfg = "exec"),
-        "happy_data": attr.label_list(mandatory = True, allow_files = True),
+        "happy": attr.label(
+            default = Label("@hs_happy//:happy"),
+            executable = True,
+            cfg = "exec",
+        ),
+        "happy_data": attr.label_list(
+            default = [Label("@hs_happy//:data_files")],
+            allow_files = True,
+            cfg = "exec",
+        ),
     },
     doc = "Generates a Haskell parser module (.hs) from a Happy grammar (.y / .ly).",
 )

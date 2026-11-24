@@ -2,6 +2,8 @@
 
 load("//haskell/private:ghc_versions.bzl", "BOOT_PACKAGE_NAMES", "GHC_BINDISTS")
 
+visibility(["//haskell/..."])
+
 def _sanitize_settings(content):
     """Rewrites hardcoded host paths in GHC's lib/settings.
 
@@ -128,7 +130,6 @@ def _ghc_bindist_repo_impl(repository_ctx):
     # 2. Parse lib/package.conf.d/*.conf to extract exact boot package unit IDs & metadata.
     pkgdb_dir = repository_ctx.path("lib/package.conf.d")
     boot_packages = {}
-    rts_version = "1.0.2"
     for entry in pkgdb_dir.readdir():
         fname = entry.basename
         if not fname.endswith(".conf"):
@@ -136,16 +137,14 @@ def _ghc_bindist_repo_impl(repository_ctx):
         parsed = _parse_pkg_conf(repository_ctx.read(entry))
         if parsed:
             boot_packages[parsed["name"]] = parsed
-            if parsed["name"] == "rts" and parsed["version"]:
-                rts_version = parsed["version"]
 
     boot_packages_json_dict = {
         k: json.encode(v)
         for k, v in sorted(boot_packages.items())
     }
 
-    rts_include_rel = "lib/{}/rts-{}/include".format(arch_libdir, rts_version)
     iserv_label = '":bin/ghc-iserv-dyn-ghc-{}"'.format(ver) if repository_ctx.attr.is_dynamic_ghc else "None"
+    gmp_attr = '    gmp = "@gmp//:gmp",\n' if repository_ctx.attr.bignum == "gmp" else ""
     haddock_rel = "bin/haddock-ghc-{}".format(ver)
     if not repository_ctx.path(haddock_rel).exists:
         haddock_rel = "bin/haddock"
@@ -201,7 +200,6 @@ staged_ghc(
     name = "staged_ghc",
     version = "{ver}",
     arch_libdir = "{arch_libdir}",
-    rts_include_rel = "{rts_include_rel}",
     bignum = "{bignum}",
     is_dynamic_ghc = {is_dynamic_ghc},
     needs_tinfo_stub = {needs_tinfo_stub},
@@ -216,8 +214,7 @@ staged_ghc(
     lib_files = [":lib_files"],
     boot_haddock_files = [":boot_haddock_files"],
     rts_headers = [":rts_headers"],
-    gmp = "@gmp//:gmp",
-    tinfo_stub = "@rules_haskell//haskell/private:libtinfo.so.6",
+{gmp_attr}    tinfo_stub = "@rules_haskell//haskell/private:libtinfo.so.6",
     tinfo_stub_static = "@rules_haskell//haskell/private:tinfo_stub_static",
 )
 
@@ -235,12 +232,12 @@ hs_toolchain(
 """.format(
         ver = ver,
         arch_libdir = arch_libdir,
-        rts_include_rel = rts_include_rel,
         bignum = repository_ctx.attr.bignum,
         is_dynamic_ghc = repository_ctx.attr.is_dynamic_ghc,
         needs_tinfo_stub = repository_ctx.attr.needs_tinfo_stub,
         iserv_exports = '["bin/ghc-iserv-dyn-ghc-{}"]'.format(ver) if repository_ctx.attr.is_dynamic_ghc else "[]",
         iserv_label = iserv_label,
+        gmp_attr = gmp_attr,
         haddock_rel = haddock_rel,
         runghc_rel = runghc_rel,
         boot_packages_json = repr(boot_packages_json_dict),

@@ -16,7 +16,10 @@ load(
     "ghc_tool_flags",
     "resolve_cc_tools",
     "resolve_package_dir",
+    "toolchain_c_include_dirs",
 )
+
+visibility(["//haskell/..."])
 
 def _sanitize_unit_id(label):
     """Generates a deterministic, injective, GHC-valid unit ID for a Bazel target label."""
@@ -202,7 +205,7 @@ hs_library = rule(
             default = [],
         ),
         "c_sources": attr.label_list(
-            allow_files = [".c", ".cc", ".cpp", ".S", ".s", ".cmm"],
+            allow_files = [".c", ".cc", ".cpp", ".cxx", ".C", ".S", ".s", ".cmm"],
             default = [],
         ),
         "hdrs": attr.label_list(
@@ -266,10 +269,7 @@ def _hs_executable_impl(ctx):
     ]
 
     resolved_src_dirs = [resolve_package_dir(ctx, d) for d in (ctx.attr.hs_source_dirs or ["."])]
-    all_c_inc_dirs = []
-    for d in [resolve_package_dir(ctx, x) for x in ctx.attr.include_dirs] + dep_info.include_dirs.to_list() + [hs_tc.rts_include_dir]:
-        if d and d not in all_c_inc_dirs:
-            all_c_inc_dirs.append(d)
+    local_c_inc_dirs = [resolve_package_dir(ctx, x) for x in ctx.attr.include_dirs]
 
     ghc_args = ctx.actions.args()
     ghc_args.add("--make")
@@ -282,8 +282,12 @@ def _hs_executable_impl(ctx):
     if ctx.attr.main_module:
         ghc_args.add("-main-is", ctx.attr.main_module)
 
-    for db in dep_info.pkg_dbs.to_list():
-        ghc_args.add("-package-db", db.path)
+    ghc_args.add_all(
+        dep_info.pkg_dbs,
+        before_each = "-package-db",
+        uniquify = True,
+        expand_directories = False,
+    )
 
     seen_uid = {}
     direct_unit_ids = []
@@ -302,8 +306,9 @@ def _hs_executable_impl(ctx):
     for d in resolved_src_dirs:
         ghc_args.add("-i" + d)
 
-    for d in all_c_inc_dirs:
-        ghc_args.add("-I" + d)
+    ghc_args.add_all([d for d in local_c_inc_dirs if d], format_each = "-I%s", uniquify = True)
+    ghc_args.add_all(dep_info.include_dirs, format_each = "-I%s", uniquify = True)
+    ghc_args.add_all(toolchain_c_include_dirs(hs_tc), format_each = "-I%s", uniquify = True)
 
     for opt in ctx.attr.cpp_options:
         ghc_args.add("-optP" + opt)
@@ -468,7 +473,7 @@ _EXECUTABLE_ATTRS = {
         default = [],
     ),
     "c_sources": attr.label_list(
-        allow_files = [".c", ".cc", ".cpp", ".S", ".s", ".cmm"],
+        allow_files = [".c", ".cc", ".cpp", ".cxx", ".C", ".S", ".s", ".cmm"],
         default = [],
     ),
     "hdrs": attr.label_list(

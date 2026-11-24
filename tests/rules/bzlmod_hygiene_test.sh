@@ -135,6 +135,17 @@ END {
 }
 '
 
+# 2d. Assert zero dev_dependency repository references inside public packages (haskell/**, tools/**).
+DEV_LOAD_LEAKS="$(grep -rnE '@(rules_shell|hermetic_cc_toolchain|zlib|zig_sdk|hackage)(//|:)' \
+    "$REPO_ROOT/haskell" "$REPO_ROOT/tools" \
+    --include='BUILD.bazel' --include='*.bzl' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' || true)"
+if [ -n "$DEV_LOAD_LEAKS" ]; then
+    echo "FAIL: dev_dependency repository referenced inside public haskell/ or tools/ packages:" >&2
+    echo "$DEV_LOAD_LEAKS" >&2
+    exit 1
+fi
+echo "OK: zero dev_dependency repository leaks in haskell/** and tools/**"
+
 echo "=== 3. Checking compiled binary ELF DT_NEEDED ==="
 NEEDED="$(readelf -d "$BIN" | awk '/\(NEEDED\)/{print $NF}' | tr -d '[]' | sort)"
 echo "$NEEDED"

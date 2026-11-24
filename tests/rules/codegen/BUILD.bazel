@@ -1,27 +1,27 @@
-load("//haskell:defs.bzl", "hs_cabal_library", "hs_library", "hs_test")
-load("//haskell/private:cabal_codegen.bzl", "hs_alex_gen", "hs_happy_gen")
+load(
+    "//haskell:defs.bzl",
+    "hs_alex_gen",
+    "hs_cabal_library",
+    "hs_happy_gen",
+    "hs_library",
+    "hs_test",
+)
 
 hs_alex_gen(
     name = "calc_lexer_hs",
     src = "CalcLexer.x",
-    alex = "@hackage__bootstrap_alex//:alex",
-    alex_data = ["@hackage__bootstrap_alex//:data_files"],
     out = "CalcLexer.hs",
 )
 
 hs_happy_gen(
     name = "calc_parser_hs",
     src = "CalcParser.y",
-    happy = "@hackage__bootstrap_happy//:happy",
-    happy_data = ["@hackage__bootstrap_happy//:data_files"],
     out = "CalcParser.hs",
 )
 
 hs_happy_gen(
     name = "lit_calc_parser_hs",
     src = "LitCalcParser.ly",
-    happy = "@hackage__bootstrap_happy//:happy",
-    happy_data = ["@hackage__bootstrap_happy//:data_files"],
     out = "LitCalcParser.hs",
 )
 

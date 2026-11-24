@@ -81,3 +81,45 @@ if [ -n "$LEFTOVERS" ]; then
     exit 1
 fi
 echo "OK: .dyn_o alias resolved during execution and cleaned up with zero TMPDIR leaks"
+
+# 4. Rewriting @link.rsp MUST NOT mutate the input @rsp file in place.
+LINK_RSP="$WORK/link.rsp"
+printf '"%s"\n' "-Wl,-h,libdemo.so" > "$LINK_RSP"
+ORIG_RSP_CONTENT="$(cat "$LINK_RSP")"
+
+CHECK_RSP_CC="$WORK/check_rsp_cc.sh"
+cat > "$CHECK_RSP_CC" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+FOUND_SONAME=0
+for arg in "$@"; do
+    case "$arg" in
+        @*)
+            rsp_file="${arg#@}"
+            if grep -qF -- "-Wl,-soname,libdemo.so" "$rsp_file"; then
+                FOUND_SONAME=1
+            fi
+            ;;
+    esac
+done
+if [ "$FOUND_SONAME" != "1" ]; then
+    echo "FAIL: expected rewritten @rsp containing -Wl,-soname,libdemo.so" >&2
+    exit 1
+fi
+EOF
+chmod +x "$CHECK_RSP_CC"
+
+RULES_HASKELL_REAL_CC="$CHECK_RSP_CC" TMPDIR="$SESSION_TMP" "$WRAPPER" "@$LINK_RSP"
+
+AFTER_RSP_CONTENT="$(cat "$LINK_RSP")"
+if [ "$ORIG_RSP_CONTENT" != "$AFTER_RSP_CONTENT" ]; then
+    echo "FAIL: ghc_cc_wrapper mutated input @rsp file in place!" >&2
+    exit 1
+fi
+LEFTOVERS2="$(ls -A "$SESSION_TMP")"
+if [ -n "$LEFTOVERS2" ]; then
+    echo "FAIL: ghc_cc_wrapper leaked temporary @rsp files/dirs in TMPDIR:" >&2
+    echo "$LEFTOVERS2" >&2
+    exit 1
+fi
+echo "OK: @rsp rewritten into temporary file without mutating input @rsp"

@@ -11,7 +11,10 @@ load(
     "ghc_base_env",
     "ghc_tool_flags",
     "resolve_cc_tools",
+    "toolchain_c_include_dirs",
 )
+
+visibility(["//haskell/..."])
 
 def _append_unique(dst, seen, items):
     for item in items:
@@ -131,14 +134,6 @@ def _hs_haddock_impl(ctx):
         if pkg_root == "." and di.pkg_root and di.pkg_root != ".":
             pkg_root = di.pkg_root
 
-    c_inc_dirs = []
-    seen_all_c_inc = {}
-    _append_unique(
-        c_inc_dirs,
-        seen_all_c_inc,
-        local_c_inc_dirs + dep_info.include_dirs.to_list() + [hs_tc.rts_include_dir],
-    )
-
     ext_pkg_dbs = [
         db
         for db in dep_info.pkg_dbs.to_list()
@@ -215,43 +210,47 @@ def _hs_haddock_impl(ctx):
         extra_in.append(entry.interface)
 
     # Forward hermetic GHC flags via --optghc=.
-    ghc_tokens = [
+    ghc_tokens_pre = [
         "-fPIC",
         "-hide-all-packages",
     ]
     if len(doc_infos) == 1 and doc_infos[0].unit_id:
-        ghc_tokens.extend(["-this-unit-id", doc_infos[0].unit_id])
+        ghc_tokens_pre.extend(["-this-unit-id", doc_infos[0].unit_id])
     for db in ext_pkg_dbs:
-        ghc_tokens.extend(["-package-db", db.path])
+        ghc_tokens_pre.extend(["-package-db", db.path])
     for uid in direct_unit_ids:
-        ghc_tokens.extend(["-package-id", uid])
+        ghc_tokens_pre.extend(["-package-id", uid])
     if default_language:
-        ghc_tokens.append("-X" + default_language)
+        ghc_tokens_pre.append("-X" + default_language)
     for ext in default_extensions:
-        ghc_tokens.append("-X" + ext)
-    ghc_tokens.append("-i")
+        ghc_tokens_pre.append("-X" + ext)
+    ghc_tokens_pre.append("-i")
     for d in import_dirs:
-        ghc_tokens.append("-i" + d)
-    for d in c_inc_dirs:
-        ghc_tokens.append("-I" + d)
+        ghc_tokens_pre.append("-i" + d)
+
+    haddock_args.add_all(ghc_tokens_pre, format_each = "--optghc=%s")
+    haddock_args.add_all([d for d in local_c_inc_dirs if d], format_each = "--optghc=-I%s", uniquify = True)
+    haddock_args.add_all(dep_info.include_dirs, format_each = "--optghc=-I%s", uniquify = True)
+    haddock_args.add_all(toolchain_c_include_dirs(hs_tc), format_each = "--optghc=-I%s", uniquify = True)
+
+    ghc_tokens_post = []
     for mf in cabal_macros_files:
-        ghc_tokens.extend([
+        ghc_tokens_post.extend([
             "-optP-include",
             "-optP" + mf.path,
             "-optc-include",
             "-optc" + mf.path,
         ])
     for opt in cpp_options:
-        ghc_tokens.append("-optP" + opt)
+        ghc_tokens_post.append("-optP" + opt)
     for opt in cc_options:
         if not (opt.startswith("-std=c++") or opt.startswith("-std=gnu++") or opt.startswith("-stdlib=")):
-            ghc_tokens.append("-optc" + opt)
-    ghc_tokens.extend(ghc_tool_flags(hs_tc, cc_tools))
-    ghc_tokens.extend(lib_ghc_opts)
-    ghc_tokens.extend(ctx.attr.ghc_opts)
+            ghc_tokens_post.append("-optc" + opt)
+    ghc_tokens_post.extend(ghc_tool_flags(hs_tc, cc_tools))
+    ghc_tokens_post.extend(lib_ghc_opts)
+    ghc_tokens_post.extend(ctx.attr.ghc_opts)
 
-    for tok in ghc_tokens:
-        haddock_args.add("--optghc=" + tok)
+    haddock_args.add_all(ghc_tokens_post, format_each = "--optghc=%s")
 
     for hopt in ctx.attr.haddock_opts:
         haddock_args.add(hopt)

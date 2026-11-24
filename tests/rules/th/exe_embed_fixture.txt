@@ -1,1 +1,1 @@
-rules_haskell compile-time executable data fixture
+rules_haskell compile-time executable data fixture (UTF-8: Café λ)

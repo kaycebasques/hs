@@ -26,6 +26,10 @@ bzl_library(
     name = "defs",
     srcs = ["defs.bzl"],
     deps = [
+        "//haskell/private:cabal_codegen_bzl",
+        "//haskell/private:cabal_library_bzl",
+        "//haskell/private:haddock_bzl",
+        "//haskell/private:repl_bzl",
         "//haskell/private:rules_bzl",
     ],
 )
@@ -34,6 +38,7 @@ bzl_library(
     name = "extensions",
     srcs = ["extensions.bzl"],
     deps = [
+        "//haskell/private:cabal_codegen_bzl",
         "//haskell/private:ghc_bindist_bzl",
         "//haskell/private:ghc_versions_bzl",
         "//haskell/private:hackage_bzl",

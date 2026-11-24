@@ -108,5 +108,6 @@ hs_test(
         ":file_embed_lib",
         "@hackage//:base",
         "@hackage//:file-embed",
+        "@hackage//:template-haskell",
     ],
 )

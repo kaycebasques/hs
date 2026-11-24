@@ -353,7 +353,7 @@ bazel build //tools/lock:lock_haddock
 bazel run //docs:serve
 
 # Run the documentation smoke test
-bazel test //docs:...
+bazel test //docs/...
 ```
 
 ### Documentation sections
