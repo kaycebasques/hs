@@ -4,15 +4,14 @@ on:
   push:
     branches: [main]
     paths:
-      - '.bazelrc'
-      - '.bazelversion'
       - '.github/workflows/pages.yml'
-      - 'MODULE.bazel'
-      - 'docs/**'
-      - '!docs/README.md'
-      - '!docs/serve.hs'
-      - '!docs/site_test.sh'
-      - 'haskell/**'
+      - 'docs/BUILD.bazel'
+      - 'docs/content/**'
+      - 'docs/css/**'
+      - 'docs/hackage.lock.json'
+      - 'docs/site.hs'
+      - 'docs/templates/**'
+      - 'haskell/private/haddock.bzl'
       - 'tools/lock/BUILD.bazel'
       - 'tools/lock/CabalExtract.hs'
       - 'tools/lock/LockJson.hs'
@@ -53,28 +52,34 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cache/pages/docs_gen
-          key: pages-docs-gen-v1-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/**', 'docs/BUILD.bazel', 'docs/site.hs', 'docs/hackage.lock.json') }}
+          key: pages-docs-gen-v2-${{ runner.os }}-${{ hashFiles('docs/BUILD.bazel', 'docs/site.hs', 'docs/hackage.lock.json') }}
 
       - name: Cache Haddock API docs
         id: cache-haddock
         uses: actions/cache@v5
         with:
           path: ~/.cache/pages/lock_haddock
-          key: pages-haddock-v1-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/**', 'tools/lock/BUILD.bazel', 'tools/lock/CabalExtract.hs', 'tools/lock/LockJson.hs', 'tools/lock/prologue.txt') }}
+          key: pages-haddock-v2-${{ runner.os }}-${{ hashFiles('haskell/private/haddock.bzl', 'tools/lock/BUILD.bazel', 'tools/lock/CabalExtract.hs', 'tools/lock/LockJson.hs', 'tools/lock/prologue.txt') }}
 
-      - name: Cache Bazel repository and disk caches
+      - name: Restore Bazel repository cache (read-only)
         if: steps.cache-docs-gen.outputs.cache-hit != 'true' || steps.cache-haddock.outputs.cache-hit != 'true'
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         with:
           path: |
             ~/.cache/bazel-repo
-            ~/.cache/bazel-disk
             ~/.cache/bazelisk
-          key: pages-bazel-v1-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/**', 'docs/hackage.lock.json', 'docs/site.hs', 'tools/lock/CabalExtract.hs', 'tools/lock/LockJson.hs') }}
+          key: bazel-repo-v1-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/private/ghc_versions.bzl', 'docs/hackage.lock.json', 'examples/**/MODULE.bazel', 'examples/**/hackage.lock.json') }}
           restore-keys: |
-            pages-bazel-v1-${{ runner.os }}-
-            bazel-pages-${{ runner.os }}-
-            bazel-native-${{ runner.os }}-
+            bazel-repo-v1-${{ runner.os }}-
+
+      - name: Restore Bazel disk cache (read-only)
+        if: steps.cache-docs-gen.outputs.cache-hit != 'true' || steps.cache-haddock.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v5
+        with:
+          path: ~/.cache/bazel-disk
+          key: bazel-disk-native-v1-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/private/ghc_versions.bzl', 'docs/hackage.lock.json', 'examples/**/MODULE.bazel', 'examples/**/hackage.lock.json') }}
+          restore-keys: |
+            bazel-disk-native-v1-${{ runner.os }}-
 
       - name: Build uncached site tools with Bazel
         if: steps.cache-docs-gen.outputs.cache-hit != 'true' || steps.cache-haddock.outputs.cache-hit != 'true'

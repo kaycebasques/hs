@@ -44,17 +44,23 @@ jobs:
           sudo mv /tmp/bazelisk /usr/local/bin/bazel
           bazel version
 
-      - name: Cache Bazel repository and Bazelisk caches
+      - name: Cache shared Bazel repository and Bazelisk caches
         uses: actions/cache@v5
         with:
           path: |
             ~/.cache/bazel-repo
-            ~/.cache/bazel-disk
             ~/.cache/bazelisk
-          key: bazel-native-v2-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/private/ghc_versions.bzl', 'docs/hackage.lock.json', 'examples/**/MODULE.bazel', 'examples/**/hackage.lock.json') }}
+          key: bazel-repo-v1-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/private/ghc_versions.bzl', 'docs/hackage.lock.json', 'examples/**/MODULE.bazel', 'examples/**/hackage.lock.json') }}
           restore-keys: |
-            bazel-native-v2-${{ runner.os }}-
-            bazel-native-${{ runner.os }}-
+            bazel-repo-v1-${{ runner.os }}-
+
+      - name: Cache Bazel disk cache (bounded to stay within 10 GiB repo cache quota)
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/bazel-disk
+          key: bazel-disk-native-v1-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/private/ghc_versions.bzl', 'docs/hackage.lock.json', 'examples/**/MODULE.bazel', 'examples/**/hackage.lock.json') }}
+          restore-keys: |
+            bazel-disk-native-v1-${{ runner.os }}-
 
       - name: Inspect root Bzlmod dependency graph
         run: bazel mod graph --repository_cache="$HOME/.cache/bazel-repo"
@@ -64,7 +70,7 @@ jobs:
           bazel test //... \
             --repository_cache="$HOME/.cache/bazel-repo" \
             --disk_cache="$HOME/.cache/bazel-disk" \
-            --experimental_disk_cache_gc_max_size=5G \
+            --experimental_disk_cache_gc_max_size=2G \
             --test_output=errors
 
       - name: Smoke-test lockfile generator CLI
@@ -72,7 +78,7 @@ jobs:
           bazel run //tools/lock:lock \
             --repository_cache="$HOME/.cache/bazel-repo" \
             --disk_cache="$HOME/.cache/bazel-disk" \
-            --experimental_disk_cache_gc_max_size=5G \
+            --experimental_disk_cache_gc_max_size=2G \
             -- --help
           bazel clean --expunge
 
@@ -95,7 +101,7 @@ jobs:
               bazel test //... \
                 --repository_cache="$HOME/.cache/bazel-repo" \
                 --disk_cache="$HOME/.cache/bazel-disk" \
-                --experimental_disk_cache_gc_max_size=5G \
+                --experimental_disk_cache_gc_max_size=2G \
                 --test_output=errors
               bazel clean --expunge
             )
@@ -111,7 +117,7 @@ jobs:
           bazel test //... \
             --repository_cache="$HOME/.cache/bazel-repo" \
             --disk_cache="$HOME/.cache/bazel-disk" \
-            --experimental_disk_cache_gc_max_size=5G \
+            --experimental_disk_cache_gc_max_size=2G \
             --test_output=errors
 
       - name: Live HTTPS smoke test (examples/size)
@@ -121,7 +127,7 @@ jobs:
           OUT="$(bazel run //:size \
             --repository_cache="$HOME/.cache/bazel-repo" \
             --disk_cache="$HOME/.cache/bazel-disk" \
-            --experimental_disk_cache_gc_max_size=5G \
+            --experimental_disk_cache_gc_max_size=2G \
             -- https://docs.stripe.com/sitemap.xml)"
           echo "$OUT"
           echo "$OUT" | grep -qF "pages"
@@ -231,17 +237,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Cache Bazel repository and Bazelisk caches
-        uses: actions/cache@v5
+      # Restore only the shared content-addressed download cache (read-only) so
+      # the 3 container matrix jobs don't upload ~20 GiB of per-distro caches and
+      # evict native-ubuntu and GitHub Pages caches from the 10 GiB repo quota.
+      - name: Restore shared Bazel repository and Bazelisk caches (read-only)
+        uses: actions/cache/restore@v5
         with:
           path: |
             ~/.cache/bazel-repo
-            ~/.cache/bazel-disk
             ~/.cache/bazelisk
-          key: bazel-container-v2-${{ matrix.name }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/private/ghc_versions.bzl', 'docs/hackage.lock.json', 'examples/**/MODULE.bazel', 'examples/**/hackage.lock.json') }}
+          key: bazel-repo-v1-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'haskell/private/ghc_versions.bzl', 'docs/hackage.lock.json', 'examples/**/MODULE.bazel', 'examples/**/hackage.lock.json') }}
           restore-keys: |
-            bazel-container-v2-${{ matrix.name }}-
-            bazel-container-${{ matrix.name }}-
+            bazel-repo-v1-${{ runner.os }}-
 
       # Unprivileged GitHub Actions containers disallow CLONE_NEWUSER/mount for
       # linux-sandbox; processwrapper-sandbox keeps per-action execroot isolation
