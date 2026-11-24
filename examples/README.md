@@ -1,6 +1,6 @@
 # Standalone feature examples for `rules_haskell`
 
-Each directory in `examples/` is a standalone Bazel 9 ([`MODULE.bazel`](https://bazel.build/external/module)) workspace with automated tests you can run using [`bazel test //...`](https://bazel.build/docs/user-manual#running-tests). Browse these workspaces to see working configurations for every supported feature, or read the [Quickstart guide](../docs/content/guide/quickstart.md) and [Rules reference](../docs/content/reference/rules.md) for narrative documentation.
+Each directory in `examples/` is a standalone Bazel 9 ([`MODULE.bazel`](https://bazel.build/external/module)) workspace with automated tests you can run using [`bazel test //...`](https://bazel.build/docs/user-manual#running-tests). Browse these workspaces to see working configurations for every supported feature.
 
 ## Example workspaces
 

@@ -14,12 +14,6 @@ Read the [full documentation site](https://kaycebasques.github.io/rules_haskell/
 - **Two-phase Hackage lockfiles:** Generate a deterministic `hackage.lock.json` with `@rules_haskell//tools/lock:lock` (compiled by `rules_haskell` itself against GHC's built-in `Cabal-syntax` library). At build time, `rules_haskell` parses that JSON in Starlark ([`reproducible = True`](https://bazel.build/external/extension#specify-reproducibility-and-use-facts)) and builds packages through a 5-stage `hs_cabal_library` pipeline instead of running `Setup.hs`.
 - **Small non-dev [`MODULE.bazel`](https://bazel.build/external/module) graph:** Pull only four direct non-dev Bazel modules (`platforms`, `bazel_skylib`, `rules_cc`, and `gmp`) into downstream builds.
 
-> **Tip:** New to Bazel rulesets or Haskell? You don't need prior Bazel ruleset-authoring or Haskell background to read these docs:
->
-> - [Bazel ruleset primer](docs/content/internals/bazel-rules-primer.md) — [Loading, Analysis, and Execution phases](https://bazel.build/extending/concepts#evaluation-model), [`dev_dependency = True`](https://bazel.build/rules/lib/globals/module#bazel_dep), lazy Bzlmod hubs, [providers](https://bazel.build/extending/rules#providers) and [`depset`s](https://bazel.build/extending/depsets), directory outputs, host tool vs. target configurations, and [`CcInfo`](https://bazel.build/rules/lib/providers/CcInfo) C/C++ interop.
-> - [Haskell and GHC primer](docs/content/internals/haskell-and-ghc-primer.md) — GHC vs. Cabal vs. Hackage vs. Stackage, GHC's 41 boot libraries, `.hi` compiler interfaces and relocatable package databases, RTS C linking, `gmp` and `libtinfo`, `hsc2hs`/Alex/Happy, Template Haskell, and Haddock.
-> - [Dependency decisions and `MODULE.bazel` anatomy](docs/content/internals/dependencies.md#module-bazel-anatomy) — Plain-English explanation of every dependency across `rules_haskell`, `examples/size`, and `//docs`, why it's needed, and what fails without it.
-
 ---
 
 ## What's supported, planned, and out of scope
@@ -52,7 +46,7 @@ Before adopting `rules_haskell`, check what works today, what's planned, and wha
 
 ### Out of scope (by design)
 
-- **Arbitrary `build-type: Custom` `Setup.hs` scripts:** `rules_haskell` doesn't run packages (under 1% of Hackage) that execute bespoke Haskell programs inside `Setup.hs` to generate code during library compilation. Running `Setup.hs` collapses builds into an opaque single-action wrapper that breaks fine-grained C/`hsc2hs` caching and Bazel `CcInfo` propagation. As a workaround, inspect what the script generates and supply flags or files via `hackage.override` or custom Bazel targets (see [Hackage and lockfiles](docs/content/guide/hackage.md) and [Migration and troubleshooting](docs/content/guide/troubleshooting-and-migration.md)).
+- **Arbitrary `build-type: Custom` `Setup.hs` scripts:** `rules_haskell` doesn't run packages (under 1% of Hackage) that execute bespoke Haskell programs inside `Setup.hs` to generate code during library compilation. Running `Setup.hs` collapses builds into an opaque single-action wrapper that breaks fine-grained C/`hsc2hs` caching and Bazel `CcInfo` propagation. As a workaround, inspect what the script generates and supply flags or files via `hackage.override` or custom Bazel targets.
 - **Legacy Bazel `WORKSPACE` files and Bazel `< 9.0.0`:** `rules_haskell` uses Bzlmod (`MODULE.bazel`) exclusively.
 - **Nix / `rules_nixpkgs` toolchains:** `rules_haskell` downloads SHA-256-pinned archives directly into Bazel's cache rather than reading `/nix/store` on your host.
 - **Bundling Python, Node.js, Java, or Protobuf rules inside `rules_haskell`:** Keeping `rules_haskell` free of foreign language runtimes keeps downstream `MODULE.bazel` graphs small. Protobuf or multi-language code generation belongs in separate companion rulesets.
@@ -71,8 +65,6 @@ Before adopting `rules_haskell`, check what works today, what's planned, and wha
 | **Third-party Hackage builds** | 5-stage `hs_cabal_library` (`Simple` and `Configure`; arbitrary `Custom` `Setup.hs` out of scope) | Single Python wrapper (`cabal_wrapper.py`) running `runghc Setup.hs` (supports `Custom` `Setup.hs`, at the cost of per-file caching) |
 | **Dependency pinning and boot libs** | `@rules_haskell//tools/lock:lock` (built by `rules_haskell` using GHC boot `Cabal-syntax`) + automatic `@hs_boot` and `@hackage` boot targets | External `stack` binary via `stack_snapshot` + manual `haskell_toolchain_library` declarations |
 | **Linux binary runtime deps** | Static `libgmp.a`; dynamic dependencies limited to base `glibc` (`libc`, `libm`, `libdl`, `libpthread`) | Dynamic linking with `rpath` rewriting on bindist toolchains (`fully_static_link = False`) |
-
-For the full architectural comparison across `rules_haskell`, `tweag/rules_haskell`, Buck2's `prelude/haskell` and `buck2-haskell`, Please Build, `haskell.nix`, and Cabal/Stack wrappers, see [Comparison with other rulesets](docs/content/internals/rulesets-comparison.md).
 
 ---
 
@@ -240,8 +232,6 @@ bazel run //:hello
 
 ## API overview
 
-For complete attribute tables, defaults, and examples, see the [Rules reference](docs/content/reference/rules.md) and [Extensions and providers](docs/content/reference/extensions-and-providers.md).
-
 ### Rules (`@rules_haskell//haskell:defs.bzl`)
 
 | Rule | Purpose | Key attributes |
@@ -339,7 +329,7 @@ Browse the [published `rules_haskell` documentation site](https://kaycebasques.g
 
 You can build, serve, and test the documentation site locally using `rules_haskell` itself—with no Python or Node.js required (see [`docs/README.md`](docs/README.md)):
 
-- **Hakyll (`docs/site.hs`):** Renders Markdown guides, Starlark reference pages, and architecture docs under [`docs/content/`](docs/content/index.md).
+- **Hakyll (`docs/site.hs`):** Renders Markdown pages under [`docs/content/`](docs/content/index.md).
 - **GHC Haddock (`hs_haddock`):** Generates Haskell library API reference pages, hyperlinked source, and QuickJump search (`//tools/lock:lock_haddock`, mounted into the site at `/haddock/lock/`).
 
 ```bash
@@ -356,16 +346,10 @@ bazel run //docs:serve
 bazel test //docs/...
 ```
 
-### Documentation sections
+### Documentation links
 
 - **Documentation authoring and site guide:** [`docs/README.md`](docs/README.md)
-- **Overview and project scope:** [`docs/content/index.md`](docs/content/index.md)
-- **User guide** ([`docs/content/guide/`](docs/content/guide/quickstart.md)):
-  - [Quickstart](docs/content/guide/quickstart.md) · [Hackage and lockfiles](docs/content/guide/hackage.md) · [C FFI and toolchains](docs/content/guide/c-interop-and-toolchains.md) · [Language, RTS, runfiles, and Template Haskell](docs/content/guide/language-rts-runfiles-th.md) · [Showcase: `examples/size`](docs/content/guide/showcase-size.md) · [Migration and troubleshooting](docs/content/guide/troubleshooting-and-migration.md)
-- **API and CLI reference** ([`docs/content/reference/`](docs/content/reference/rules.md)):
-  - [Rules reference](docs/content/reference/rules.md) · [Extensions and providers](docs/content/reference/extensions-and-providers.md) · [Lock generator CLI](docs/content/reference/lock-cli.md)
-- **Internals and architecture** ([`docs/content/internals/`](docs/content/internals/overview.md)):
-  - [Bazel ruleset primer](docs/content/internals/bazel-rules-primer.md) · [Haskell and GHC primer](docs/content/internals/haskell-and-ghc-primer.md) · [Architecture overview](docs/content/internals/overview.md) · [Comparison with other rulesets](docs/content/internals/rulesets-comparison.md) · [Hermeticity and toolchain](docs/content/internals/hermeticity.md) · [Providers and action graph](docs/content/internals/providers-and-actions.md) · [Hackage and Cabal pipeline](docs/content/internals/ecosystem-and-hackage.md) · [Cross-OS and platforms](docs/content/internals/cross-os-and-platforms.md) · [Hakyll and Haddock docs](docs/content/internals/docs-engine.md) · [Dependency decisions](docs/content/internals/dependencies.md)
+- **Site landing page:** [`docs/content/index.md`](docs/content/index.md)
 - **Standalone feature examples and index:** [`examples/README.md`](examples/README.md)
 - **Standalone sitemap counter showcase:** [`examples/size/README.md`](examples/size/README.md)
 

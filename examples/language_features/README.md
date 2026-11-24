@@ -1,6 +1,6 @@
 # `examples/language_features`: language editions, `.lhs`, `.hs-boot`, RTS, runfiles, and Template Haskell
 
-Use this standalone Bazel 9 workspace to explore isolated examples of Haskell language editions, GHC runtime options, Bazel [runfiles](https://bazel.build/extending/rules#runfiles), and Template Haskell in `rules_haskell`. For detailed guidance on each feature, read [Language, RTS, runfiles, and Template Haskell](../../docs/content/guide/language-rts-runfiles-th.md) or browse the [examples index](../README.md).
+Use this standalone Bazel 9 workspace to explore isolated examples of Haskell language editions, GHC runtime options, Bazel [runfiles](https://bazel.build/extending/rules#runfiles), and Template Haskell in `rules_haskell`. To explore other supported features, browse the [examples index](../README.md).
 
 - [`editions/`](editions/BUILD.bazel) — `Haskell98`, `Haskell2010`, `GHC2021` (default), and `GHC2024` language editions.
 - [`modules/`](modules/BUILD.bazel) — `default_extensions`, `ghc_opts`, `cpp_options`, and `hidden_modules`.

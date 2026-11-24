@@ -2,7 +2,7 @@
 
 Explore a standalone [Bzlmod](https://bazel.build/external/overview) application built with [`rules_haskell`](../../MODULE.bazel). This CLI counts unique documentation pages across XML `<urlset>`, nested `<sitemapindex>`, and `.xml.gz` sitemaps over HTTP and HTTPS using 69 pinned Hackage libraries—compiled on Bazel 9 inside isolated [sandboxes](https://bazel.build/docs/sandboxing) without Nix or host installations of GHC, `cabal`, `stack`, OpenSSL, or `zlib`.
 
-For a detailed walkthrough of this application, read [Showcase: `examples/size`](../../docs/content/guide/showcase-size.md), or browse the [examples index](../README.md) for smaller focused workspaces.
+Browse the [examples index](../README.md) for smaller focused workspaces.
 
 ## Stack
 

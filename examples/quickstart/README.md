@@ -2,7 +2,7 @@
 
 Use this standalone Bazel 9 workspace to build your first targets with `hs_library`, `hs_binary`, `hs_test`, `hs_toolchain_library`, and `@hs_boot` on the default GHC `9.10.3` toolchain. It produces portable Linux executables with statically linked `libgmp.a` and verifies their runtime dependencies.
 
-For a step-by-step walkthrough, read [Quickstart](../../docs/content/guide/quickstart.md). To explore other supported features, browse the [examples index](../README.md).
+To explore other supported features, browse the [examples index](../README.md).
 
 ## Run and test
 

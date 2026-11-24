@@ -1,6 +1,6 @@
 # `examples/hackage`: Hackage lockfiles, `hackage.override`, and Cabal features
 
-Use this standalone Bazel 9 workspace to pin and build third-party Hackage packages with `@rules_haskell//tools/lock:lock`, `hackage.from_lock`, and `hackage.override`. For a complete walkthrough of lockfile workflows and `Setup.hs` handling, read [Hackage and lockfiles](../../docs/content/guide/hackage.md) or browse the [examples index](../README.md).
+Use this standalone Bazel 9 workspace to pin and build third-party Hackage packages with `@rules_haskell//tools/lock:lock`, `hackage.from_lock`, and `hackage.override`. To explore other supported features, browse the [examples index](../README.md).
 
 - **`hackage.override` in [`MODULE.bazel`](https://bazel.build/external/module):** Attach [Bazel Central Registry](https://bazel.build/external/registry#bazel-central-registry) `@zlib//:zlib` (`extra_cc_deps`) along with `extra_cc_options`, `extra_cpp_options`, and `extra_ghc_opts` to `zlib` (`bundled-c-zlib=false`), and pass `configure_args` to `network`.
 - **Cabal build types:** Build `Simple` (`split`), `Configure` (`network`, `unix-time`), and `Custom` `cabal-doctest` packages automatically converted to `Simple` (`xml-conduit`).

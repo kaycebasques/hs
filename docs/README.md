@@ -3,7 +3,7 @@
 [![Pages](https://github.com/kaycebasques/rules_haskell/actions/workflows/pages.yml/badge.svg)](https://github.com/kaycebasques/rules_haskell/actions/workflows/pages.yml)
 [![Documentation](https://img.shields.io/badge/docs-kaycebasques.github.io%2Frules__haskell-blue)](https://kaycebasques.github.io/rules_haskell/)
 
-This guide shows you how to build, preview, test, and author the `rules_haskell` documentation site locally. If you're looking to read the docs instead, visit the [published documentation site](https://kaycebasques.github.io/rules_haskell/) or the [mounted `//tools/lock` Haddock API docs](https://kaycebasques.github.io/rules_haskell/haddock/lock/index.html); for architectural details on the site pipeline, see [Hakyll and Haddock docs](content/internals/docs-engine.md).
+This guide shows you how to build, preview, test, and author the `rules_haskell` documentation site locally. If you're looking to read the docs instead, visit the [published documentation site](https://kaycebasques.github.io/rules_haskell/) or the [mounted `//tools/lock` Haddock API docs](https://kaycebasques.github.io/rules_haskell/haddock/lock/index.html).
 
 You can build and serve the documentation site on Bazel 9 using `rules_haskell` itself—with no Python or Node.js required. All docs dependencies in [`MODULE.bazel`](https://bazel.build/external/module) are marked [`dev_dependency = True`](https://bazel.build/rules/lib/globals/module#bazel_dep), so downstream consumers don't pull them in:
 

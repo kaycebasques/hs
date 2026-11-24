@@ -1,6 +1,6 @@
 # `examples/c_interop`: C, C++, assembly, and Bazel Central Registry `cc_deps`
 
-Use this standalone Bazel 9 workspace to see how you can call C, C++, and assembly code from Haskell targets and link external C libraries. For conceptual background and toolchain details, read [C FFI and toolchains](../../docs/content/guide/c-interop-and-toolchains.md) or browse the [examples index](../README.md).
+Use this standalone Bazel 9 workspace to see how you can call C, C++, and assembly code from Haskell targets and link external C libraries. To explore other supported features, browse the [examples index](../README.md).
 
 - **C and `CApiFFI` foreign imports:** Call standard `foreign import ccall` functions and header-checked `CApiFFI` bindings (including `#define` constants and `static inline` functions).
 - **Inline `c_sources`:** Compile C (`.c`), C++17 (`.cc`), preprocessed assembly (`.S`), and raw assembly (`.s`) directly inside Haskell targets.

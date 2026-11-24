@@ -1,6 +1,6 @@
 # `examples/repl`: interactive `ghci` (`hs_repl`), `runghc`, and C11 `terminfo`
 
-Use this standalone Bazel 9 workspace to launch interactive `ghci` sessions, evaluate one-off expressions, and run standalone Haskell scripts with `runghc`. For configuration guidance and attribute details, read [Language, RTS, runfiles, and Template Haskell](../../docs/content/guide/language-rts-runfiles-th.md) and [`hs_repl` in the Rules reference](../../docs/content/reference/rules.md#hs_repl), or browse the [examples index](../README.md).
+Use this standalone Bazel 9 workspace to launch interactive `ghci` sessions, evaluate one-off expressions, and run standalone Haskell scripts with `runghc`. To explore other supported features, browse the [examples index](../README.md).
 
 - **Workspace REPL (`hs_repl` via `//:calc_repl`):** Preload workspace modules into `*Module` bytecode scope (including `hidden_modules` and `compiled_deps`), run live `:reload` on workspace edits, debug with `:break`/`:continue`, call C/`CApiFFI` code (`HsLinkReplCbits`), run cross-library Template Haskell splices, access `data` [runfiles](https://bazel.build/extending/rules#runfiles), load `ghci_commands` and `.ghci` scripts, evaluate `-e` expressions, and use `-fexternal-interpreter` (`ghc-iserv-dyn`).
 - **Standalone interpreter targets:** Run `@rules_haskell//tools/ghci` for ad-hoc `ghci` sessions and `@rules_haskell//tools/ghci:runghc` to execute standalone Haskell scripts.
